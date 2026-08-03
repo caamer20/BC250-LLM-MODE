@@ -221,6 +221,8 @@ class Wizard(tk.Tk):
         self.model_tree = ttk.Treeview(
             frame, columns=("source", "family", "size", "notes"), show="headings", height=7
         )
+        model_scroll = ttk.Scrollbar(frame, orient="vertical", command=self.model_tree.yview)
+        self.model_tree.configure(yscrollcommand=model_scroll.set)
         for key, title, width in (
             ("source", "Source", 85),
             ("family", "Family", 80),
@@ -244,7 +246,8 @@ class Wizard(tk.Tk):
                 "", "end", iid=iid,
                 values=("Installed", model.family, f"{model.weights_gib:.2f} GiB", f"{model.display_name} — {recognized}"),
             )
-        self.model_tree.pack(fill="both", expand=True)
+        self.model_tree.pack(side="left", fill="both", expand=True)
+        model_scroll.pack(side="right", fill="y")
         if self.state_data.get("selected_source") == "local":
             selected = f"local::{self.state_data.get('selected_model')}"
         else:

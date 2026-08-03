@@ -60,3 +60,13 @@ def test_installed_local_model_rebuilds_fit_metadata(tmp_path):
     assert entry.id == "local-example"
     assert entry.kv_kib_per_token == 72.0
     assert entry.weights_gib_by_quant["Q5_K_M"] > 0
+
+
+def test_discovery_recognizes_expanded_catalog_filename(tmp_path, monkeypatch):
+    from bc250_llm_mode import local_models
+
+    monkeypatch.setattr(local_models, "_candidate_roots", lambda _state: (tmp_path,))
+    target = tmp_path / "Mistral-Nemo-Instruct-2407-Q5_K_M.gguf"
+    sparse_model(target)
+    result = discover_local_models({"models_dir": str(tmp_path), "installed_models": []})
+    assert result.models[0].catalog_id == "mistral-nemo-12b"

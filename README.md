@@ -88,12 +88,24 @@ The application never changes BIOS settings and never reboots the computer autom
 
 ## Choosing a model
 
-The curated catalog currently includes:
+The curated catalog currently includes ten models. Projected totals below use Q8 KV cache and include approximately 1 GiB runtime overhead.
 
-- Qwen3.5 9B Instruct in Q5_K_M, Q6_K, and Q8_0;
-- The Defiant Fable 9B text-only conversion workflow;
-- Qwen3 8B in Q4_K_M and Q5_K_M;
-- Qwen3 14B in Q3_K_M and Q4_K_M, intended for shorter contexts.
+| Model | Role | Recommended quant | 8k | 16k | 32k |
+| --- | --- | --- | ---: | ---: | ---: |
+| [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 7.83 GiB | 8.40 GiB | 9.52 GiB |
+| [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 7.86 GiB | 8.43 GiB | 9.55 GiB |
+| [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 6.70 GiB | 6.95 GiB | 7.45 GiB |
+| [Qwen3 14B](https://huggingface.co/ggml-org/Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 9.69 GiB | 10.01 GiB | 10.63 GiB (tight) |
+| [Llama 3.2 3B Instruct](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) | Fast/low-power | Q8_0 | 4.63 GiB | 5.07 GiB | 5.94 GiB |
+| [Llama 3.1 8B Instruct](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | Mature general chat | Q5_K_M | 6.84 GiB | 7.34 GiB | 8.34 GiB |
+| [Qwen2.5 Coder 7B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF) | Coding/debugging | Q6_K | 7.04 GiB | 7.26 GiB | 7.70 GiB |
+| [DeepSeek R1 Distill Qwen 7B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF) | Reasoning/math | Q6_K | 7.04 GiB | 7.26 GiB | 7.70 GiB |
+| [Mistral Nemo 12B Instruct](https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF) | Capable multilingual chat | Q5_K_M | 9.76 GiB | 10.38 GiB | 11.63 GiB (tight) |
+| [Phi-4 14B](https://huggingface.co/bartowski/phi-4-GGUF) | Reasoning/math/code | Q4_K_M | 10.21 GiB | 10.99 GiB (tight) | No fit |
+
+The original seed models and Defiant Fable workflow come from direct BC-250 development. The six added models are **strong compatibility candidates**, selected because current llama.cpp supports their architectures, their verified Hugging Face artifacts are single-file standard K-quants, and their projected allocations fit the BC-250 budget. They have not all been individually load-tested on the target unit yet. Treat the fit badge as a conservative planning tool and report real-hardware results.
+
+Only the listed standard K-quants are offered for the larger candidates. I-quants, ARM/CPU-interleaved formats, multimodal projectors, MTP artifacts, and fused/MAX repacks remain excluded.
 
 The fit calculation is:
 

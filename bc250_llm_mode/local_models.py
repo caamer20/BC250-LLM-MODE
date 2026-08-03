@@ -93,6 +93,18 @@ def _catalog_match(path: Path) -> ModelEntry | None:
         return next(model for model in CATALOG if model.id == "qwen3-14b")
     if "qwen3" in name and "8b" in name:
         return next(model for model in CATALOG if model.id == "qwen3-8b")
+    if "llama-3.2" in name and "3b" in name:
+        return next(model for model in CATALOG if model.id == "llama32-3b-instruct")
+    if ("llama-3.1" in name or "meta-llama-3.1" in name) and "8b" in name:
+        return next(model for model in CATALOG if model.id == "llama31-8b-instruct")
+    if "qwen2.5-coder" in name and "7b" in name:
+        return next(model for model in CATALOG if model.id == "qwen25-coder-7b")
+    if "deepseek-r1-distill-qwen" in name and "7b" in name:
+        return next(model for model in CATALOG if model.id == "deepseek-r1-qwen-7b")
+    if "mistral-nemo" in name:
+        return next(model for model in CATALOG if model.id == "mistral-nemo-12b")
+    if "phi-4" in name or name.startswith("phi4"):
+        return next(model for model in CATALOG if model.id == "phi4-14b")
     return None
 
 
