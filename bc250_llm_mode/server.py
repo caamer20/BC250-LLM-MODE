@@ -73,7 +73,14 @@ def _service_text(state: dict[str, Any], launcher: Path) -> str:
             f"Environment=HOME={account.pw_dir}\nEnvironment=XDG_RUNTIME_DIR=/run/user/{uid}\n"
         )
     podman = shutil.which("podman") or "/usr/bin/podman"
-    server_log = "/root/llama-server.log" if uid == 0 else str(Path(str(state["logs_dir"])).expanduser() / "llama-server.log")
+    # Bazzite maps /root to /var/roothome. systemd/SELinux can reject an
+    # append: output target there with status 209/STDOUT before ExecStart runs.
+    # /var/log is the appropriate system-service log location.
+    server_log = (
+        "/var/log/bc250-llm-server.log"
+        if uid == 0
+        else str(Path(str(state["logs_dir"])).expanduser() / "llama-server.log")
+    )
     state["server_log"] = server_log
     tuning = normalized_settings(state.get("optimizations"))
     limits = ""

@@ -235,7 +235,11 @@ def prepare_local_model(
     state: dict[str, Any], model: LocalModel, runner: CommandRunner
 ) -> Path:
     """Verify and register an already-present GGUF without copying or downloading it."""
-    final = Path(model.path).expanduser().resolve()
+    # Preserve the host-facing path. On Bazzite /root is a symlink to
+    # /var/roothome, but Distrobox bind-mounts it at /root and has no
+    # /var/roothome. Resolving the symlink makes a valid model disappear from
+    # the container even though it remains readable on the host.
+    final = Path(model.path).expanduser().absolute()
     if not final.is_file():
         raise RuntimeError(f"Selected local GGUF no longer exists: {final}")
     verification = verify_and_heal_gguf(final, runner)

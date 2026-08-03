@@ -3,11 +3,18 @@ import struct
 import numpy as np
 from gguf import GGUFWriter
 
+from bc250_llm_mode import prepare as prepare_module
+from bc250_llm_mode.local_models import LocalModel
 from bc250_llm_mode.prepare import (
     MetadataPatch,
     patch_uint32_metadata,
     verify_and_heal_gguf,
 )
+
+
+class QuietRunner:
+    def emit(self, _message):
+        pass
 
 
 def field(key: str, value: int) -> bytes:
@@ -51,3 +58,26 @@ def test_real_gguf_reader_self_heals_block_and_nextn(tmp_path):
     assert result["block_count"] == 2
     assert result["tensor_block_count"] == 2
     assert any("nextn_predict_layers" in message for message in result["messages"])
+
+
+def test_local_prepare_preserves_container_visible_symlink_path(tmp_path, monkeypatch):
+    real_home = tmp_path / "var" / "roothome"
+    real_home.mkdir(parents=True)
+    root_link = tmp_path / "root"
+    root_link.symlink_to(real_home, target_is_directory=True)
+    target = root_link / "model-Q5_K_M.gguf"
+    target.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        prepare_module,
+        "verify_and_heal_gguf",
+        lambda _path, _runner: {"architecture": "qwen35"},
+    )
+    model = LocalModel(
+        "local-test", "model", str(target), "Q5_K_M", 6.0, "qwen35", 9.7, 72.0
+    )
+    state = {"installed_models": [], "setup_phase": 7}
+
+    prepared = prepare_module.prepare_local_model(state, model, runner=QuietRunner())
+
+    assert str(prepared) == str(target.absolute())
+    assert state["installed_models"][0]["path"] == str(target.absolute())

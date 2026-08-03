@@ -32,6 +32,14 @@ def test_service_safeguards_are_bounded_by_selected_settings(tmp_path):
     assert "RestartSec=15" in text
 
 
+def test_root_service_uses_bazzite_safe_system_log_path(tmp_path):
+    state = {"container_name": "llm", "logs_dir": str(tmp_path)}
+    text = _service_text(state, tmp_path / "run-model.sh")
+    assert "StandardOutput=append:/var/log/bc250-llm-server.log" in text
+    assert "StandardError=append:/var/log/bc250-llm-server.log" in text
+    assert state["server_log"] == "/var/log/bc250-llm-server.log"
+
+
 def test_diagnostics():
     assert "MTP metadata" in diagnose_server_log("missing tensor 'blk.2.nextn.foo'")
     assert "Block-count" in diagnose_server_log("missing tensor 'blk.32.attn'")

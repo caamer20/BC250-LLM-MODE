@@ -237,10 +237,11 @@ Default paths are relative to the account that runs setup:
 | Preparation environment in container | `/root/.venvs/hf` |
 | Podman/Distrobox container | `llm` |
 | Model systemd service | `bc250-llm.service` |
+| Root-run model server log | `/var/log/bc250-llm-server.log` |
 | Model API | `127.0.0.1:8080` |
 | Optional Open WebUI | `127.0.0.1:3000` |
 
-When setup is run as root, the model server log is `/root/llama-server.log`. For a regular user installation, it is stored under the application's logs directory.
+When setup is run as root, the model server log is `/var/log/bc250-llm-server.log`. For a regular user installation, it is stored under the application's logs directory.
 
 ## Troubleshooting
 
@@ -255,7 +256,7 @@ Check the service and recent model log:
 ```bash
 systemctl status bc250-llm.service
 journalctl -u bc250-llm.service -n 100 --no-pager
-tail -n 100 /root/llama-server.log
+tail -n 100 /var/log/bc250-llm-server.log
 ```
 
 Common failure guidance:
