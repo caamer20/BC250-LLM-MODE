@@ -183,3 +183,34 @@ def selected_fit_entry(state: dict[str, Any]) -> ModelEntry:
     from .catalog import model_by_id
 
     return model_by_id(str(state["selected_model"]))
+
+
+def installed_fit_entry(record: dict[str, Any]) -> ModelEntry:
+    """Rebuild fit metadata for catalog or locally registered installed models."""
+    from .catalog import model_by_id
+
+    model_id = str(record["id"])
+    if record.get("source") != "local":
+        return model_by_id(model_id)
+    path = Path(str(record["path"])).expanduser()
+    try:
+        weights_gib = float(record.get("weights_gib") or path.stat().st_size / (1024**3))
+    except OSError as exc:
+        raise ValueError(f"Installed model file is unavailable: {path}") from exc
+    catalog_id = str(record["catalog_id"]) if record.get("catalog_id") else None
+    catalog = model_by_id(catalog_id) if catalog_id else None
+    local = LocalModel(
+        id=model_id,
+        display_name=str(record.get("display_name") or path.stem),
+        path=str(path),
+        quant=str(record.get("quant", "UNKNOWN")),
+        weights_gib=weights_gib,
+        family=str(record.get("family") or (catalog.family if catalog else "unknown")),
+        params_b=float(record.get("params_b") or (catalog.params_b if catalog else 0.0)),
+        kv_kib_per_token=float(
+            record.get("kv_kib_per_token")
+            or (catalog.kv_kib_per_token if catalog else UNKNOWN_KV_KIB_PER_TOKEN)
+        ),
+        catalog_id=catalog_id,
+    )
+    return fit_entry_for_local(local)

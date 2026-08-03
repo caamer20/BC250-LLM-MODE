@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .catalog import calculate_fit, model_by_id
+from .catalog import calculate_fit
 from .hardware import detect_hardware
+from .local_models import installed_fit_entry
 from .logging_utils import CommandRunner, configure_logging
 from .optimize import kv_scale_for_settings
 from .server import health_check, restart_service, system_metrics
@@ -53,7 +54,7 @@ def _switch_model(store: StateStore, state: dict[str, Any], model_id: str, runne
     if model_id not in ids:
         raise ValueError(f"Model is not installed: {model_id}")
     record = next(item for item in state["installed_models"] if item.get("id") == model_id)
-    entry = model_by_id(model_id)
+    entry = installed_fit_entry(record)
     fit = calculate_fit(
         entry,
         str(record["quant"]),
@@ -124,7 +125,7 @@ def run_chat(store: StateStore | None = None) -> None:
                 if ctx < 512 or ctx > 262144:
                     raise ValueError("context must be from 512 to 262144")
                 record = next(x for x in state["installed_models"] if x["id"] == state["current_model"])
-                entry = model_by_id(record["id"])
+                entry = installed_fit_entry(record)
                 fit = calculate_fit(
                     entry,
                     record["quant"],

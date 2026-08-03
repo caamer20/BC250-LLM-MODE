@@ -247,6 +247,10 @@ def prepare_local_model(
         "architecture": verification["architecture"],
         "source": "local",
         "catalog_id": model.catalog_id,
+        "weights_gib": model.weights_gib,
+        "family": model.family,
+        "params_b": model.params_b,
+        "kv_kib_per_token": model.kv_kib_per_token,
     }
     installed = [item for item in state.get("installed_models", []) if item.get("id") != model.id]
     installed.append(record)
