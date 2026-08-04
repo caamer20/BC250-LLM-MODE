@@ -39,6 +39,7 @@ def test_desktop_mode_preserves_setup_and_stops_services(monkeypatch):
 
     commands = [command for command, _kwargs in runner.commands]
     assert commands[0] == ["systemctl", "disable", "--now", "bc250-llm.service"]
+    assert commands[1] == ["systemctl", "reset-failed", "bc250-llm.service"]
     assert ["podman", "stop", "--ignore", "--time", "10", "bc250-open-webui"] in commands
     assert ["podman", "stop", "--ignore", "--time", "10", "llm"] in commands
     assert calls == ["optimizations", "llm"]

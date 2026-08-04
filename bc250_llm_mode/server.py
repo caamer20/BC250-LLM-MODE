@@ -73,6 +73,12 @@ def _service_text(state: dict[str, Any], launcher: Path) -> str:
             f"Environment=HOME={account.pw_dir}\nEnvironment=XDG_RUNTIME_DIR=/run/user/{uid}\n"
         )
     podman = shutil.which("podman") or "/usr/bin/podman"
+    runtime_prep = ""
+    if uid == 0:
+        install = shutil.which("install") or "/usr/bin/install"
+        # Root-created Distrobox containers bind-mount /run/user/0. That path
+        # is volatile and may not exist on a headless boot until root logs in.
+        runtime_prep = f"ExecStartPre={install} -d -m 0700 -o 0 -g 0 /run/user/0\n"
     # Bazzite maps /root to /var/roothome. systemd/SELinux can reject an
     # append: output target there with status 209/STDOUT before ExecStart runs.
     # /var/log is the appropriate system-service log location.
@@ -98,7 +104,7 @@ Wants=network-online.target
 {limits}
 
 [Service]
-{identity}ExecStartPre=-{podman} start {container}
+{identity}{runtime_prep}ExecStartPre=-{podman} start {container}
 ExecStart={podman} exec --user root {container} {launcher}
 Restart=on-failure
 RestartSec={restart_delay}
@@ -110,7 +116,9 @@ WantedBy=multi-user.target
 """
 
 
-def install_service(state: dict[str, Any], runner: CommandRunner) -> Path:
+def install_service(
+    state: dict[str, Any], runner: CommandRunner, *, enable_and_start: bool = True
+) -> Path:
     launcher = generate_launcher(state)
     service_name = str(state.get("service_name", "bc250-llm.service"))
     destination = Path("/etc/systemd/system") / service_name
@@ -127,13 +135,69 @@ def install_service(state: dict[str, Any], runner: CommandRunner) -> Path:
     runner.run(elevated(["systemctl", "daemon-reload"]))
     if os.getuid():
         runner.run(elevated(["loginctl", "enable-linger", pwd.getpwuid(os.getuid()).pw_name]), check=False)
-    runner.run(elevated(["systemctl", "enable", "--now", service_name]))
+    if enable_and_start:
+        runner.run(elevated(["systemctl", "enable", "--now", service_name]))
+    else:
+        runner.emit(f"Refreshed {service_name} definition without changing its enabled/running state")
     state["setup_phase"] = max(int(state.get("setup_phase", 0)), 9)
     return destination
 
 
 def restart_service(state: dict[str, Any], runner: CommandRunner) -> None:
     runner.run(elevated(["systemctl", "restart", str(state["service_name"])]))
+
+
+def _unit_property(runner: CommandRunner, service: str, prop: str) -> str:
+    result = runner.run(
+        ["systemctl", "show", service, f"--property={prop}", "--value"], check=False
+    )
+    return result.stdout.strip()
+
+
+def service_status(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Return live systemd state without assuming the service is installed."""
+    service = str(state.get("service_name", "bc250-llm.service"))
+    load = _unit_property(runner, service, "LoadState")
+    active = _unit_property(runner, service, "ActiveState") if load != "not-found" else "inactive"
+    sub = _unit_property(runner, service, "SubState") if load != "not-found" else "dead"
+    unit_file = _unit_property(runner, service, "UnitFileState") if load != "not-found" else "disabled"
+    return {
+        "service": service,
+        "installed": bool(load and load != "not-found"),
+        "load_state": load or "unknown",
+        "active": active == "active",
+        "active_state": active or "unknown",
+        "sub_state": sub or "unknown",
+        "enabled": unit_file in {"enabled", "enabled-runtime", "static"},
+        "unit_file_state": unit_file or "unknown",
+    }
+
+
+def start_service(
+    state: dict[str, Any], runner: CommandRunner, *, wait_for_health: bool = True
+) -> dict[str, Any]:
+    """Start only the systemd-owned llama server, optionally waiting for its API."""
+    current_model_record(state)
+    runner.run(elevated(["systemctl", "start", str(state["service_name"])]))
+    if wait_for_health:
+        return health_check(state, runner)
+    return service_status(state, runner)
+
+
+def stop_service(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    service = str(state["service_name"])
+    runner.run(elevated(["systemctl", "stop", service]), check=False)
+    # Podman's attached exec can report a nonzero exit while llama-server is
+    # gracefully terminating. An explicit user Stop should settle at inactive,
+    # while genuine unexpected failures still retain Restart=on-failure.
+    runner.run(elevated(["systemctl", "reset-failed", service]), check=False)
+    return service_status(state, runner)
+
+
+def restart_and_wait(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    current_model_record(state)
+    restart_service(state, runner)
+    return health_check(state, runner)
 
 
 def _json_get(url: str, timeout: float = 5) -> Any:

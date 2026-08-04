@@ -1,8 +1,8 @@
 # BC250 LLM MODE
 
-BC250 LLM MODE is a lightweight native desktop setup wizard and terminal chat client for turning an AMD BC-250 running Bazzite into a dedicated local `llama.cpp`/Vulkan inference station.
+BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
-The setup interface is a real local `tkinter` window—not a web app. After setup, the application runs a single local model server and provides a streaming terminal chat client. Optional Open WebUI support is available separately.
+The interface is a real local `tkinter` window—not a web app. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, context, Open WebUI, Tailscale, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
@@ -82,9 +82,25 @@ The wizard is resumable and each step is designed to be safe to run again:
 8. **Prepare** — verifies GGUF architecture and tensor block metadata, applies guarded self-healing metadata patches when appropriate, and handles supported text-only conversion workflows.
 9. **Server** — creates the single owning `bc250-llm.service`, starts the model, and checks `/health` and `/v1/models`.
 10. **Open WebUI** — optionally starts Open WebUI on port 3000.
-11. **Complete** — shows the active model/context and offers the terminal chat launcher.
+11. **Complete** — transitions into the persistent operations dashboard; setup does not become the application's only purpose.
 
 The application never changes BIOS settings and never reboots the computer automatically.
+
+## Operations dashboard after setup
+
+Running `bc250-llm-mode` after setup opens the native management dashboard directly. It provides:
+
+- live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
+- Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**, and **Open WebUI** controls;
+- optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
+- installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
+- a bounded context-size control with a fresh VRAM fit check before restart;
+- recent model-server and setup logs in the existing live log pane;
+- terminal chat launch, optimization controls, repair, dedicated LLM Mode, and non-destructive Bazzite desktop mode.
+
+The dashboard never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
+
+Tailscale is optional and is not installed by this application. On Linux, `tailscaled` is the systemd-managed daemon, while `tailscale up` joins/connects the machine to its tailnet. The app exposes those as separate actions so stopping the daemon is not confused with signing out or changing tailnet state. A first-time **Connect** may print an authentication URL in the application log.
 
 ## Choosing a model
 
@@ -148,7 +164,7 @@ After setup, start the terminal client with:
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode chat
 ```
 
-The client streams responses and retains conversation history for the current session. Available commands are:
+The client streams responses and retains conversation history for the current session. It is also a full management console. Available commands are:
 
 | Command | Purpose |
 | --- | --- |
@@ -156,8 +172,14 @@ The client streams responses and retains conversation history for the current se
 | `/status` | Show server health, active model/context, and VRAM usage |
 | `/model` | List installed models |
 | `/model <id>` | Switch to an installed model through the single systemd service |
+| `/scan` | Find compatible standard-layout GGUF files in configured model folders |
 | `/ctx <tokens>` | Change context size from 512 to 262144 after a fit check |
+| `/llm start\|stop\|restart\|status` | Manage the single systemd-owned model server |
+| `/webui start\|stop\|restart\|status` | Install/start or manage Open WebUI |
+| `/tailscale start\|stop\|restart\|status\|connect\|disconnect` | Manage the optional daemon and tailnet connection separately |
+| `/logs [server\|setup] [lines]` | Show 1–1000 recent log lines |
 | `/sys` | Show GPU temperature, clocks, utilization, and memory metrics |
+| `/clear` | Clear the current in-memory conversation |
 | `/quit` | Exit the terminal client |
 
 `llama-server` exposes its OpenAI-compatible API only on `127.0.0.1:8080`. It is deliberately not exposed to the network. Optional Open WebUI uses host port 3000 and points to the local API.
@@ -172,6 +194,14 @@ bc250-llm-mode setup                   Open/resume the native wizard
 bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON
 bc250-llm-mode chat                    Start terminal chat
+bc250-llm-mode llm <action>            start | stop | restart | status
+bc250-llm-mode webui <action>          start | stop | restart | status
+bc250-llm-mode tailscale <action>      start | stop | restart | status | connect | disconnect
+bc250-llm-mode models list             List registered models
+bc250-llm-mode models scan             Discover compatible local GGUF models
+bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
+bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
+bc250-llm-mode llm-mode                Restore dedicated LLM Mode after desktop mode
 bc250-llm-mode install-model <id>      Install a curated catalog model
   [--quant <quant>] [--ctx <tokens>]
 bc250-llm-mode switch <model-id>       Switch the single server to an installed model
@@ -294,7 +324,7 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The current suite covers hardware discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, optimizer bounds, existing-model discovery, GGUF metadata healing, server generation, and desktop-mode reversion.
+The current suite covers hardware discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, optimizer bounds, existing-model discovery, GGUF metadata healing, service lifecycle management, Tailscale state separation, server generation, and desktop-mode reversion.
 
 ## License
 

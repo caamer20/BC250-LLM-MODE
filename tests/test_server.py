@@ -32,11 +32,13 @@ def test_service_safeguards_are_bounded_by_selected_settings(tmp_path):
     assert "RestartSec=15" in text
 
 
-def test_root_service_uses_bazzite_safe_system_log_path(tmp_path):
+def test_root_service_uses_bazzite_safe_system_log_path(tmp_path, monkeypatch):
+    monkeypatch.setattr("bc250_llm_mode.server.os.getuid", lambda: 0)
     state = {"container_name": "llm", "logs_dir": str(tmp_path)}
     text = _service_text(state, tmp_path / "run-model.sh")
     assert "StandardOutput=append:/var/log/bc250-llm-server.log" in text
     assert "StandardError=append:/var/log/bc250-llm-server.log" in text
+    assert "-d -m 0700 -o 0 -g 0 /run/user/0" in text
     assert state["server_log"] == "/var/log/bc250-llm-server.log"
 
 

@@ -54,6 +54,7 @@ class CommandRunner:
         env: dict[str, str] | None = None,
         cwd: str | Path | None = None,
         input_text: str | None = None,
+        emit_output: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         argv = [str(item) for item in command]
         self.emit(f"$ {shlex.join(argv)}")
@@ -74,10 +75,10 @@ class CommandRunner:
         assert process.stdout is not None
         for line in process.stdout:
             output.append(line)
-            self.emit(line)
+            if emit_output:
+                self.emit(line)
         returncode = process.wait()
         result = subprocess.CompletedProcess(argv, returncode, "".join(output), "")
         if check and returncode:
             raise CommandError(argv, returncode, result.stdout)
         return result
-

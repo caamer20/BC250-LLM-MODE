@@ -3,13 +3,33 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .catalog import calculate_fit
 from .hardware import detect_hardware
-from .local_models import installed_fit_entry
+from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
-from .optimize import kv_scale_for_settings
-from .server import health_check, restart_service, system_metrics
+from .model_manager import change_context, switch_model
+from .openwebui import (
+    open_webui_status,
+    restart_open_webui,
+    start_open_webui,
+    stop_open_webui,
+)
+from .server import (
+    health_check,
+    restart_and_wait,
+    service_status,
+    start_service,
+    stop_service,
+    system_metrics,
+)
 from .state import StateStore
+from .tailscale import (
+    connect_tailscale,
+    disconnect_tailscale,
+    restart_tailscale,
+    start_tailscale,
+    stop_tailscale,
+    tailscale_status,
+)
 
 
 def _dependencies():
@@ -49,25 +69,23 @@ def stream_completion(state: dict[str, Any], history: list[dict[str, str]], on_t
     return "".join(chunks)
 
 
-def _switch_model(store: StateStore, state: dict[str, Any], model_id: str, runner: CommandRunner) -> dict[str, Any]:
-    ids = {record.get("id") for record in state.get("installed_models", [])}
-    if model_id not in ids:
-        raise ValueError(f"Model is not installed: {model_id}")
-    record = next(item for item in state["installed_models"] if item.get("id") == model_id)
-    entry = installed_fit_entry(record)
-    fit = calculate_fit(
-        entry,
-        str(record["quant"]),
-        int(state.get("current_ctx", 8192)),
-        kv_scale=kv_scale_for_settings(state.get("optimizations")),
+def _print_help(console) -> None:
+    console.print(
+        "\n".join((
+            "/status                         application, server, and VRAM status",
+            "/model [id]                     list or switch installed models",
+            "/scan                           find compatible GGUF files on disk",
+            "/ctx <tokens>                   change context after a VRAM fit check",
+            "/llm start|stop|restart|status  manage the single model service",
+            "/webui start|stop|restart|status manage optional Open WebUI",
+            "/tailscale start|stop|restart|status|connect|disconnect",
+            "/logs [server|setup] [lines]    show recent logs (maximum 1000 lines)",
+            "/sys                            GPU temperature/clocks/VRAM",
+            "/clear                          clear this session's conversation",
+            "/help                           show this list",
+            "/quit                           exit",
+        ))
     )
-    if fit.verdict == "NO-FIT":
-        raise ValueError(fit.detail)
-    state["current_model"] = model_id
-    store.save(state)
-    restart_service(state, runner)
-    health_check(state, runner)
-    return state
 
 
 def run_chat(store: StateStore | None = None) -> None:
@@ -92,18 +110,29 @@ def run_chat(store: StateStore | None = None) -> None:
         if prompt == "/quit":
             break
         if prompt == "/help":
-            console.print("/help  /status  /model [id]  /ctx <tokens>  /sys  /quit")
+            _print_help(console)
             continue
         if prompt == "/status":
             try:
-                result = health_check(state, timeout=3)
                 report = detect_hardware(state["models_dir"], check_vulkan=False)
-                console.print(
-                    f"healthy={result['healthy']} model={state.get('current_model')} "
-                    f"ctx={state.get('current_ctx')} VRAM={report.vram_used_mib}/{report.vram_total_mib} MiB"
-                )
+                llm = service_status(state, runner)
+                result: dict[str, Any] = {
+                    "llm": llm,
+                    "openwebui": open_webui_status(state, runner),
+                    "tailscale": tailscale_status(runner),
+                    "model": state.get("current_model"),
+                    "ctx": state.get("current_ctx"),
+                    "vram_used_mib": report.vram_used_mib,
+                    "vram_total_mib": report.vram_total_mib,
+                }
+                if llm["active"]:
+                    try:
+                        result["server"] = health_check(state, timeout=3)
+                    except (OSError, RuntimeError, TimeoutError, ValueError, KeyError) as exc:
+                        result["server"] = {"healthy": False, "error": str(exc)}
+                console.print_json(data=result)
             except (OSError, RuntimeError, TimeoutError, ValueError, KeyError) as exc:
-                console.print(f"[red]Server unavailable:[/red] {exc}. Run setup/repair or inspect the service.")
+                console.print(f"[red]Status unavailable:[/red] {exc}. Run setup/repair or inspect the logs.")
             continue
         if prompt.startswith("/model"):
             parts = prompt.split(maxsplit=1)
@@ -114,36 +143,98 @@ def run_chat(store: StateStore | None = None) -> None:
                     console.print(f"{marker} {item.get('id')} ({item.get('quant')})")
             else:
                 try:
-                    state = _switch_model(store, state, parts[1], runner)
+                    state = switch_model(store, state, parts[1], runner)
                 except (OSError, RuntimeError, TimeoutError, ValueError, KeyError) as exc:
                     console.print(f"[red]{exc}[/red]")
             continue
         if prompt.startswith("/ctx"):
             parts = prompt.split()
             try:
-                ctx = int(parts[1])
-                if ctx < 512 or ctx > 262144:
-                    raise ValueError("context must be from 512 to 262144")
-                record = next(x for x in state["installed_models"] if x["id"] == state["current_model"])
-                entry = installed_fit_entry(record)
-                fit = calculate_fit(
-                    entry,
-                    record["quant"],
-                    ctx,
-                    kv_scale=kv_scale_for_settings(state.get("optimizations")),
-                )
-                if fit.verdict == "NO-FIT":
-                    raise ValueError(fit.detail)
-                state["current_ctx"] = ctx
-                store.save(state)
-                restart_service(state, runner)
-                health_check(state, runner)
-                console.print(fit.detail)
+                console.print(change_context(store, state, int(parts[1]), runner))
             except (IndexError, ValueError, KeyError, StopIteration) as exc:
                 console.print(f"[red]Usage: /ctx <tokens> — {exc}[/red]")
             continue
+        if prompt == "/scan":
+            discovery = discover_local_models(state)
+            for item in discovery.models:
+                console.print(f"{item.id}  {item.quant}  {item.weights_gib:.2f} GiB  {item.path}")
+            console.print(f"Found {len(discovery.models)} model(s); rejected {len(discovery.rejected)} artifact(s).")
+            continue
+        if prompt.startswith("/llm"):
+            parts = prompt.split()
+            action = parts[1] if len(parts) > 1 else "status"
+            actions = {
+                "start": lambda: start_service(state, runner),
+                "stop": lambda: stop_service(state, runner),
+                "restart": lambda: restart_and_wait(state, runner),
+                "status": lambda: service_status(state, runner),
+            }
+            try:
+                console.print_json(data=actions[action]())
+            except KeyError:
+                console.print("[red]Usage: /llm start|stop|restart|status[/red]")
+            except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
+                console.print(f"[red]{exc}[/red]")
+            continue
+        if prompt.startswith("/webui"):
+            parts = prompt.split()
+            action = parts[1] if len(parts) > 1 else "status"
+            actions = {
+                "start": lambda: start_open_webui(state, runner),
+                "stop": lambda: stop_open_webui(state, runner),
+                "restart": lambda: restart_open_webui(state, runner),
+                "status": lambda: open_webui_status(state, runner),
+            }
+            try:
+                console.print_json(data=actions[action]())
+                store.save(state)
+            except KeyError:
+                console.print("[red]Usage: /webui start|stop|restart|status[/red]")
+            except (OSError, RuntimeError, ValueError) as exc:
+                console.print(f"[red]{exc}[/red]")
+            continue
+        if prompt.startswith("/tailscale"):
+            parts = prompt.split()
+            action = parts[1] if len(parts) > 1 else "status"
+            actions = {
+                "start": lambda: start_tailscale(runner),
+                "stop": lambda: stop_tailscale(runner),
+                "restart": lambda: restart_tailscale(runner),
+                "status": lambda: tailscale_status(runner),
+                "connect": lambda: connect_tailscale(runner),
+                "disconnect": lambda: disconnect_tailscale(runner),
+            }
+            try:
+                console.print_json(data=actions[action]())
+            except KeyError:
+                console.print("[red]Usage: /tailscale start|stop|restart|status|connect|disconnect[/red]")
+            except (OSError, RuntimeError, ValueError) as exc:
+                console.print(f"[red]{exc}[/red]")
+            continue
+        if prompt.startswith("/logs"):
+            parts = prompt.split()
+            kind = parts[1] if len(parts) > 1 else "server"
+            try:
+                lines = int(parts[2]) if len(parts) > 2 else 80
+                if kind not in {"server", "setup"} or not 1 <= lines <= 1000:
+                    raise ValueError("kind must be server/setup and lines 1–1000")
+                path = (
+                    str(state.get("server_log", "/var/log/bc250-llm-server.log"))
+                    if kind == "server"
+                    else f"{state['logs_dir']}/setup.log"
+                )
+                result = runner.run(["tail", "-n", str(lines), path], check=False)
+                if result.returncode:
+                    raise RuntimeError(f"Could not read {path}")
+            except (IndexError, ValueError, RuntimeError) as exc:
+                console.print(f"[red]Usage: /logs [server|setup] [lines] — {exc}[/red]")
+            continue
         if prompt == "/sys":
             console.print_json(data=system_metrics())
+            continue
+        if prompt == "/clear":
+            conversation.clear()
+            console.print("Conversation cleared.")
             continue
         if prompt.startswith("/"):
             console.print("Unknown command; use /help")

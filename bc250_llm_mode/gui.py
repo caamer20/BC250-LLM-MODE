@@ -9,12 +9,14 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from .catalog import CATALOG, calculate_fit, model_by_id
+from .desktop import switch_to_desktop_mode
 from .disclaimer import DISCLAIMER_TEXT, acknowledge, acknowledgment_valid
 from .download import download_model
 from .env import setup_environment
@@ -27,7 +29,14 @@ from .local_models import (
     selected_fit_entry,
 )
 from .logging_utils import CommandRunner, configure_logging
-from .openwebui import install_open_webui
+from .model_manager import change_context, register_and_switch_local, switch_model
+from .openwebui import (
+    install_open_webui,
+    open_webui_status,
+    restart_open_webui,
+    start_open_webui,
+    stop_open_webui,
+)
 from .optimize import (
     DEFAULT_OPTIMIZATIONS,
     TRIMMABLE_SERVICES,
@@ -41,8 +50,24 @@ from .prepare import (
     prepare_local_model,
     prepare_model,
 )
-from .server import health_check, install_service, restart_service
+from .server import (
+    health_check,
+    install_service,
+    restart_and_wait,
+    restart_service,
+    service_status,
+    start_service,
+    stop_service,
+)
 from .state import StateStore
+from .tailscale import (
+    connect_tailscale,
+    disconnect_tailscale,
+    restart_tailscale,
+    start_tailscale,
+    stop_tailscale,
+    tailscale_status,
+)
 
 STEP_TITLES = (
     "Welcome & Hardware", "Safety Warning", "LLM Mode", "Inference Environment",
@@ -519,16 +544,253 @@ class Wizard(tk.Tk):
 
     def _complete(self) -> None:
         self.continue_button.configure(text="Start CLI chat", state="normal")
-        self._body_label(
-            f"Setup complete. Model: {self.state_data.get('current_model')}  Context: {self.state_data.get('current_ctx')}  API: http://127.0.0.1:{self.state_data.get('server_port')}."
+        self.back_button.configure(state="disabled")
+        canvas = tk.Canvas(self.content, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.content, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window_id, width=event.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        ttk.Label(
+            inner,
+            text=f"Operations dashboard — model {self.state_data.get('current_model')} at {self.state_data.get('current_ctx')} tokens",
+            font=("TkDefaultFont", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 6))
+
+        self.dashboard_status_vars: dict[str, tk.StringVar] = {
+            "llm": tk.StringVar(value="Checking…"),
+            "webui": tk.StringVar(value="Checking…"),
+            "tailscale": tk.StringVar(value="Checking…"),
+        }
+        services = ttk.Frame(inner)
+        services.pack(fill="x")
+        self._dashboard_service_card(
+            services, "LLM server", self.dashboard_status_vars["llm"],
+            (("Start", lambda: self._dashboard_action(lambda r: start_service(self.state_data, r))),
+             ("Stop", lambda: self._dashboard_action(lambda r: stop_service(self.state_data, r))),
+             ("Restart", lambda: self._dashboard_action(lambda r: restart_and_wait(self.state_data, r)))),
+        ).pack(side="left", fill="both", expand=True, padx=(0, 4))
+        self._dashboard_service_card(
+            services, "Open WebUI", self.dashboard_status_vars["webui"],
+            (("Start", lambda: self._dashboard_action(lambda r: start_open_webui(self.state_data, r))),
+             ("Stop", lambda: self._dashboard_action(lambda r: stop_open_webui(self.state_data, r))),
+             ("Restart", lambda: self._dashboard_action(lambda r: restart_open_webui(self.state_data, r)))),
+        ).pack(side="left", fill="both", expand=True, padx=4)
+        self._dashboard_service_card(
+            services, "Tailscale", self.dashboard_status_vars["tailscale"],
+            (("Start", lambda: self._dashboard_action(start_tailscale)),
+             ("Stop", lambda: self._dashboard_action(stop_tailscale)),
+             ("Restart", lambda: self._dashboard_action(restart_tailscale)),
+             ("Connect", lambda: self._dashboard_action(connect_tailscale)),
+             ("Disconnect", lambda: self._dashboard_action(disconnect_tailscale))),
+        ).pack(side="left", fill="both", expand=True, padx=(4, 0))
+
+        quick = ttk.Frame(inner)
+        quick.pack(fill="x", pady=6)
+        ttk.Button(quick, text="Refresh status", command=self._refresh_dashboard).pack(side="left")
+        ttk.Button(quick, text="Open WebUI", command=lambda: webbrowser.open("http://127.0.0.1:3000")).pack(side="left", padx=5)
+        ttk.Button(quick, text="Start terminal chat", command=self._launch_chat_terminal).pack(side="left")
+        ttk.Button(quick, text="Server log", command=lambda: self._dashboard_tail("server")).pack(side="right")
+        ttk.Button(quick, text="Setup log", command=lambda: self._dashboard_tail("setup")).pack(side="right", padx=5)
+
+        models_frame = ttk.LabelFrame(inner, text="Models", padding=6)
+        models_frame.pack(fill="both", expand=True, pady=4)
+        self.dashboard_models: dict[str, tuple[str, Any]] = {}
+        self.dashboard_model_tree = ttk.Treeview(
+            models_frame, columns=("state", "quant", "size", "name"), show="headings", height=5
         )
+        for key, title, width in (
+            ("state", "State", 85), ("quant", "Quant", 80),
+            ("size", "Size", 85), ("name", "Model / path", 500),
+        ):
+            self.dashboard_model_tree.heading(key, text=title)
+            self.dashboard_model_tree.column(key, width=width, stretch=key == "name")
+        self.dashboard_model_tree.pack(fill="both", expand=True)
+        self._populate_dashboard_models()
+        model_buttons = ttk.Frame(models_frame)
+        model_buttons.pack(fill="x", pady=(6, 0))
+        ttk.Button(model_buttons, text="Use selected model", command=self._dashboard_use_model).pack(side="left")
+        ttk.Button(model_buttons, text="Rescan disks", command=self._populate_dashboard_models).pack(side="left", padx=5)
+        ttk.Button(model_buttons, text="Install/download another…", command=lambda: self.show_step(4)).pack(side="left")
+        ttk.Label(model_buttons, text="Context:").pack(side="left", padx=(16, 3))
+        self.dashboard_ctx = tk.IntVar(value=int(self.state_data.get("current_ctx", 8192)))
+        ttk.Spinbox(
+            model_buttons, from_=512, to=262144, increment=512,
+            textvariable=self.dashboard_ctx, width=9,
+        ).pack(side="left")
+        ttk.Button(model_buttons, text="Apply", command=self._dashboard_change_context).pack(side="left", padx=4)
+
+        management = ttk.LabelFrame(inner, text="System and application", padding=6)
+        management.pack(fill="x", pady=4)
+        ttk.Button(management, text="Optimization settings", command=self._manage_optimizations).pack(side="left")
+        ttk.Button(management, text="Re-run / repair setup", command=self._repair).pack(side="left", padx=5)
+        ttk.Button(management, text="Enter LLM Mode", command=self._dashboard_enter_llm_mode).pack(side="left")
+        ttk.Button(management, text="Return to Bazzite desktop mode", command=self._dashboard_desktop_mode).pack(side="right")
+
         command = f"{sys.executable} -m bc250_llm_mode chat"
-        entry = ttk.Entry(self.content)
+        entry = ttk.Entry(inner)
         entry.insert(0, command)
         entry.configure(state="readonly")
-        entry.pack(fill="x", pady=8)
-        ttk.Button(self.content, text="Optimization settings", command=self._manage_optimizations).pack(anchor="w", pady=4)
-        ttk.Button(self.content, text="Re-run / repair setup", command=self._repair).pack(anchor="w", pady=8)
+        entry.pack(fill="x", pady=(5, 0))
+        self.after(50, self._refresh_dashboard)
+
+    def _dashboard_service_card(
+        self,
+        parent: ttk.Frame,
+        title: str,
+        status: tk.StringVar,
+        actions: tuple[tuple[str, Callable[[], None]], ...],
+    ) -> ttk.LabelFrame:
+        card = ttk.LabelFrame(parent, text=title, padding=6)
+        ttk.Label(card, textvariable=status, wraplength=235).pack(anchor="w", fill="x")
+        row = ttk.Frame(card)
+        row.pack(fill="x", pady=(5, 0))
+        for index, (label, callback) in enumerate(actions):
+            ttk.Button(row, text=label, command=callback).grid(
+                row=index // 3, column=index % 3, sticky="ew", padx=2, pady=2
+            )
+        for column in range(3):
+            row.columnconfigure(column, weight=1)
+        return card
+
+    def _populate_dashboard_models(self) -> None:
+        if not hasattr(self, "dashboard_model_tree"):
+            return
+        for iid in self.dashboard_model_tree.get_children():
+            self.dashboard_model_tree.delete(iid)
+        self.dashboard_models.clear()
+        installed_paths: set[str] = set()
+        for index, record in enumerate(self.state_data.get("installed_models", [])):
+            path = str(record.get("path", ""))
+            installed_paths.add(str(Path(path).expanduser().absolute()))
+            iid = f"installed::{index}"
+            self.dashboard_models[iid] = ("installed", record)
+            marker = "Current" if record.get("id") == self.state_data.get("current_model") else "Installed"
+            size = record.get("weights_gib")
+            self.dashboard_model_tree.insert(
+                "", "end", iid=iid,
+                values=(marker, record.get("quant", "?"), f"{float(size):.2f} GiB" if size else "", f"{record.get('display_name') or record.get('id')} — {path}"),
+            )
+        discovery = discover_local_models(self.state_data)
+        for index, model in enumerate(discovery.models):
+            if str(Path(model.path).expanduser().absolute()) in installed_paths:
+                continue
+            iid = f"local::{index}"
+            self.dashboard_models[iid] = ("local", model)
+            self.dashboard_model_tree.insert(
+                "", "end", iid=iid,
+                values=("Discovered", model.quant, f"{model.weights_gib:.2f} GiB", f"{model.display_name} — {model.path}"),
+            )
+        children = self.dashboard_model_tree.get_children()
+        if children:
+            current = next(
+                (iid for iid in children if self.dashboard_model_tree.set(iid, "state") == "Current"),
+                children[0],
+            )
+            self.dashboard_model_tree.selection_set(current)
+            self.dashboard_model_tree.focus(current)
+        for rejection in discovery.rejected:
+            self.emit(f"Local model rejected: {rejection}")
+
+    def _dashboard_action(self, action: Callable[[CommandRunner], Any]) -> None:
+        def work() -> None:
+            action(self.runner())
+            self.save()
+        self._work(work, self._refresh_dashboard)
+
+    def _refresh_dashboard(self) -> None:
+        if self.busy or not hasattr(self, "dashboard_status_vars"):
+            return
+        snapshot: dict[str, Any] = {}
+        def work() -> None:
+            runner = self.runner()
+            snapshot["llm"] = service_status(self.state_data, runner)
+            if snapshot["llm"]["active"]:
+                try:
+                    snapshot["health"] = health_check(self.state_data, timeout=3)
+                except (OSError, RuntimeError, TimeoutError, ValueError, KeyError) as exc:
+                    snapshot["health_error"] = str(exc)
+            snapshot["webui"] = open_webui_status(self.state_data, runner)
+            snapshot["tailscale"] = tailscale_status(runner)
+            self.save()
+        def done() -> None:
+            llm = snapshot["llm"]
+            if snapshot.get("health"):
+                health = snapshot["health"]
+                text = (
+                    f"Healthy · {health['model_id']} · ctx {health['n_ctx']} · "
+                    f"VRAM {health['vram_used_mib']}/{health['vram_total_mib']} MiB"
+                )
+            elif llm["active"]:
+                text = f"Running but API unavailable · {snapshot.get('health_error', 'unknown error')}"
+            else:
+                text = f"Stopped · {'enabled' if llm['enabled'] else 'disabled'}"
+            self.dashboard_status_vars["llm"].set(text)
+            web = snapshot["webui"]
+            self.dashboard_status_vars["webui"].set(
+                "Not installed" if not web["installed"] else ("Running · port 3000" if web["running"] else "Stopped")
+            )
+            tail = snapshot["tailscale"]
+            if not tail["installed"]:
+                text = "Not installed (optional)"
+            elif tail["connected"]:
+                text = f"Connected · {tail.get('dns_name') or 'tailnet'}"
+            else:
+                text = f"Daemon {'running' if tail['daemon_active'] else 'stopped'} · {tail['backend_state']}"
+            self.dashboard_status_vars["tailscale"].set(text)
+        self._work(work, done)
+
+    def _dashboard_use_model(self) -> None:
+        selection = self.dashboard_model_tree.selection()
+        if not selection:
+            messagebox.showinfo("Models", "Select a model first.")
+            return
+        source, item = self.dashboard_models[selection[0]]
+        if source == "installed":
+            self._dashboard_action(lambda r: switch_model(self.store, self.state_data, str(item["id"]), r))
+        else:
+            self._dashboard_action(lambda r: register_and_switch_local(self.store, self.state_data, item.id, r))
+
+    def _dashboard_change_context(self) -> None:
+        try:
+            ctx = int(self.dashboard_ctx.get())
+        except (ValueError, tk.TclError):
+            messagebox.showerror("Context", "Enter a valid context size.")
+            return
+        self._dashboard_action(lambda r: change_context(self.store, self.state_data, ctx, r))
+
+    def _dashboard_tail(self, kind: str) -> None:
+        path = (
+            str(self.state_data.get("server_log", "/var/log/bc250-llm-server.log"))
+            if kind == "server"
+            else f"{self.state_data['logs_dir']}/setup.log"
+        )
+        self._dashboard_action(lambda r: r.run(["tail", "-n", "120", path], check=False))
+
+    def _dashboard_desktop_mode(self) -> None:
+        if not messagebox.askyesno(
+            "Return to desktop mode",
+            "Stop inference, restore Bazzite graphical boot and sleep defaults, and preserve all models?",
+        ):
+            return
+        def action(runner: CommandRunner) -> None:
+            switch_to_desktop_mode(self.state_data, runner)
+            self.save()
+        def done() -> None:
+            self._refresh_dashboard()
+            messagebox.showinfo("Desktop mode", "Desktop mode is configured. Reboot if the log reports a pending kernel change.")
+        self._work(lambda: action(self.runner()), done)
+
+    def _dashboard_enter_llm_mode(self) -> None:
+        def action(runner: CommandRunner) -> None:
+            apply_llm_mode(self.state_data, runner)
+            install_service(self.state_data, runner)
+            self.save()
+        self._dashboard_action(action)
 
     def _manage_optimizations(self) -> None:
         self.optimization_return_to_complete = True
@@ -549,6 +811,8 @@ class Wizard(tk.Tk):
                 self.show_step(self.current_step - 1)
 
     def _work(self, action: Callable[[], None], done: Callable[[], None]) -> None:
+        if self.busy:
+            return
         self.busy = True
         self.continue_button.configure(state="disabled")
         self.progress.configure(mode="indeterminate")

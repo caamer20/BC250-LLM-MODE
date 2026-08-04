@@ -19,6 +19,7 @@ def uninstall(
 ) -> dict[str, Any]:
     service = str(state.get("service_name", "bc250-llm.service"))
     runner.run(elevated(["systemctl", "disable", "--now", service]), check=False)
+    runner.run(elevated(["systemctl", "reset-failed", service]), check=False)
     service_path = Path("/etc/systemd/system") / service
     if service_path.exists():
         runner.run(elevated(["rm", "-f", str(service_path)]))

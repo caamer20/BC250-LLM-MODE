@@ -20,6 +20,7 @@ def switch_to_desktop_mode(
     # A regular desktop boot must not immediately reclaim the GPU for inference.
     service = str(state.get("service_name", "bc250-llm.service"))
     runner.run(elevated(["systemctl", "disable", "--now", service]), check=False)
+    runner.run(elevated(["systemctl", "reset-failed", service]), check=False)
 
     # Restore any opt-in host tuning before restoring the normal boot/power mode.
     revert_optimizations(state, runner)
