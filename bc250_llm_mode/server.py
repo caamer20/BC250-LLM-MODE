@@ -47,6 +47,8 @@ print(o.get('flash_attention', 'auto'))
 print(o.get('batch_size', 2048))
 print(o.get('ubatch_size', 512))
 print(o.get('kv_cache_type', 'q8_0'))
+alias = str(r.get('display_name') or r.get('id') or 'local').replace('\\n', ' ').strip()
+print(alias)
 PY
 )
 export GGML_VK_DISABLE_F16=1
@@ -55,6 +57,7 @@ exec {llama_server} -m "${{CFG[0]}}" --host 127.0.0.1 --port "${{CFG[2]}}" \\
   --n-gpu-layers 99 --ctx-size "${{CFG[1]}}" --flash-attn "${{CFG[3]}}" \\
   --batch-size "${{CFG[4]}}" --ubatch-size "${{CFG[5]}}" \\
   --cache-type-k "${{CFG[6]}}" --cache-type-v "${{CFG[6]}}" \\
+  --alias "${{CFG[7]}}" \\
   --temp 0.3 --top-p 0.9 --min-p 0.05 --repeat-penalty 1.05
 """
     launcher.write_text(content, encoding="utf-8")

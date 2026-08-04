@@ -10,9 +10,13 @@ def test_launcher_keeps_mmap_and_vulkan_workarounds(tmp_path):
     assert "--no-mmap" not in text
     assert "GGML_VK_DISABLE_F16=1" in text
     assert "--n-gpu-layers 99" in text
+    assert "replace('\\n', ' ')" in text
+    embedded = text.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    compile(embedded, "generated-launcher-state-reader", "exec")
     assert "--cache-type-k \"${CFG[6]}\"" in text
     assert "--flash-attn \"${CFG[3]}\"" in text
     assert "--batch-size \"${CFG[4]}\"" in text
+    assert "--alias \"${CFG[7]}\"" in text
 
 
 def test_service_safeguards_are_bounded_by_selected_settings(tmp_path):

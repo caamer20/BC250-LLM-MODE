@@ -14,7 +14,7 @@ from .hardware import detect_hardware
 from .llmmode import apply_llm_mode
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
-from .model_manager import register_and_switch_local, switch_model
+from .model_manager import change_context, register_and_switch_local, switch_model
 from .openwebui import (
     open_webui_status,
     restart_open_webui,
@@ -63,6 +63,8 @@ def _parser() -> argparse.ArgumentParser:
     models = sub.add_parser("models", help="List, scan, or select models")
     models.add_argument("action", choices=("list", "scan", "use"))
     models.add_argument("model_id", nargs="?")
+    context = sub.add_parser("ctx", aliases=["context"], help="Change context size and restart safely")
+    context.add_argument("tokens", type=int)
     logs = sub.add_parser("logs", help="Tail setup or model-server logs")
     logs.add_argument("kind", choices=("server", "setup"), nargs="?", default="server")
     logs.add_argument("--lines", type=int, default=120)
@@ -185,6 +187,10 @@ def main(argv: list[str] | None = None) -> int:
             switch_model(store, state, args.model_id, runner)
         else:
             register_and_switch_local(store, state, args.model_id, runner)
+        return 0
+    if args.command in {"ctx", "context"}:
+        require_acknowledgment(state)
+        print(change_context(store, state, args.tokens, runner))
         return 0
     if args.command == "logs":
         if not 1 <= args.lines <= 1000:

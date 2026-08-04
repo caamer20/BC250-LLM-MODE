@@ -200,6 +200,7 @@ bc250-llm-mode tailscale <action>      start | stop | restart | status | connect
 bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
+bc250-llm-mode ctx <tokens>            Change context after a VRAM fit check and restart
 bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
 bc250-llm-mode llm-mode                Restore dedicated LLM Mode after desktop mode
 bc250-llm-mode install-model <id>      Install a curated catalog model
