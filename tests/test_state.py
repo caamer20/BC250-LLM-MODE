@@ -8,6 +8,9 @@ def test_state_defaults_and_atomic_update(tmp_path):
     store = StateStore(tmp_path / "state.json")
     state = store.load()
     assert state["current_ctx"] == 8192
+    assert state["https_sharing_enabled"] is False
+    assert state["https_webui_port"] == 8443
+    assert state["https_api_port"] == 10000
     store.update(disclaimer_ack=True)
     data = json.loads(store.path.read_text())
     assert data["disclaimer_ack"] is True

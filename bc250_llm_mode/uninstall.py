@@ -8,6 +8,7 @@ from .llmmode import revert_llm_mode
 from .logging_utils import CommandRunner
 from .optimize import revert_optimizations
 from .privilege import elevated
+from .sharing import stop_https_sharing
 
 
 def uninstall(
@@ -20,6 +21,11 @@ def uninstall(
     service = str(state.get("service_name", "bc250-llm.service"))
     runner.run(elevated(["systemctl", "disable", "--now", service]), check=False)
     runner.run(elevated(["systemctl", "reset-failed", service]), check=False)
+    if state.get("https_sharing_enabled"):
+        try:
+            stop_https_sharing(state, runner)
+        except RuntimeError as exc:
+            runner.emit(f"Could not remove Tailscale HTTPS sharing: {exc}")
     service_path = Path("/etc/systemd/system") / service
     if service_path.exists():
         runner.run(elevated(["rm", "-f", str(service_path)]))

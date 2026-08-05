@@ -22,6 +22,7 @@ from .server import (
     stop_service,
     system_metrics,
 )
+from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
 from .state import StateStore
 from .tailscale import (
     connect_tailscale,
@@ -81,6 +82,7 @@ def _print_help(console) -> None:
             "/llm start|stop|restart|status  manage the single model service",
             "/webui start|stop|restart|status manage optional Open WebUI",
             "/tailscale start|stop|restart|status|connect|disconnect",
+            "/serve start|stop|restart|status publish UI and API over tailnet HTTPS",
             "/boot [status|desktop]           next-boot desktop safety policy",
             "/logs [server|setup] [lines]    show recent logs (maximum 1000 lines)",
             "/sys                            GPU temperature/clocks/VRAM",
@@ -123,6 +125,7 @@ def run_chat(store: StateStore | None = None) -> None:
                     "llm": llm,
                     "openwebui": open_webui_status(state, runner),
                     "tailscale": tailscale_status(runner),
+                    "https_sharing": https_sharing_status(state, runner),
                     "model": state.get("current_model"),
                     "ctx": state.get("current_ctx"),
                     "parallel_slots": state.get("optimizations", {}).get("parallel_slots", 4),
@@ -221,6 +224,23 @@ def run_chat(store: StateStore | None = None) -> None:
                 console.print_json(data=actions[action]())
             except KeyError:
                 console.print("[red]Usage: /tailscale start|stop|restart|status|connect|disconnect[/red]")
+            except (OSError, RuntimeError, ValueError) as exc:
+                console.print(f"[red]{exc}[/red]")
+            continue
+        if prompt.startswith("/serve"):
+            parts = prompt.split()
+            action = parts[1] if len(parts) > 1 else "status"
+            actions = {
+                "start": lambda: start_https_sharing(state, runner),
+                "stop": lambda: stop_https_sharing(state, runner),
+                "restart": lambda: start_https_sharing(state, runner),
+                "status": lambda: https_sharing_status(state, runner),
+            }
+            try:
+                console.print_json(data=actions[action]())
+                store.save(state)
+            except KeyError:
+                console.print("[red]Usage: /serve start|stop|restart|status[/red]")
             except (OSError, RuntimeError, ValueError) as exc:
                 console.print(f"[red]{exc}[/red]")
             continue

@@ -59,6 +59,7 @@ from .server import (
     start_service,
     stop_service,
 )
+from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
 from .state import StateStore
 from .tailscale import (
     connect_tailscale,
@@ -599,12 +600,13 @@ class Wizard(tk.Tk):
             "llm": tk.StringVar(value="Checking…"),
             "webui": tk.StringVar(value="Checking…"),
             "tailscale": tk.StringVar(value="Checking…"),
+            "sharing": tk.StringVar(value="Checking…"),
         }
         services = ttk.Frame(inner)
         services.pack(fill="x")
         self._dashboard_service_card(
             services, "LLM server", self.dashboard_status_vars["llm"],
-            (("Start", lambda: self._dashboard_action(lambda r: start_service(self.state_data, r))),
+            (("Start current", lambda: self._dashboard_action(lambda r: start_service(self.state_data, r))),
              ("Stop", lambda: self._dashboard_action(lambda r: stop_service(self.state_data, r))),
              ("Restart", lambda: self._dashboard_action(lambda r: restart_and_wait(self.state_data, r)))),
         ).pack(side="left", fill="both", expand=True, padx=(0, 4))
@@ -623,10 +625,23 @@ class Wizard(tk.Tk):
              ("Disconnect", lambda: self._dashboard_action(disconnect_tailscale))),
         ).pack(side="left", fill="both", expand=True, padx=(4, 0))
 
+        sharing = ttk.Frame(inner)
+        sharing.pack(fill="x", pady=(5, 0))
+        self._dashboard_service_card(
+            sharing,
+            "Tailnet HTTPS — Open WebUI :8443 · Model API :10000",
+            self.dashboard_status_vars["sharing"],
+            (
+                ("Enable", lambda: self._dashboard_action(lambda r: start_https_sharing(self.state_data, r))),
+                ("Disable", lambda: self._dashboard_action(lambda r: stop_https_sharing(self.state_data, r))),
+            ),
+        ).pack(fill="x", expand=True)
+
         quick = ttk.Frame(inner)
         quick.pack(fill="x", pady=6)
         ttk.Button(quick, text="Refresh status", command=self._refresh_dashboard).pack(side="left")
         ttk.Button(quick, text="Open WebUI", command=lambda: webbrowser.open("http://127.0.0.1:3000")).pack(side="left", padx=5)
+        ttk.Button(quick, text="Open HTTPS WebUI", command=self._open_shared_webui).pack(side="left")
         ttk.Button(quick, text="Start terminal chat", command=self._launch_chat_terminal).pack(side="left")
         ttk.Button(quick, text="Server log", command=lambda: self._dashboard_tail("server")).pack(side="right")
         ttk.Button(quick, text="Setup log", command=lambda: self._dashboard_tail("setup")).pack(side="right", padx=5)
@@ -644,10 +659,13 @@ class Wizard(tk.Tk):
             self.dashboard_model_tree.heading(key, text=title)
             self.dashboard_model_tree.column(key, width=width, stretch=key == "name")
         self.dashboard_model_tree.pack(fill="both", expand=True)
+        self.dashboard_model_tree.bind("<Double-1>", lambda _event: self._dashboard_use_model())
         self._populate_dashboard_models()
         model_buttons = ttk.Frame(models_frame)
         model_buttons.pack(fill="x", pady=(6, 0))
-        ttk.Button(model_buttons, text="Use selected model", command=self._dashboard_use_model).pack(side="left")
+        ttk.Button(
+            model_buttons, text="Start selected model", command=self._dashboard_use_model
+        ).pack(side="left")
         ttk.Button(model_buttons, text="Rescan disks", command=self._populate_dashboard_models).pack(side="left", padx=5)
         ttk.Button(model_buttons, text="Install/download another…", command=lambda: self.show_step(4)).pack(side="left")
         ttk.Label(model_buttons, text="Context:").pack(side="left", padx=(16, 3))
@@ -657,6 +675,13 @@ class Wizard(tk.Tk):
             textvariable=self.dashboard_ctx, width=9,
         ).pack(side="left")
         ttk.Button(model_buttons, text="Apply", command=self._dashboard_change_context).pack(side="left", padx=4)
+        ttk.Label(
+            models_frame,
+            text=(
+                "Highlight a model and choose Start selected model (or double-click it). "
+                "LLM server → Start current resumes the already-selected model."
+            ),
+        ).pack(anchor="w", pady=(5, 0))
 
         management = ttk.LabelFrame(inner, text="System and application", padding=6)
         management.pack(fill="x", pady=4)
@@ -755,6 +780,7 @@ class Wizard(tk.Tk):
                     snapshot["health_error"] = str(exc)
             snapshot["webui"] = open_webui_status(self.state_data, runner)
             snapshot["tailscale"] = tailscale_status(runner)
+            snapshot["sharing"] = https_sharing_status(self.state_data, runner)
             self.save()
         def done() -> None:
             llm = snapshot["llm"]
@@ -781,7 +807,24 @@ class Wizard(tk.Tk):
             else:
                 text = f"Daemon {'running' if tail['daemon_active'] else 'stopped'} · {tail['backend_state']}"
             self.dashboard_status_vars["tailscale"].set(text)
+            shared = snapshot["sharing"]
+            if not shared.get("available"):
+                text = shared.get("status", "Unavailable")
+            elif shared.get("public_funnel"):
+                text = "Unsafe public Funnel detected — disable and re-enable sharing"
+            elif shared.get("enabled"):
+                text = f"Ready · UI {shared.get('webui_url')} · API {shared.get('api_base_url')}"
+            else:
+                text = "Disabled or incomplete"
+            self.dashboard_status_vars["sharing"].set(text)
         self._work(work, done)
+
+    def _open_shared_webui(self) -> None:
+        url = self.state_data.get("https_webui_url")
+        if url:
+            webbrowser.open(str(url))
+        else:
+            messagebox.showinfo("Tailnet HTTPS", "Enable Tailnet HTTPS sharing first.")
 
     def _dashboard_use_model(self) -> None:
         selection = self.dashboard_model_tree.selection()

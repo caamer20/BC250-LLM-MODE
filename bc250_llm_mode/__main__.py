@@ -32,6 +32,7 @@ from .server import (
     start_service,
     stop_service,
 )
+from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
 from .state import StateStore
 from .tailscale import (
     connect_tailscale,
@@ -60,6 +61,10 @@ def _parser() -> argparse.ArgumentParser:
     tailscale.add_argument(
         "action", choices=("start", "stop", "restart", "status", "connect", "disconnect")
     )
+    sharing = sub.add_parser(
+        "serve", aliases=["share"], help="Publish Open WebUI and the model API over tailnet HTTPS"
+    )
+    sharing.add_argument("action", choices=("start", "stop", "restart", "status"))
     models = sub.add_parser("models", help="List, scan, or select models")
     models.add_argument("action", choices=("list", "scan", "use"))
     models.add_argument("model_id", nargs="?")
@@ -130,6 +135,7 @@ def main(argv: list[str] | None = None) -> int:
         result["llm_service"] = service_status(state, quiet_runner)
         result["openwebui"] = open_webui_status(state, quiet_runner)
         result["tailscale"] = tailscale_status(quiet_runner)
+        result["https_sharing"] = https_sharing_status(state, quiet_runner)
         if result["llm_service"].get("active"):
             try:
                 result["server"] = health_check(state, timeout=3)
@@ -171,6 +177,19 @@ def main(argv: list[str] | None = None) -> int:
             "disconnect": lambda: disconnect_tailscale(runner),
         }
         print(json.dumps(actions[args.action](), indent=2))
+        return 0
+    if args.command in {"serve", "share"}:
+        if args.action != "status":
+            require_acknowledgment(state)
+        actions = {
+            "start": lambda: start_https_sharing(state, runner),
+            "stop": lambda: stop_https_sharing(state, runner),
+            "restart": lambda: start_https_sharing(state, runner),
+            "status": lambda: https_sharing_status(state, runner),
+        }
+        result = actions[args.action]()
+        store.save(state)
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "models":
         if args.action == "list":

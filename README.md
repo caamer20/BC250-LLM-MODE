@@ -2,7 +2,7 @@
 
 BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
-The interface is a real local `tkinter` window—not a web app. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, context, Open WebUI, Tailscale, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
+The interface is a real local `tkinter` window—not a web app. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, context, Open WebUI, Tailscale HTTPS sharing, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
@@ -175,6 +175,27 @@ All host changes start unchecked. The page validates every numeric range before 
 
 Original Cyan, service, and swappiness settings are remembered and restored when their options are disabled or the application is reverted.
 
+## Tailnet HTTPS access
+
+The model server and Open WebUI remain bound to localhost. The application can publish both through Tailscale Serve with automatically managed HTTPS, without opening the raw llama.cpp listener on the LAN or public Internet:
+
+```text
+Open WebUI: https://<node>.<tailnet>.ts.net:8443/
+Model API:  https://<node>.<tailnet>.ts.net:10000/v1
+Health:     https://<node>.<tailnet>.ts.net:10000/health
+```
+
+Use **Tailnet HTTPS → Enable** in the management GUI, or:
+
+```bash
+bc250-llm-mode serve start
+bc250-llm-mode serve status
+```
+
+Enabling sharing starts the selected model and Open WebUI, removes any public Funnel rules on the two managed ports, and creates tailnet-only HTTPS proxies. Disabling sharing removes only those proxies; it does not stop the local model or delete data. Because the machine intentionally returns to desktop with no LLM after reboot, the HTTPS proxy configuration may remain present while the backend is offline until the user starts a model again.
+
+The API uses the standard llama.cpp/OpenAI-compatible routes. There is no raw `/api` route; use `/v1/models` and `/v1/chat/completions`.
+
 ## Chat and server usage
 
 After setup, start the terminal client with:
@@ -197,12 +218,13 @@ The client streams responses and retains conversation history for the current se
 | `/llm start\|stop\|restart\|status` | Manage the single systemd-owned model server |
 | `/webui start\|stop\|restart\|status` | Install/start or manage Open WebUI |
 | `/tailscale start\|stop\|restart\|status\|connect\|disconnect` | Manage the optional daemon and tailnet connection separately |
+| `/serve start\|stop\|restart\|status` | Manage tailnet-only HTTPS for Open WebUI and the model API |
 | `/logs [server\|setup] [lines]` | Show 1–1000 recent log lines |
 | `/sys` | Show GPU temperature, clocks, utilization, and memory metrics |
 | `/clear` | Clear the current in-memory conversation |
 | `/quit` | Exit the terminal client |
 
-`llama-server` exposes its OpenAI-compatible API only on `127.0.0.1:8080`. It is deliberately not exposed to the network. Optional Open WebUI uses host port 3000 and points to the local API.
+`llama-server` and Open WebUI remain local-only backends. When explicitly enabled, Tailscale Serve terminates HTTPS and proxies tailnet traffic to them; public Funnel is not used.
 
 ## Command reference
 
@@ -217,6 +239,7 @@ bc250-llm-mode chat                    Start terminal chat
 bc250-llm-mode llm <action>            start | stop | restart | status
 bc250-llm-mode webui <action>          start | stop | restart | status
 bc250-llm-mode tailscale <action>      start | stop | restart | status | connect | disconnect
+bc250-llm-mode serve <action>          start | stop | restart | status (tailnet HTTPS)
 bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
@@ -306,6 +329,8 @@ Default paths are relative to the account that runs setup:
 | Root-run model server log | `/var/log/bc250-llm-server.log` |
 | Model API | `127.0.0.1:8080` |
 | Optional Open WebUI | `127.0.0.1:3000` |
+| Tailnet HTTPS Open WebUI | `https://<node>.<tailnet>.ts.net:8443/` |
+| Tailnet HTTPS model API | `https://<node>.<tailnet>.ts.net:10000/v1` |
 
 When setup is run as root, the model server log is `/var/log/bc250-llm-server.log`. For a regular user installation, it is stored under the application's logs directory.
 
