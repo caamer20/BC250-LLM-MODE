@@ -74,7 +74,7 @@ The wizard is resumable and each step is designed to be safe to run again:
 
 1. **Hardware validation** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks VRAM, GTT, host RAM, disk space, and Vulkan identity.
 2. **Mandatory safety warning** — requires three checkboxes and the exact typed text `I ACCEPT` before any setup change.
-3. **LLM Mode** — changes the default boot target to `multi-user.target`, masks sleep states, stages `amdgpu.runpm=0`, and installs a vendor-matched udev rule that pins AMD GPU power on. Kernel changes require a reboot.
+3. **LLM Mode** — starts a current-boot inference session with runtime-only sleep masks and a vendor-matched GPU-awake rule. It simultaneously stages normal `graphical.target` desktop mode and disables model auto-start for the next boot.
 4. **Inference environment** — creates or reuses the `llm` Distrobox/Podman container, builds `llama.cpp` with Vulkan, creates the model-preparation Python environment, and runs a Vulkan smoke test.
 5. **Model selection** — offers the curated BC-250 catalog and GGUF models already present on disk, with live context/VRAM fit estimates.
 6. **Optimize** — applies only the bounded options selected by the user. Host-level performance changes are opt-in.
@@ -86,6 +86,17 @@ The wizard is resumable and each step is designed to be safe to run again:
 
 The application never changes BIOS settings and never reboots the computer automatically.
 
+### Reboot safety policy
+
+LLM Mode is intentionally limited to the current boot. Every setup, repair, and **Start current-boot LLM Mode** action guarantees that:
+
+- the next boot target is Bazzite's normal `graphical.target`;
+- `bc250-llm.service` is disabled for boot, although an explicitly started model may continue running now;
+- sleep/display-manager masks and the AMD GPU-awake udev rule are runtime-only;
+- any older persistent `amdgpu.runpm=0` kernel argument and `/etc` udev rule are removed from the next deployment.
+
+After a reboot, the desktop starts normally and no LLM model is loaded. Starting inference again is an explicit dashboard, CLI, or chat action.
+
 ## Operations dashboard after setup
 
 Running `bc250-llm-mode` after setup opens the native management dashboard directly. It provides:
@@ -96,7 +107,7 @@ Running `bc250-llm-mode` after setup opens the native management dashboard direc
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - recent model-server and setup logs in the existing live log pane;
-- terminal chat launch, optimization controls, repair, dedicated LLM Mode, and non-destructive Bazzite desktop mode.
+- terminal chat launch, optimization controls, repair, current-boot LLM Mode, and non-destructive Bazzite desktop mode.
 
 The dashboard never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
 
@@ -201,8 +212,10 @@ bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
 bc250-llm-mode ctx <tokens>            Change context after a VRAM fit check and restart
+bc250-llm-mode boot-policy [status|desktop]
+                                        Show or restage desktop/no-LLM next boot
 bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
-bc250-llm-mode llm-mode                Restore dedicated LLM Mode after desktop mode
+bc250-llm-mode llm-mode                Start LLM Mode for the current boot only
 bc250-llm-mode install-model <id>      Install a curated catalog model
   [--quant <quant>] [--ctx <tokens>]
 bc250-llm-mode switch <model-id>       Switch the single server to an installed model

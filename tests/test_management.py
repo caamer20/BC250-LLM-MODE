@@ -40,6 +40,28 @@ def test_llm_service_status_and_stop_use_systemd(monkeypatch):
     assert (["systemctl", "reset-failed", service_name], {"check": False}) in runner.commands
 
 
+def test_service_install_starts_now_but_disables_next_boot(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "elevated", lambda command: command)
+    monkeypatch.setattr(server.os, "getuid", lambda: 0)
+    runner = FakeRunner()
+    state = {
+        "app_dir": str(tmp_path),
+        "llama_cpp_path": "/root/llama.cpp",
+        "logs_dir": str(tmp_path),
+        "container_name": "llm",
+        "service_name": "bc250-llm.service",
+    }
+
+    server.install_service(state, runner)
+
+    commands = [command for command, _kwargs in runner.commands]
+    assert ["systemctl", "disable", "bc250-llm.service"] in commands
+    assert ["systemctl", "start", "bc250-llm.service"] in commands
+    assert not any(command[:3] == ["systemctl", "enable", "--now"] for command in commands)
+    assert state["desktop_on_reboot"] is True
+    assert state["llm_autostart"] is False
+
+
 def test_openwebui_status_and_lifecycle(monkeypatch):
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
     outputs = {

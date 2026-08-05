@@ -21,7 +21,7 @@ from .disclaimer import DISCLAIMER_TEXT, acknowledge, acknowledgment_valid
 from .download import download_model
 from .env import setup_environment
 from .hardware import HardwareReport, detect_hardware
-from .llmmode import apply_llm_mode
+from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import (
     LocalModel,
     discover_local_models,
@@ -226,7 +226,8 @@ class Wizard(tk.Tk):
 
     def _llm_mode(self) -> None:
         self._body_label(
-            "Sets multi-user.target, masks sleep states, stages amdgpu.runpm=0, and installs a vendor-matched udev rule. A reboot may be required."
+            "Starts a current-boot LLM session with runtime-only sleep and GPU-awake rules. "
+            "The model service remains disabled for boot: restarting always returns to normal Bazzite desktop mode with no LLM running."
         )
         self.mask_desktop = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -560,6 +561,11 @@ class Wizard(tk.Tk):
             text=f"Operations dashboard — model {self.state_data.get('current_model')} at {self.state_data.get('current_ctx')} tokens",
             font=("TkDefaultFont", 11, "bold"),
         ).pack(anchor="w", pady=(0, 6))
+        ttk.Label(
+            inner,
+            text="Next boot: Bazzite graphical desktop · LLM auto-start: OFF",
+            foreground="#207020",
+        ).pack(anchor="w", pady=(0, 6))
 
         self.dashboard_status_vars: dict[str, tk.StringVar] = {
             "llm": tk.StringVar(value="Checking…"),
@@ -628,7 +634,12 @@ class Wizard(tk.Tk):
         management.pack(fill="x", pady=4)
         ttk.Button(management, text="Optimization settings", command=self._manage_optimizations).pack(side="left")
         ttk.Button(management, text="Re-run / repair setup", command=self._repair).pack(side="left", padx=5)
-        ttk.Button(management, text="Enter LLM Mode", command=self._dashboard_enter_llm_mode).pack(side="left")
+        ttk.Button(management, text="Start current-boot LLM Mode", command=self._dashboard_enter_llm_mode).pack(side="left")
+        ttk.Button(
+            management,
+            text="Ensure desktop on next boot",
+            command=lambda: self._dashboard_action(lambda r: stage_desktop_boot(self.state_data, r)),
+        ).pack(side="left", padx=5)
         ttk.Button(management, text="Return to Bazzite desktop mode", command=self._dashboard_desktop_mode).pack(side="right")
 
         command = f"{sys.executable} -m bc250_llm_mode chat"

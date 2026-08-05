@@ -4,6 +4,7 @@ import json
 from typing import Any
 
 from .hardware import detect_hardware
+from .llmmode import stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
 from .model_manager import change_context, switch_model
@@ -79,6 +80,7 @@ def _print_help(console) -> None:
             "/llm start|stop|restart|status  manage the single model service",
             "/webui start|stop|restart|status manage optional Open WebUI",
             "/tailscale start|stop|restart|status|connect|disconnect",
+            "/boot [status|desktop]           next-boot desktop safety policy",
             "/logs [server|setup] [lines]    show recent logs (maximum 1000 lines)",
             "/sys                            GPU temperature/clocks/VRAM",
             "/clear                          clear this session's conversation",
@@ -122,6 +124,8 @@ def run_chat(store: StateStore | None = None) -> None:
                     "tailscale": tailscale_status(runner),
                     "model": state.get("current_model"),
                     "ctx": state.get("current_ctx"),
+                    "boot_policy": state.get("boot_policy", "desktop"),
+                    "llm_autostart": False,
                     "vram_used_mib": report.vram_used_mib,
                     "vram_total_mib": report.vram_total_mib,
                 }
@@ -228,6 +232,24 @@ def run_chat(store: StateStore | None = None) -> None:
                     raise RuntimeError(f"Could not read {path}")
             except (IndexError, ValueError, RuntimeError) as exc:
                 console.print(f"[red]Usage: /logs [server|setup] [lines] — {exc}[/red]")
+            continue
+        if prompt.startswith("/boot"):
+            parts = prompt.split()
+            action = parts[1] if len(parts) > 1 else "status"
+            try:
+                if action == "desktop":
+                    stage_desktop_boot(state, runner)
+                    store.save(state)
+                elif action != "status":
+                    raise ValueError("action must be status or desktop")
+                target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()
+                console.print_json(data={
+                    "policy": state.get("boot_policy", "desktop"),
+                    "next_boot_target": target or "unknown",
+                    "llm_autostart": False,
+                })
+            except (OSError, RuntimeError, ValueError) as exc:
+                console.print(f"[red]Usage: /boot [status|desktop] — {exc}[/red]")
             continue
         if prompt == "/sys":
             console.print_json(data=system_metrics())

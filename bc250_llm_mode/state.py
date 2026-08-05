@@ -21,14 +21,26 @@ from .constants import (
 )
 from .optimize import DEFAULT_OPTIMIZATIONS
 
+
+def _current_boot_id() -> str | None:
+    try:
+        return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
 DEFAULT_STATE: dict[str, Any] = {
-    "schema_version": 2,
+    "schema_version": 3,
     "disclaimer_ack": False,
     "ack_timestamp": None,
     "setup_phase": 0,
     "setup_complete": False,
     "llm_mode_done": False,
     "system_mode": "unconfigured",
+    "boot_policy": "desktop",
+    "desktop_on_reboot": True,
+    "llm_autostart": False,
+    "llm_session_boot_id": None,
+    "desktop_reboot_pending": False,
     "reboot_required": False,
     "pending_karg_mode": None,
     "env_ready": False,
@@ -64,11 +76,36 @@ class StateStore:
             if not isinstance(raw, dict):
                 raise RuntimeError(f"State file {self.path} must contain a JSON object")
             state.update(raw)
-            if int(raw.get("schema_version", 1)) < 2:
+            old_schema = int(raw.get("schema_version", 1))
+            if old_schema < 2:
                 old_phase = int(state.get("setup_phase", 0))
                 if old_phase >= 6:
                     state["setup_phase"] = old_phase + 1
-                state["schema_version"] = 2
+            if old_schema < 3:
+                state.update(
+                    schema_version=3,
+                    boot_policy="desktop",
+                    desktop_on_reboot=True,
+                    llm_autostart=False,
+                )
+                if state.get("system_mode") == "llm":
+                    state["system_mode"] = "llm-session"
+                    state["llm_session_boot_id"] = _current_boot_id()
+        session_boot = state.get("llm_session_boot_id")
+        current_boot = _current_boot_id()
+        if (
+            state.get("boot_policy") == "desktop"
+            and state.get("system_mode") == "llm-session"
+            and session_boot
+            and current_boot
+            and session_boot != current_boot
+        ):
+            state.update(
+                system_mode="desktop",
+                llm_mode_done=False,
+                llm_session_boot_id=None,
+                desktop_reboot_pending=False,
+            )
         state["state_path"] = str(self.path)
         return state
 

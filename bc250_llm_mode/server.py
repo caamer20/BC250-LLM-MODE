@@ -139,7 +139,11 @@ def install_service(
     if os.getuid():
         runner.run(elevated(["loginctl", "enable-linger", pwd.getpwuid(os.getuid()).pw_name]), check=False)
     if enable_and_start:
-        runner.run(elevated(["systemctl", "enable", "--now", service_name]))
+        # LLM Mode is a current-boot session. Never leave inference enabled
+        # across reboot; start it explicitly for this boot only.
+        runner.run(elevated(["systemctl", "disable", service_name]), check=False)
+        runner.run(elevated(["systemctl", "start", service_name]))
+        state.update(boot_policy="desktop", desktop_on_reboot=True, llm_autostart=False)
     else:
         runner.emit(f"Refreshed {service_name} definition without changing its enabled/running state")
     state["setup_phase"] = max(int(state.get("setup_phase", 0)), 9)

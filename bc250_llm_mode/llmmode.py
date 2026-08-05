@@ -20,6 +20,7 @@ SLEEP_TARGETS = (
     "suspend-then-hibernate.target",
 )
 UDEV_RULE_PATH = Path("/etc/udev/rules.d/99-amdgpu-nosleep.rules")
+RUNTIME_UDEV_RULE_PATH = Path("/run/udev/rules.d/99-amdgpu-nosleep.rules")
 UDEV_RULE = 'ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{power/control}="on"\n'
 
 
@@ -33,41 +34,93 @@ def _require_commands(*commands: str) -> None:
         raise RuntimeError(f"Required Bazzite command(s) not found: {', '.join(missing)}")
 
 
+def _active_cmdline() -> str:
+    try:
+        return Path("/proc/cmdline").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _set_gpu_power_control(runner: CommandRunner, value: str) -> None:
+    for vendor_file in sorted(Path("/sys/bus/pci/devices").glob("*/vendor")):
+        try:
+            if vendor_file.read_text(encoding="utf-8").strip().lower() == "0x1002":
+                runner.run(
+                    elevated(["tee", str(vendor_file.parent / "power/control")]),
+                    input_text=value + "\n",
+                    check=False,
+                )
+        except OSError:
+            pass
+
+
+def stage_desktop_boot(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Guarantee a normal graphical next boot without stopping this boot's LLM."""
+    _require_commands("systemctl", "rpm-ostree", "udevadm")
+    service = str(state.get("service_name", "bc250-llm.service"))
+    runner.emit("Staging normal Bazzite desktop mode for the next boot")
+    _run_root(runner, ["systemctl", "set-default", "graphical.target"])
+    _run_root(runner, ["systemctl", "unmask", *SLEEP_TARGETS], check=False)
+    _run_root(
+        runner,
+        ["systemctl", "unmask", "display-manager.service", "sddm.service"],
+        check=False,
+    )
+    # Disable only; an explicitly started model may continue for this boot.
+    _run_root(runner, ["systemctl", "disable", service], check=False)
+
+    staged = runner.run(["rpm-ostree", "kargs"], check=False).stdout
+    if "amdgpu.runpm=0" in staged.split():
+        _run_root(runner, ["rpm-ostree", "kargs", "--delete=amdgpu.runpm=0"])
+    if UDEV_RULE_PATH.exists():
+        _run_root(runner, ["rm", "-f", str(UDEV_RULE_PATH)])
+    _run_root(runner, ["udevadm", "control", "--reload"], check=False)
+
+    active_karg = "amdgpu.runpm=0" in _active_cmdline().split()
+    state.update(
+        boot_policy="desktop",
+        desktop_on_reboot=True,
+        llm_autostart=False,
+        desktop_reboot_pending=active_karg,
+        pending_karg_mode="disable" if active_karg else None,
+    )
+    runner.emit(
+        "Next boot is graphical desktop mode and bc250-llm.service is disabled; "
+        "the current model process was not stopped."
+    )
+    return state
+
+
 def apply_llm_mode(
     state: dict[str, Any], runner: CommandRunner, *, mask_desktop_services: bool = False
 ) -> dict[str, Any]:
     require_acknowledgment(state)
     _require_commands("systemctl", "rpm-ostree", "udevadm")
-    runner.emit("Applying idempotent LLM Mode configuration")
-    _run_root(runner, ["systemctl", "set-default", "multi-user.target"])
-    _run_root(runner, ["systemctl", "mask", *SLEEP_TARGETS])
+    runner.emit("Applying current-boot LLM Mode session")
+    stage_desktop_boot(state, runner)
+    # Runtime masks disappear automatically on reboot.
+    _run_root(runner, ["systemctl", "mask", "--runtime", *SLEEP_TARGETS])
     if mask_desktop_services:
-        # Opt-in only. Display manager names vary; nonexistent units do not abort setup.
+        # Opt-in and runtime-only. A reboot always restores the desktop units.
         for unit in ("display-manager.service", "sddm.service"):
-            _run_root(runner, ["systemctl", "mask", unit], check=False)
-
-    cmdline = Path("/proc/cmdline").read_text(encoding="utf-8") if Path("/proc/cmdline").exists() else ""
-    reboot_required = "amdgpu.runpm=0" not in cmdline.split()
-    if reboot_required:
-        current = runner.run(["rpm-ostree", "kargs"], check=False).stdout
-        if "amdgpu.runpm=0" not in current.split():
-            _run_root(runner, ["rpm-ostree", "kargs", "--append=amdgpu.runpm=0"])
+            _run_root(runner, ["systemctl", "mask", "--runtime", unit], check=False)
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
         handle.write(UDEV_RULE)
         temporary = handle.name
     try:
-        current_rule = UDEV_RULE_PATH.read_text(encoding="utf-8") if UDEV_RULE_PATH.exists() else ""
+        current_rule = (
+            RUNTIME_UDEV_RULE_PATH.read_text(encoding="utf-8")
+            if RUNTIME_UDEV_RULE_PATH.exists()
+            else ""
+        )
         if current_rule != UDEV_RULE:
-            _run_root(runner, ["install", "-D", "-m", "0644", temporary, str(UDEV_RULE_PATH)])
+            _run_root(
+                runner,
+                ["install", "-D", "-m", "0644", temporary, str(RUNTIME_UDEV_RULE_PATH)],
+            )
         _run_root(runner, ["udevadm", "control", "--reload"])
-        # Apply now as well as on the next device add event. GPU is found by vendor every run.
-        for vendor_file in sorted(Path("/sys/bus/pci/devices").glob("*/vendor")):
-            try:
-                if vendor_file.read_text(encoding="utf-8").strip().lower() == "0x1002":
-                    runner.run(elevated(["tee", str(vendor_file.parent / "power/control")]), input_text="on\n", check=False)
-            except OSError:
-                pass
+        _set_gpu_power_control(runner, "on")
     finally:
         try:
             os.unlink(temporary)
@@ -75,49 +128,38 @@ def apply_llm_mode(
             pass
 
     state["llm_mode_done"] = True
-    state["system_mode"] = "llm"
-    state["reboot_required"] = reboot_required
-    state["pending_karg_mode"] = "enable" if reboot_required else None
+    state["system_mode"] = "llm-session"
+    state["reboot_required"] = False
+    try:
+        state["llm_session_boot_id"] = Path("/proc/sys/kernel/random/boot_id").read_text(
+            encoding="utf-8"
+        ).strip()
+    except OSError:
+        state["llm_session_boot_id"] = None
     state["setup_phase"] = max(int(state.get("setup_phase", 0)), 3)
-    if reboot_required:
-        runner.emit("Kernel argument staged. Reboot is required; the wizard will resume from this step.")
+    runner.emit("LLM Mode is active for this boot only. Reboot returns to normal Bazzite desktop mode.")
     return state
 
 
 def revert_llm_mode(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
     _require_commands("systemctl", "rpm-ostree", "udevadm")
+    stage_desktop_boot(state, runner)
     _run_root(runner, ["systemctl", "unmask", *SLEEP_TARGETS], check=False)
+    _run_root(runner, ["systemctl", "unmask", "--runtime", *SLEEP_TARGETS], check=False)
     _run_root(runner, ["systemctl", "unmask", "display-manager.service", "sddm.service"], check=False)
-    _run_root(runner, ["systemctl", "set-default", "graphical.target"])
-    current = runner.run(["rpm-ostree", "kargs"], check=False).stdout
-    active_cmdline = (
-        Path("/proc/cmdline").read_text(encoding="utf-8")
-        if Path("/proc/cmdline").exists()
-        else ""
+    _run_root(
+        runner,
+        ["systemctl", "unmask", "--runtime", "display-manager.service", "sddm.service"],
+        check=False,
     )
-    karg_was_active = "amdgpu.runpm=0" in active_cmdline.split()
-    karg_was_staged = "amdgpu.runpm=0" in current.split()
-    if karg_was_staged:
-        _run_root(runner, ["rpm-ostree", "kargs", "--delete=amdgpu.runpm=0"])
-    if UDEV_RULE_PATH.exists():
-        _run_root(runner, ["rm", "-f", str(UDEV_RULE_PATH)])
+    if RUNTIME_UDEV_RULE_PATH.exists():
+        _run_root(runner, ["rm", "-f", str(RUNTIME_UDEV_RULE_PATH)])
         _run_root(runner, ["udevadm", "control", "--reload"], check=False)
-    # Restore normal runtime power management immediately. The persistent udev
-    # rule is already gone, so future device-add events retain the OS default.
-    for vendor_file in sorted(Path("/sys/bus/pci/devices").glob("*/vendor")):
-        try:
-            if vendor_file.read_text(encoding="utf-8").strip().lower() == "0x1002":
-                runner.run(
-                    elevated(["tee", str(vendor_file.parent / "power/control")]),
-                    input_text="auto\n",
-                    check=False,
-                )
-        except OSError:
-            pass
+    _set_gpu_power_control(runner, "auto")
     state["llm_mode_done"] = False
     state["system_mode"] = "desktop"
-    state["reboot_required"] = karg_was_active or karg_was_staged
-    state["pending_karg_mode"] = "disable" if state["reboot_required"] else None
+    state["llm_session_boot_id"] = None
+    state["reboot_required"] = bool(state.get("desktop_reboot_pending"))
     if state["reboot_required"]:
         runner.emit("Desktop boot settings restored. Reboot to finish removing amdgpu.runpm=0.")
     else:

@@ -11,7 +11,7 @@ from .desktop import switch_to_desktop_mode
 from .disclaimer import require_acknowledgment
 from .download import download_model
 from .hardware import detect_hardware
-from .llmmode import apply_llm_mode
+from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
 from .model_manager import change_context, register_and_switch_local, switch_model
@@ -65,6 +65,8 @@ def _parser() -> argparse.ArgumentParser:
     models.add_argument("model_id", nargs="?")
     context = sub.add_parser("ctx", aliases=["context"], help="Change context size and restart safely")
     context.add_argument("tokens", type=int)
+    boot = sub.add_parser("boot-policy", help="Show or enforce safe desktop behavior for next boot")
+    boot.add_argument("action", choices=("status", "desktop"), nargs="?", default="status")
     logs = sub.add_parser("logs", help="Tail setup or model-server logs")
     logs.add_argument("kind", choices=("server", "setup"), nargs="?", default="server")
     logs.add_argument("--lines", type=int, default=120)
@@ -192,6 +194,19 @@ def main(argv: list[str] | None = None) -> int:
         require_acknowledgment(state)
         print(change_context(store, state, args.tokens, runner))
         return 0
+    if args.command == "boot-policy":
+        if args.action == "desktop":
+            require_acknowledgment(state)
+            stage_desktop_boot(state, runner)
+            store.save(state)
+        default_target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()
+        print(json.dumps({
+            "policy": state.get("boot_policy", "desktop"),
+            "next_boot_target": default_target or "unknown",
+            "llm_autostart": False,
+            "current_llm_service": service_status(state, runner),
+        }, indent=2))
+        return 0
     if args.command == "logs":
         if not 1 <= args.lines <= 1000:
             raise ValueError("--lines must be from 1 to 1000")
@@ -210,8 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         if state.get("setup_complete") and state.get("current_model"):
             install_service(state, runner)
         store.save(state)
-        if state.get("reboot_required"):
-            runner.emit("Reboot to activate amdgpu.runpm=0; the model service is already enabled.")
+        runner.emit("LLM Mode is active for this boot; reboot returns to desktop with no LLM auto-start.")
         return 0
     if args.command == "install-model":
         require_acknowledgment(state)
