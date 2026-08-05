@@ -1,3 +1,4 @@
+from bc250_llm_mode import server
 from bc250_llm_mode.server import _service_text, diagnose_server_log, generate_launcher
 
 
@@ -16,7 +17,9 @@ def test_launcher_keeps_mmap_and_vulkan_workarounds(tmp_path):
     assert "--cache-type-k \"${CFG[6]}\"" in text
     assert "--flash-attn \"${CFG[3]}\"" in text
     assert "--batch-size \"${CFG[4]}\"" in text
-    assert "--alias \"${CFG[7]}\"" in text
+    assert "--parallel \"${CFG[7]}\"" in text
+    assert "--alias \"${CFG[8]}\"" in text
+    assert "print(int(s.get('current_ctx', 8192)) * slots)" in text
 
 
 def test_service_safeguards_are_bounded_by_selected_settings(tmp_path):
@@ -50,3 +53,21 @@ def test_diagnostics():
     assert "MTP metadata" in diagnose_server_log("missing tensor 'blk.2.nextn.foo'")
     assert "Block-count" in diagnose_server_log("missing tensor 'blk.32.attn'")
     assert "fused MAX" in diagnose_server_log("MAX imatrix fused ErrorOutOfDeviceMemory")
+
+
+def test_health_reports_actual_server_context_and_slots(monkeypatch):
+    def fake_get(url, timeout=5):
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        if url.endswith("/v1/models"):
+            return {"data": [{"id": "lfm"}]}
+        return {"default_generation_settings": {"n_ctx": 128000}, "total_slots": 4}
+
+    monkeypatch.setattr(server, "_json_get", fake_get)
+    monkeypatch.setattr(server, "system_metrics", lambda: {"vram_used_mib": 3500, "vram_total_mib": 12288})
+    result = server.health_check(
+        {"server_port": 8080, "current_model": "lfm", "current_ctx": 131072}, timeout=1
+    )
+    assert result["n_ctx"] == 128000
+    assert result["requested_ctx"] == 131072
+    assert result["parallel_slots"] == 4

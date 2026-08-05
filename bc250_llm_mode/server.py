@@ -38,15 +38,17 @@ import json, sys
 s = json.load(open(sys.argv[1], encoding='utf-8'))
 r = next(x for x in s['installed_models'] if x['id'] == s['current_model'])
 print(r['path'])
-print(s.get('current_ctx', 8192))
-print(s.get('server_port', 8080))
 o = s.get('optimizations', {{}})
 if not o.get('runtime_enabled', True):
     o = {{}}
+slots = int(o.get('parallel_slots', 4))
+print(int(s.get('current_ctx', 8192)) * slots)
+print(s.get('server_port', 8080))
 print(o.get('flash_attention', 'auto'))
 print(o.get('batch_size', 2048))
 print(o.get('ubatch_size', 512))
 print(o.get('kv_cache_type', 'q8_0'))
+print(slots)
 alias = str(r.get('display_name') or r.get('id') or 'local').replace('\\n', ' ').strip()
 print(alias)
 PY
@@ -57,7 +59,7 @@ exec {llama_server} -m "${{CFG[0]}}" --host 127.0.0.1 --port "${{CFG[2]}}" \\
   --n-gpu-layers 99 --ctx-size "${{CFG[1]}}" --flash-attn "${{CFG[3]}}" \\
   --batch-size "${{CFG[4]}}" --ubatch-size "${{CFG[5]}}" \\
   --cache-type-k "${{CFG[6]}}" --cache-type-v "${{CFG[6]}}" \\
-  --alias "${{CFG[7]}}" \\
+  --parallel "${{CFG[7]}}" --alias "${{CFG[8]}}" \\
   --temp 0.3 --top-p 0.9 --min-p 0.05 --repeat-penalty 1.05
 """
     launcher.write_text(content, encoding="utf-8")
@@ -220,15 +222,31 @@ def health_check(state: dict[str, Any], runner: CommandRunner | None = None, tim
         try:
             health = _json_get(f"http://127.0.0.1:{port}/health")
             models = _json_get(f"http://127.0.0.1:{port}/v1/models")
+            try:
+                props = _json_get(f"http://127.0.0.1:{port}/props")
+            except (OSError, urllib.error.URLError, ValueError):
+                props = {}
+            actual_ctx = (
+                props.get("default_generation_settings", {}).get("n_ctx")
+                if isinstance(props, dict)
+                else None
+            )
             metrics = system_metrics()
             result = {
                 "healthy": True,
                 "model_id": state.get("current_model"),
-                "n_ctx": int(state.get("current_ctx", 8192)),
+                "n_ctx": int(actual_ctx or state.get("current_ctx", 8192)),
+                "requested_ctx": int(state.get("current_ctx", 8192)),
+                "parallel_slots": int(
+                    props.get("total_slots")
+                    if isinstance(props, dict) and props.get("total_slots") is not None
+                    else normalized_settings(state.get("optimizations"))["parallel_slots"]
+                ),
                 "vram_used_mib": metrics.get("vram_used_mib"),
                 "vram_total_mib": metrics.get("vram_total_mib"),
                 "health": health,
                 "models": models,
+                "model_alias": props.get("model_alias") if isinstance(props, dict) else None,
             }
             if runner:
                 runner.emit(

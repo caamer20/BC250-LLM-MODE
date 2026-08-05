@@ -41,7 +41,7 @@ def test_standard_artifact_allowed():
 
 
 def test_catalog_ids_are_unique_and_all_downloads_are_standard_layouts():
-    assert len(CATALOG) == 10
+    assert len(CATALOG) == 12
     assert len({model.id for model in CATALOG}) == len(CATALOG)
     for model in CATALOG:
         for pattern in model.allow_globs.values():
@@ -63,3 +63,29 @@ def test_catalog_ids_are_unique_and_all_downloads_are_standard_layouts():
 )
 def test_expanded_catalog_common_context_fits(model_id, quant, ctx, verdict):
     assert calculate_fit(model_by_id(model_id), quant, ctx).verdict == verdict
+
+
+@pytest.mark.parametrize(
+    ("model_id", "quant", "ctx", "required"),
+    [
+        ("lfm25-26b", "Q5_K_M", 128000, 3.783),
+        ("lfm25-12b-instruct", "Q5_K_M", 128000, 2.517),
+    ],
+)
+def test_lfm25_high_context_models_fit_comfortably(model_id, quant, ctx, required):
+    result = calculate_fit(model_by_id(model_id), quant, ctx)
+    assert result.required_gib == pytest.approx(required, abs=0.002)
+    assert result.verdict == "FITS"
+
+
+def test_lfm25_128k_fits_four_concurrent_slots():
+    result = calculate_fit(
+        model_by_id("lfm25-26b"), "Q5_K_M", 128000, parallel_slots=4
+    )
+    assert result.required_gib == pytest.approx(6.71, abs=0.01)
+    assert result.verdict == "FITS"
+
+
+def test_lfm25_rejects_context_above_trained_limit():
+    with pytest.raises(ValueError, match="at most 128000"):
+        calculate_fit(model_by_id("lfm25-26b"), "Q5_K_M", 128001)

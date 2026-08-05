@@ -14,14 +14,14 @@ from .hardware import detect_hardware
 from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
-from .model_manager import change_context, register_and_switch_local, switch_model
+from .model_manager import change_context, change_parallel_slots, register_and_switch_local, switch_model
 from .openwebui import (
     open_webui_status,
     restart_open_webui,
     start_open_webui,
     stop_open_webui,
 )
-from .optimize import kv_scale_for_settings
+from .optimize import kv_scale_for_settings, parallel_slots_for_settings
 from .prepare import prepare_model
 from .server import (
     health_check,
@@ -65,6 +65,8 @@ def _parser() -> argparse.ArgumentParser:
     models.add_argument("model_id", nargs="?")
     context = sub.add_parser("ctx", aliases=["context"], help="Change context size and restart safely")
     context.add_argument("tokens", type=int)
+    slots = sub.add_parser("slots", aliases=["users"], help="Set concurrent request slots and restart safely")
+    slots.add_argument("count", type=int)
     boot = sub.add_parser("boot-policy", help="Show or enforce safe desktop behavior for next boot")
     boot.add_argument("action", choices=("status", "desktop"), nargs="?", default="status")
     logs = sub.add_parser("logs", help="Tail setup or model-server logs")
@@ -194,6 +196,10 @@ def main(argv: list[str] | None = None) -> int:
         require_acknowledgment(state)
         print(change_context(store, state, args.tokens, runner))
         return 0
+    if args.command in {"slots", "users"}:
+        require_acknowledgment(state)
+        print(change_parallel_slots(store, state, args.count, runner))
+        return 0
     if args.command == "boot-policy":
         if args.action == "desktop":
             require_acknowledgment(state)
@@ -234,7 +240,11 @@ def main(argv: list[str] | None = None) -> int:
         model = model_by_id(args.model_id)
         quant = args.quant or next(iter(model.allow_globs))
         fit = calculate_fit(
-            model, quant, args.ctx, kv_scale=kv_scale_for_settings(state.get("optimizations"))
+            model,
+            quant,
+            args.ctx,
+            kv_scale=kv_scale_for_settings(state.get("optimizations")),
+            parallel_slots=parallel_slots_for_settings(state.get("optimizations")),
         )
         if fit.verdict == "NO-FIT":
             raise RuntimeError(fit.detail)

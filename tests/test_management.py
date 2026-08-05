@@ -1,7 +1,9 @@
 import json
 import subprocess
 
-from bc250_llm_mode import openwebui, server, tailscale
+import pytest
+
+from bc250_llm_mode import model_manager, openwebui, server, tailscale
 
 
 class FakeRunner:
@@ -110,3 +112,40 @@ def test_tailscale_connect_starts_daemon_then_runs_up(monkeypatch):
     commands = [command for command, _ in runner.commands]
     assert commands[0] == ["systemctl", "start", tailscale.SERVICE]
     assert commands[1] == ["tailscale", "up"]
+
+
+def test_parallel_slot_change_checks_fit_then_restarts(monkeypatch):
+    state = {
+        "current_model": "lfm25-26b",
+        "current_ctx": 128000,
+        "installed_models": [{"id": "lfm25-26b", "quant": "Q5_K_M"}],
+    }
+
+    class Store:
+        saved = None
+
+        def save(self, value):
+            self.saved = value
+
+    restarted = []
+    monkeypatch.setattr(model_manager, "restart_service", lambda *_args: restarted.append(True))
+    monkeypatch.setattr(model_manager, "health_check", lambda *_args: {"healthy": True})
+    result = model_manager.change_parallel_slots(Store(), state, 4, FakeRunner())
+    assert "128,000 tokens × 4 slots" in result
+    assert state["optimizations"]["parallel_slots"] == 4
+    assert restarted == [True]
+
+
+def test_parallel_slot_change_rejects_unsafe_large_model(monkeypatch):
+    state = {
+        "current_model": "qwen35-9b",
+        "current_ctx": 32768,
+        "installed_models": [{"id": "qwen35-9b", "quant": "Q5_K_M"}],
+    }
+
+    class Store:
+        def save(self, _value):
+            raise AssertionError("unsafe settings must not be saved")
+
+    with pytest.raises(ValueError, match="NO-FIT"):
+        model_manager.change_parallel_slots(Store(), state, 4, FakeRunner())

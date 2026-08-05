@@ -336,21 +336,31 @@ class Wizard(tk.Tk):
         try:
             source, selected = self.model_choices[self.model_tree.selection()[0]]
             model = fit_entry_for_local(selected) if source == "local" else selected
-            fit = calculate_fit(model, self.quant_var.get(), int(self.ctx_var.get()))
+            ctx = int(self.ctx_var.get())
+            slots = int(normalized_settings(self.state_data.get("optimizations"))["parallel_slots"])
+            fit = calculate_fit(model, self.quant_var.get(), ctx, parallel_slots=slots)
+            concurrency = f" · {ctx:,} tokens per user across {slots} slots"
             if fit.verdict == "NO-FIT":
-                q4_fit = calculate_fit(model, self.quant_var.get(), int(self.ctx_var.get()), kv_scale=0.5)
+                q4_fit = calculate_fit(
+                    model, self.quant_var.get(), ctx, kv_scale=0.5, parallel_slots=slots
+                )
                 if q4_fit.verdict != "NO-FIT":
-                    self.fit_label.configure(text=f"Q8 NO-FIT; Q4 KV option can fit at ~{q4_fit.required_gib:.2f} GiB")
+                    self.fit_label.configure(text=f"Q8 NO-FIT; Q4 KV can fit at ~{q4_fit.required_gib:.2f} GiB{concurrency}")
                     self.continue_button.configure(state="normal")
                 else:
-                    self.fit_label.configure(text=fit.detail)
+                    self.fit_label.configure(text=fit.detail + concurrency)
                     self.continue_button.configure(state="disabled")
             else:
-                self.fit_label.configure(text=fit.detail)
+                self.fit_label.configure(text=fit.detail + concurrency)
                 self.continue_button.configure(state="normal")
-        except (ValueError, KeyError, IndexError, tk.TclError):
+        except ValueError as exc:
+            if hasattr(self, "fit_label"):
+                self.fit_label.configure(text=str(exc))
+                self.continue_button.configure(state="disabled")
+        except (KeyError, IndexError, tk.TclError):
             if hasattr(self, "fit_label"):
                 self.fit_label.configure(text="Enter a valid context size")
+                self.continue_button.configure(state="disabled")
 
     @staticmethod
     def _labeled_spin(parent: ttk.Frame, label: str, variable: tk.IntVar, low: int, high: int, step: int) -> None:
@@ -390,11 +400,14 @@ class Wizard(tk.Tk):
         ttk.Combobox(runtime_row, values=("q8_0", "q4_0"), state="readonly", textvariable=self.opt_kv, width=7).pack(side="left")
         self.opt_batch = tk.IntVar(value=int(settings["batch_size"]))
         self.opt_ubatch = tk.IntVar(value=int(settings["ubatch_size"]))
+        self.opt_parallel = tk.IntVar(value=int(settings["parallel_slots"]))
         self._labeled_spin(runtime_row, "Batch", self.opt_batch, 128, 2048, 64)
         self._labeled_spin(runtime_row, "Micro-batch", self.opt_ubatch, 64, 512, 64)
+        self._labeled_spin(runtime_row, "User slots", self.opt_parallel, 1, 8, 1)
         self.opt_memory_note = ttk.Label(runtime)
         self.opt_memory_note.pack(anchor="w")
         self.opt_kv.trace_add("write", lambda *_: self._update_optimization_fit())
+        self.opt_parallel.trace_add("write", lambda *_: self._update_optimization_fit())
         self._update_optimization_fit()
 
         gpu = ttk.LabelFrame(inner, text="Cyan GPU governor (host change; reversible)", padding=7)
@@ -460,6 +473,7 @@ class Wizard(tk.Tk):
         self.opt_kv.set(defaults["kv_cache_type"])
         self.opt_batch.set(defaults["batch_size"])
         self.opt_ubatch.set(defaults["ubatch_size"])
+        self.opt_parallel.set(defaults["parallel_slots"])
         self.opt_gpu.set(True)
         self.opt_gpu_min.set(defaults["gpu_min_mhz"])
         self.opt_gpu_max.set(defaults["gpu_max_mhz"])
@@ -472,9 +486,21 @@ class Wizard(tk.Tk):
             model = selected_fit_entry(self.state_data)
             quant = str(self.state_data["selected_quant"])
             scale = 0.5 if self.opt_kv.get() == "q4_0" else 1.0
-            fit = calculate_fit(model, quant, int(self.state_data["current_ctx"]), kv_scale=scale)
+            slots = int(self.opt_parallel.get())
+            fit = calculate_fit(
+                model,
+                quant,
+                int(self.state_data["current_ctx"]),
+                kv_scale=scale,
+                parallel_slots=slots,
+            )
             caveat = " Approximate; validate model quality." if scale < 1 else " Quality-first KV cache."
-            self.opt_memory_note.configure(text=fit.detail + caveat)
+            self.opt_memory_note.configure(
+                text=(
+                    fit.detail + caveat
+                    + f" Reserves {int(self.state_data['current_ctx']):,} tokens per request slot."
+                )
+            )
         except (KeyError, ValueError):
             self.opt_memory_note.configure(text="VRAM projection unavailable until a model is selected.")
 
@@ -493,6 +519,7 @@ class Wizard(tk.Tk):
             "batch_size": self.opt_batch.get(),
             "ubatch_size": self.opt_ubatch.get(),
             "kv_cache_type": self.opt_kv.get(),
+            "parallel_slots": self.opt_parallel.get(),
             "gpu_enabled": self.opt_gpu.get(),
             "gpu_min_mhz": self.opt_gpu_min.get(),
             "gpu_max_mhz": self.opt_gpu_max.get(),
@@ -516,6 +543,7 @@ class Wizard(tk.Tk):
             str(self.state_data["selected_quant"]),
             int(self.state_data["current_ctx"]),
             kv_scale=scale,
+            parallel_slots=int(checked["parallel_slots"]),
         )
         if fit.verdict == "NO-FIT":
             raise ValueError(f"Selected runtime settings do not fit: {fit.detail}")

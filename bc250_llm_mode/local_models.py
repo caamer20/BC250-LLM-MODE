@@ -87,6 +87,10 @@ def _catalog_match(path: Path) -> ModelEntry | None:
     name = path.name.lower().replace("_", "-")
     if "defiant-fable" in name:
         return next(model for model in CATALOG if model.id == "defiant-fable-9b")
+    if "lfm2.5" in name and "2.6b" in name:
+        return next(model for model in CATALOG if model.id == "lfm25-26b")
+    if "lfm2.5" in name and "1.2b" in name and "instruct" in name:
+        return next(model for model in CATALOG if model.id == "lfm25-12b-instruct")
     if ("qwen3.5" in name or "qwen35" in name) and "9b" in name:
         return next(model for model in CATALOG if model.id == "qwen35-9b")
     if "qwen3" in name and "14b" in name:
@@ -172,6 +176,7 @@ def fit_entry_for_local(model: LocalModel) -> ModelEntry:
     note = "Existing local GGUF"
     if model.catalog_id is None:
         note += "; VRAM projection uses a conservative 72 KiB/token KV estimate"
+    catalog = next((item for item in CATALOG if item.id == model.catalog_id), None)
     return ModelEntry(
         id=model.id,
         display_name=model.display_name,
@@ -183,6 +188,7 @@ def fit_entry_for_local(model: LocalModel) -> ModelEntry:
         weights_gib_by_quant={model.quant: model.weights_gib},
         kv_kib_per_token=model.kv_kib_per_token,
         notes=note,
+        max_context_tokens=catalog.max_context_tokens if catalog else None,
     )
 
 

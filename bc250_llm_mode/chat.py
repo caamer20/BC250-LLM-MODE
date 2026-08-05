@@ -7,7 +7,7 @@ from .hardware import detect_hardware
 from .llmmode import stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
-from .model_manager import change_context, switch_model
+from .model_manager import change_context, change_parallel_slots, switch_model
 from .openwebui import (
     open_webui_status,
     restart_open_webui,
@@ -77,6 +77,7 @@ def _print_help(console) -> None:
             "/model [id]                     list or switch installed models",
             "/scan                           find compatible GGUF files on disk",
             "/ctx <tokens>                   change context after a VRAM fit check",
+            "/slots <1-8>                    set concurrent users after a VRAM fit check",
             "/llm start|stop|restart|status  manage the single model service",
             "/webui start|stop|restart|status manage optional Open WebUI",
             "/tailscale start|stop|restart|status|connect|disconnect",
@@ -124,6 +125,7 @@ def run_chat(store: StateStore | None = None) -> None:
                     "tailscale": tailscale_status(runner),
                     "model": state.get("current_model"),
                     "ctx": state.get("current_ctx"),
+                    "parallel_slots": state.get("optimizations", {}).get("parallel_slots", 4),
                     "boot_policy": state.get("boot_policy", "desktop"),
                     "llm_autostart": False,
                     "vram_used_mib": report.vram_used_mib,
@@ -157,6 +159,13 @@ def run_chat(store: StateStore | None = None) -> None:
                 console.print(change_context(store, state, int(parts[1]), runner))
             except (IndexError, ValueError, KeyError, StopIteration) as exc:
                 console.print(f"[red]Usage: /ctx <tokens> — {exc}[/red]")
+            continue
+        if prompt.startswith("/slots"):
+            parts = prompt.split()
+            try:
+                console.print(change_parallel_slots(store, state, int(parts[1]), runner))
+            except (IndexError, ValueError, KeyError, StopIteration) as exc:
+                console.print(f"[red]Usage: /slots <1-8> — {exc}[/red]")
             continue
         if prompt == "/scan":
             discovery = discover_local_models(state)

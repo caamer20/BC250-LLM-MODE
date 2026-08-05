@@ -6,6 +6,7 @@ from bc250_llm_mode.optimize import (
     apply_optimizations,
     kv_scale_for_settings,
     normalized_settings,
+    parallel_slots_for_settings,
     validate_settings,
 )
 
@@ -36,6 +37,7 @@ def test_balanced_values_validate():
     settings = validate_settings(DEFAULT_OPTIMIZATIONS)
     assert settings["batch_size"] == 1024
     assert settings["ubatch_size"] == 256
+    assert settings["parallel_slots"] == 4
     assert settings["gpu_min_mhz"] == 500
     assert settings["gpu_max_mhz"] == 1850
 
@@ -43,6 +45,7 @@ def test_balanced_values_validate():
 def test_kv_scale_tracks_runtime_toggle():
     assert kv_scale_for_settings({"runtime_enabled": True, "kv_cache_type": "q4_0"}) == 0.5
     assert kv_scale_for_settings({"runtime_enabled": False, "kv_cache_type": "q4_0"}) == 1.0
+    assert parallel_slots_for_settings({"parallel_slots": 6}) == 6
 
 
 def test_default_apply_has_no_host_side_commands():
@@ -63,6 +66,7 @@ def test_default_apply_has_no_host_side_commands():
         ("gpu_max_mhz", 2050),
         ("thermal_throttle_c", 95),
         ("swappiness", 201),
+        ("parallel_slots", 9),
     ],
 )
 def test_values_are_bounded(key, value):

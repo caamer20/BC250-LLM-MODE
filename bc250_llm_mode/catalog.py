@@ -24,9 +24,67 @@ class ModelEntry:
     source_repo: str | None = None
     conversion: bool = False
     true_block_count: int | None = None
+    max_context_tokens: int | None = None
 
 
 CATALOG: tuple[ModelEntry, ...] = (
+    ModelEntry(
+        id="lfm25-26b",
+        display_name="LFM2.5 2.6B",
+        family="lfm2",
+        task_tags=("chat", "agentic", "long-context", "multi-user", "fast"),
+        repo="LiquidAI/LFM2.5-2.6B-GGUF",
+        allow_globs={
+            "Q5_K_M": "*Q5_K_M.gguf",
+            "Q6_K": "*Q6_K.gguf",
+            "Q8_0": "*Q8_0.gguf",
+            "Q4_K_M": "*Q4_K_M.gguf",
+        },
+        params_b=2.697,
+        weights_gib_by_quant={
+            "Q5_K_M": 1.807,
+            "Q6_K": 2.069,
+            "Q8_0": 2.677,
+            "Q4_K_M": 1.559,
+        },
+        # Only 8 of 30 layers use GQA. At Q8 KV: 8 layers * 8 KV
+        # heads * 64 head dimension * K+V = 8 KiB/token.
+        kv_kib_per_token=8.0,
+        notes=(
+            "Official standard GGUF; 128K-trained hybrid architecture with very low KV growth. "
+            "Well suited to multiple concurrent users sharing llama.cpp's unified context pool."
+        ),
+        true_block_count=30,
+        max_context_tokens=128000,
+    ),
+    ModelEntry(
+        id="lfm25-12b-instruct",
+        display_name="LFM2.5 1.2B Instruct",
+        family="lfm2",
+        task_tags=("chat", "long-context", "multi-user", "fast", "low-power"),
+        repo="LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+        allow_globs={
+            "Q5_K_M": "*Q5_K_M.gguf",
+            "Q6_K": "*Q6_K.gguf",
+            "Q8_0": "*Q8_0.gguf",
+            "Q4_K_M": "*Q4_K_M.gguf",
+        },
+        params_b=1.170,
+        weights_gib_by_quant={
+            "Q5_K_M": 0.785,
+            "Q6_K": 0.897,
+            "Q8_0": 1.161,
+            "Q4_K_M": 0.681,
+        },
+        # 6 attention layers with the same 8 KV heads and 64-wide heads.
+        kv_kib_per_token=6.0,
+        notes=(
+            "Official instruct GGUF; smallest general chat option in the catalog. "
+            "Its 128K context and tiny KV cache leave exceptional multi-user headroom."
+        ),
+        true_block_count=16,
+        max_context_tokens=128000,
+    ),
     ModelEntry(
         id="qwen35-9b",
         display_name="Qwen3.5 9B Instruct",
@@ -215,15 +273,28 @@ def model_by_id(model_id: str) -> ModelEntry:
     raise KeyError(f"Unknown catalog model: {model_id}")
 
 
-def calculate_fit(model: ModelEntry, quant: str, ctx_tokens: int, *, kv_scale: float = 1.0) -> FitResult:
+def calculate_fit(
+    model: ModelEntry,
+    quant: str,
+    ctx_tokens: int,
+    *,
+    kv_scale: float = 1.0,
+    parallel_slots: int = 1,
+) -> FitResult:
     if quant not in model.weights_gib_by_quant:
         raise KeyError(f"{quant} is not available for {model.display_name}")
     if ctx_tokens <= 0:
         raise ValueError("Context size must be positive")
+    if model.max_context_tokens is not None and ctx_tokens > model.max_context_tokens:
+        raise ValueError(
+            f"{model.display_name} supports at most {model.max_context_tokens} context tokens"
+        )
     if kv_scale <= 0:
         raise ValueError("KV scale must be positive")
+    if not 1 <= parallel_slots <= 8:
+        raise ValueError("Parallel slots must be between 1 and 8")
     weights = model.weights_gib_by_quant[quant]
-    kv = ctx_tokens * model.kv_kib_per_token / (1024 * 1024) * kv_scale
+    kv = ctx_tokens * parallel_slots * model.kv_kib_per_token / (1024 * 1024) * kv_scale
     required = weights + kv + OVERHEAD_GIB
     if required <= COMFORTABLE_VRAM_GIB:
         verdict = "FITS"
@@ -232,6 +303,8 @@ def calculate_fit(model: ModelEntry, quant: str, ctx_tokens: int, *, kv_scale: f
     else:
         verdict = "NO-FIT"
     detail = f"{verdict} — ~{required:.2f} GiB of {FAST_VRAM_GIB:.0f} GiB fast VRAM"
+    if parallel_slots > 1:
+        detail += f" ({ctx_tokens:,} tokens × {parallel_slots} slots)"
     if verdict == "NO-FIT":
         detail += f" (~{GTT_SPILL_GIB:.1f} GiB GTT spill is slower and not counted as a safe fit)"
     return FitResult(weights, kv, OVERHEAD_GIB, required, verdict, detail)

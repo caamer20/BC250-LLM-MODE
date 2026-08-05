@@ -33,6 +33,7 @@ DEFAULT_OPTIMIZATIONS: dict[str, Any] = {
     "batch_size": 1024,
     "ubatch_size": 256,
     "kv_cache_type": "q8_0",
+    "parallel_slots": 4,
     "gpu_enabled": False,
     "gpu_min_mhz": 500,
     "gpu_max_mhz": 1850,
@@ -66,6 +67,10 @@ def kv_scale_for_settings(settings: dict[str, Any] | None) -> float:
     return 0.5 if checked["runtime_enabled"] and checked["kv_cache_type"] == "q4_0" else 1.0
 
 
+def parallel_slots_for_settings(settings: dict[str, Any] | None) -> int:
+    return int(normalized_settings(settings)["parallel_slots"])
+
+
 def _bounded_int(settings: dict[str, Any], key: str, low: int, high: int) -> int:
     try:
         value = int(settings[key])
@@ -82,6 +87,7 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("flash_attention must be auto, on, or off")
     if result["kv_cache_type"] not in {"q8_0", "q4_0"}:
         raise ValueError("kv_cache_type must be q8_0 or q4_0")
+    _bounded_int(result, "parallel_slots", 1, 8)
     batch = _bounded_int(result, "batch_size", 128, 2048)
     ubatch = _bounded_int(result, "ubatch_size", 64, 512)
     if batch % 64 or ubatch % 64:

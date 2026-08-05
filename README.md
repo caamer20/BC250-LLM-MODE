@@ -115,29 +115,37 @@ Tailscale is optional and is not installed by this application. On Linux, `tails
 
 ## Choosing a model
 
-The curated catalog currently includes ten models. Projected totals below use Q8 KV cache and include approximately 1 GiB runtime overhead.
+The curated catalog currently includes twelve models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
 
-| Model | Role | Recommended quant | 8k | 16k | 32k |
+| Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |
-| [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 7.83 GiB | 8.40 GiB | 9.52 GiB |
-| [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 7.86 GiB | 8.43 GiB | 9.55 GiB |
-| [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 6.70 GiB | 6.95 GiB | 7.45 GiB |
-| [Qwen3 14B](https://huggingface.co/ggml-org/Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 9.69 GiB | 10.01 GiB | 10.63 GiB (tight) |
-| [Llama 3.2 3B Instruct](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) | Fast/low-power | Q8_0 | 4.63 GiB | 5.07 GiB | 5.94 GiB |
-| [Llama 3.1 8B Instruct](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | Mature general chat | Q5_K_M | 6.84 GiB | 7.34 GiB | 8.34 GiB |
-| [Qwen2.5 Coder 7B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF) | Coding/debugging | Q6_K | 7.04 GiB | 7.26 GiB | 7.70 GiB |
-| [DeepSeek R1 Distill Qwen 7B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF) | Reasoning/math | Q6_K | 7.04 GiB | 7.26 GiB | 7.70 GiB |
-| [Mistral Nemo 12B Instruct](https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF) | Capable multilingual chat | Q5_K_M | 9.76 GiB | 10.38 GiB | 11.63 GiB (tight) |
-| [Phi-4 14B](https://huggingface.co/bartowski/phi-4-GGUF) | Reasoning/math/code | Q4_K_M | 10.21 GiB | 10.99 GiB (tight) | No fit |
+| [LFM2.5 2.6B](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF) | Agentic/long-context/multi-user | Q5_K_M | 3.06 GiB | 3.31 GiB | 3.81 GiB |
+| [LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | Small chat/long-context/multi-user | Q5_K_M | 1.97 GiB | 2.16 GiB | 2.54 GiB |
+| [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 9.52 GiB | 11.77 GiB (tight) | No fit |
+| [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |
+| [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 7.45 GiB | 8.45 GiB | 10.45 GiB |
+| [Qwen3 14B](https://huggingface.co/ggml-org/Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 10.63 GiB (tight) | 11.88 GiB (tight) | No fit |
+| [Llama 3.2 3B Instruct](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) | Fast/low-power | Q8_0 | 5.94 GiB | 7.69 GiB | 11.19 GiB (tight) |
+| [Llama 3.1 8B Instruct](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | Mature general chat | Q5_K_M | 8.34 GiB | 10.34 GiB | No fit |
+| [Qwen2.5 Coder 7B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF) | Coding/debugging | Q6_K | 7.70 GiB | 8.57 GiB | 10.32 GiB |
+| [DeepSeek R1 Distill Qwen 7B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF) | Reasoning/math | Q6_K | 7.70 GiB | 8.57 GiB | 10.32 GiB |
+| [Mistral Nemo 12B Instruct](https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF) | Capable multilingual chat | Q5_K_M | 11.63 GiB (tight) | No fit | No fit |
+| [Phi-4 14B](https://huggingface.co/bartowski/phi-4-GGUF) | Reasoning/math/code | Q4_K_M | No fit | No fit | No fit |
 
-The original seed models and Defiant Fable workflow come from direct BC-250 development. The six added models are **strong compatibility candidates**, selected because current llama.cpp supports their architectures, their verified Hugging Face artifacts are single-file standard K-quants, and their projected allocations fit the BC-250 budget. They have not all been individually load-tested on the target unit yet. Treat the fit badge as a conservative planning tool and report real-hardware results.
+LFM2.5 is especially useful when several clients share the server. LiquidAI advertises a 128K-trained context window, and its hybrid convolution/attention layout uses only eight attention layers in the 2.6B model and six in the 1.2B model. At Q8 KV this projects to roughly 8 KiB/token and 6 KiB/token respectively. A 128K LFM2.5 2.6B Q5 configuration projects to about 3.78 GiB for one slot or 6.71 GiB for four; the 1.2B Instruct model projects to about 2.52 GiB for one slot or 4.71 GiB for four.
+
+The LFM2.5 2.6B Q5 model is hardware-validated on the project BC-250: Vulkan loaded 128,000 tokens per slot across four slots, measured about 6.54 GiB VRAM in use, and produced approximately 121 tokens/second in the smoke-test response. The 1.2B Instruct entry uses official GGUF/config metadata and remains a compatibility candidate until separately tested on-card.
+
+The context control is per user/slot. The launcher reserves `context × slots` in llama.cpp, and the VRAM fit engine applies the same multiplier before allowing a restart. Select 1–8 **User slots** on the Optimization page. More slots allow more simultaneous requests, but reserve more KV memory and divide available compute throughput; reducing slots restores headroom for larger models.
+
+The original seed models and Defiant Fable workflow come from direct BC-250 development. Compatibility candidates are selected because current llama.cpp supports their architectures, their verified Hugging Face artifacts are single-file standard K-quants, and their projected allocations fit the BC-250 budget. Models not explicitly called hardware-validated may not yet have been individually load-tested on the target unit. Treat the fit badge as a conservative planning tool and report real-hardware results.
 
 Only the listed standard K-quants are offered for the larger candidates. I-quants, ARM/CPU-interleaved formats, multimodal projectors, MTP artifacts, and fused/MAX repacks remain excluded.
 
 The fit calculation is:
 
 ```text
-required GiB = weights GiB + context KV GiB + approximately 1 GiB overhead
+required GiB = weights GiB + (context per user × user slots × KV bytes/token) + approximately 1 GiB overhead
 ```
 
 Up to approximately 10.5 GiB is marked comfortable, 10.5–12 GiB is tight, and anything above the 12 GiB fast UMA budget is rejected as a safe fit. The approximately 2.5 GiB GTT spill area is slower and is not treated as dependable fast-model capacity.
@@ -159,7 +167,7 @@ The scanner excludes fused/MAX/imatrix-MAX files, vision projectors, MTP artifac
 
 All host changes start unchecked. The page validates every numeric range before applying it.
 
-- **Runtime:** Flash Attention (`auto`, `on`, or `off`), Q8/Q4 KV cache, batch size 128–2048, and micro-batch size 64–512.
+- **Runtime:** Flash Attention (`auto`, `on`, or `off`), Q8/Q4 KV cache, batch size 128–2048, micro-batch size 64–512, and 1–8 concurrent request slots (default 4).
 - **Cyan GPU governor:** 500–1200 MHz minimum, 1500–2000 MHz maximum, 75–90°C throttle, and 60–85°C recovery. Recovery must remain at least 5°C below throttling.
 - **Server safeguards:** restart window 60–900 seconds, burst 1–10, delay 5–60 seconds, and server-log rotation at 10–500 MiB.
 - **Memory policy:** optional persistent swappiness from 10–200.
@@ -185,6 +193,7 @@ The client streams responses and retains conversation history for the current se
 | `/model <id>` | Switch to an installed model through the single systemd service |
 | `/scan` | Find compatible standard-layout GGUF files in configured model folders |
 | `/ctx <tokens>` | Change context size from 512 to 262144 after a fit check |
+| `/slots <1-8>` | Set concurrent request slots after a multiplied KV/VRAM fit check |
 | `/llm start\|stop\|restart\|status` | Manage the single systemd-owned model server |
 | `/webui start\|stop\|restart\|status` | Install/start or manage Open WebUI |
 | `/tailscale start\|stop\|restart\|status\|connect\|disconnect` | Manage the optional daemon and tailnet connection separately |
@@ -212,6 +221,7 @@ bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
 bc250-llm-mode ctx <tokens>            Change context after a VRAM fit check and restart
+bc250-llm-mode slots <1-8>             Set concurrent users after a VRAM fit check and restart
 bc250-llm-mode boot-policy [status|desktop]
                                         Show or restage desktop/no-LLM next boot
 bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
