@@ -149,3 +149,73 @@ def test_parallel_slot_change_rejects_unsafe_large_model(monkeypatch):
 
     with pytest.raises(ValueError, match="NO-FIT"):
         model_manager.change_parallel_slots(Store(), state, 4, FakeRunner())
+
+
+def test_model_switch_rolls_back_after_health_failure(monkeypatch):
+    state = {
+        "current_model": "qwen3-8b",
+        "current_ctx": 8192,
+        "installed_models": [
+            {"id": "qwen3-8b", "quant": "Q4_K_M"},
+            {"id": "qwen38-9b", "quant": "Q4_K_M"},
+        ],
+        "optimizations": {"parallel_slots": 1},
+    }
+
+    class Store:
+        def __init__(self):
+            self.saved_models = []
+
+        def save(self, value):
+            self.saved_models.append(value.get("current_model"))
+
+    restarts = []
+    health_calls = []
+    monkeypatch.setattr(
+        model_manager,
+        "restart_service",
+        lambda value, _runner: restarts.append(value["current_model"]),
+    )
+
+    def health(value, _runner):
+        health_calls.append(value["current_model"])
+        if value["current_model"] == "qwen38-9b":
+            raise TimeoutError("new model did not load")
+        return {"healthy": True}
+
+    monkeypatch.setattr(model_manager, "health_check", health)
+    store = Store()
+    with pytest.raises(RuntimeError, match="previous working configuration was restored"):
+        model_manager.switch_model(store, state, "qwen38-9b", FakeRunner())
+    assert state["current_model"] == "qwen3-8b"
+    assert restarts == ["qwen38-9b", "qwen3-8b"]
+    assert health_calls == ["qwen38-9b", "qwen3-8b"]
+    assert store.saved_models == ["qwen38-9b", "qwen3-8b"]
+
+
+def test_context_change_rolls_back_after_health_failure(monkeypatch):
+    state = {
+        "current_model": "lfm25-26b",
+        "current_ctx": 8192,
+        "installed_models": [{"id": "lfm25-26b", "quant": "Q5_K_M"}],
+        "optimizations": {"parallel_slots": 1},
+    }
+
+    class Store:
+        def save(self, _value):
+            pass
+
+    monkeypatch.setattr(model_manager, "restart_service", lambda *_args: None)
+    calls = []
+
+    def health(value, _runner):
+        calls.append(value["current_ctx"])
+        if value["current_ctx"] == 16384:
+            raise TimeoutError("bad context")
+        return {"healthy": True}
+
+    monkeypatch.setattr(model_manager, "health_check", health)
+    with pytest.raises(RuntimeError, match="previous working configuration was restored"):
+        model_manager.change_context(Store(), state, 16384, FakeRunner())
+    assert state["current_ctx"] == 8192
+    assert calls == [16384, 8192]

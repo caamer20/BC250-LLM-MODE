@@ -34,7 +34,7 @@ DEFAULT_OPTIMIZATIONS: dict[str, Any] = {
     "ubatch_size": 256,
     "kv_cache_type": "q8_0",
     "parallel_slots": 4,
-    "gpu_enabled": False,
+    "gpu_tuning_enabled": False,
     "gpu_min_mhz": 500,
     "gpu_max_mhz": 1850,
     "thermal_throttle_c": 85,
@@ -54,11 +54,16 @@ DEFAULT_OPTIMIZATIONS: dict[str, Any] = {
 def normalized_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
     result = deepcopy(DEFAULT_OPTIMIZATIONS)
     if settings:
+        legacy_gpu_tuning = settings.get("gpu_enabled") if "gpu_tuning_enabled" not in settings else None
         for key, value in settings.items():
+            if key == "gpu_enabled":
+                continue
             if key == "trim_services" and isinstance(value, dict):
                 result[key].update(value)
             else:
                 result[key] = value
+        if legacy_gpu_tuning is not None:
+            result["gpu_tuning_enabled"] = bool(legacy_gpu_tuning)
     return result
 
 
@@ -252,7 +257,7 @@ def apply_optimizations(
 ) -> dict[str, Any]:
     require_acknowledgment(state)
     checked = validate_settings(settings)
-    if checked["gpu_enabled"]:
+    if checked["gpu_tuning_enabled"]:
         _apply_gpu(checked, state, runner)
     else:
         _revert_gpu(state, runner)
@@ -268,7 +273,12 @@ def apply_optimizations(
 
 def revert_optimizations(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
     settings = normalized_settings(state.get("optimizations"))
-    settings.update(gpu_enabled=False, memory_enabled=False, safeguards_enabled=False, trim_services_enabled=False)
+    settings.update(
+        gpu_tuning_enabled=False,
+        memory_enabled=False,
+        safeguards_enabled=False,
+        trim_services_enabled=False,
+    )
     _revert_gpu(state, runner)
     _apply_service_trim(settings, state, runner)
     _apply_memory(settings, state, runner)

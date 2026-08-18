@@ -41,7 +41,7 @@ def test_standard_artifact_allowed():
 
 
 def test_catalog_ids_are_unique_and_all_downloads_are_standard_layouts():
-    assert len(CATALOG) == 12
+    assert len(CATALOG) == 13
     assert len({model.id for model in CATALOG}) == len(CATALOG)
     for model in CATALOG:
         for pattern in model.allow_globs.values():
@@ -89,3 +89,23 @@ def test_lfm25_128k_fits_four_concurrent_slots():
 def test_lfm25_rejects_context_above_trained_limit():
     with pytest.raises(ValueError, match="at most 128000"):
         calculate_fit(model_by_id("lfm25-26b"), "Q5_K_M", 128001)
+
+
+def test_qwen38_uses_exact_standard_ggufs_and_bc250_fit_math():
+    model = model_by_id("qwen38-9b")
+    assert model.repo == "empero-ai/Qwen3.8-9B-GGUF"
+    assert model.allow_globs["Q4_K_M"] == "Qwen3.8-9B-Q4_K_M.gguf"
+    assert model.true_block_count == 32
+    assert model.max_context_tokens == 262144
+    assert model.temperature == 0.6
+    assert model.top_p == 0.95
+    assert model.top_k == 20
+    assert calculate_fit(model, "Q4_K_M", 16384, parallel_slots=4).verdict == "TIGHT"
+    q5 = calculate_fit(model, "Q5_K_M", 8192, parallel_slots=4)
+    assert q5.required_gib == pytest.approx(9.436, abs=0.002)
+    assert q5.verdict == "FITS"
+
+
+def test_qwen38_rejects_context_above_trained_limit():
+    with pytest.raises(ValueError, match="at most 262144"):
+        calculate_fit(model_by_id("qwen38-9b"), "Q4_K_M", 262145)

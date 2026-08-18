@@ -19,6 +19,11 @@ def test_launcher_keeps_mmap_and_vulkan_workarounds(tmp_path):
     assert "--batch-size \"${CFG[4]}\"" in text
     assert "--parallel \"${CFG[7]}\"" in text
     assert "--alias \"${CFG[8]}\"" in text
+    assert "--temp \"${CFG[9]}\"" in text
+    assert "--top-p \"${CFG[10]}\"" in text
+    assert "--top-k \"${CFG[11]}\"" in text
+    assert "--min-p \"${CFG[12]}\"" in text
+    assert "--repeat-penalty \"${CFG[13]}\"" in text
     assert "print(int(s.get('current_ctx', 8192)) * slots)" in text
 
 

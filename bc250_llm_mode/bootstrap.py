@@ -44,7 +44,7 @@ def terminal_acknowledgment(
     """Enforce the same mandatory gate when bootstrapping from an SSH terminal."""
     output_fn(DISCLAIMER_TEXT)
     output_fn("")
-    output_fn("All four confirmations below are mandatory.")
+    output_fn("All acknowledgments below are mandatory.")
     for index, label in enumerate(ACKS, start=1):
         response = input_fn(f"[{index}/3] {label}\nType YES: ").strip()
         if response != "YES":

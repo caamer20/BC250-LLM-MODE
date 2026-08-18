@@ -29,7 +29,7 @@ def _current_boot_id() -> str | None:
         return None
 
 DEFAULT_STATE: dict[str, Any] = {
-    "schema_version": 3,
+    "schema_version": 4,
     "disclaimer_ack": False,
     "ack_timestamp": None,
     "setup_phase": 0,
@@ -96,6 +96,11 @@ class StateStore:
                 if state.get("system_mode") == "llm":
                     state["system_mode"] = "llm-session"
                     state["llm_session_boot_id"] = _current_boot_id()
+            if old_schema < 4:
+                settings = dict(state.get("optimizations") or {})
+                if "gpu_tuning_enabled" not in settings:
+                    settings["gpu_tuning_enabled"] = bool(settings.pop("gpu_enabled", False))
+                state.update(schema_version=4, optimizations=settings)
         session_boot = state.get("llm_session_boot_id")
         current_boot = _current_boot_id()
         if (

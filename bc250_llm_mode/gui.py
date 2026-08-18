@@ -29,7 +29,13 @@ from .local_models import (
     selected_fit_entry,
 )
 from .logging_utils import CommandRunner, configure_logging
-from .model_manager import change_context, register_and_switch_local, switch_model
+from .memory_profile import analyze_memory_profile
+from .model_manager import (
+    change_context,
+    register_and_switch_local,
+    restart_with_rollback,
+    switch_model,
+)
 from .openwebui import (
     install_open_webui,
     open_webui_status,
@@ -109,6 +115,7 @@ class Wizard(tk.Tk):
         self._build_shell()
         self.show_step(self.current_step)
         self.after(100, self._drain_events)
+        self.after(5000, self._poll_dashboard)
 
     def _build_shell(self) -> None:
         outer = ttk.Frame(self, padding=14)
@@ -194,7 +201,10 @@ class Wizard(tk.Tk):
         self._body_label("The GPU is rediscovered by PCI vendor ID on every run; card0/card1 is never assumed.")
         self.hardware_report = detect_hardware(self.state_data["models_dir"])
         report = tk.Text(self.content, height=13, wrap="word")
-        report.insert("1.0", json.dumps(self.hardware_report.to_dict(), indent=2))
+        report.insert("1.0", json.dumps({
+            "hardware": self.hardware_report.to_dict(),
+            "memory_profile": analyze_memory_profile(self.hardware_report).to_dict(),
+        }, indent=2))
         report.configure(state="disabled")
         report.pack(fill="both", expand=True)
         if self.hardware_report.errors:
@@ -413,7 +423,7 @@ class Wizard(tk.Tk):
 
         gpu = ttk.LabelFrame(inner, text="Cyan GPU governor (host change; reversible)", padding=7)
         gpu.pack(fill="x", pady=4)
-        self.opt_gpu = tk.BooleanVar(value=bool(settings["gpu_enabled"]))
+        self.opt_gpu = tk.BooleanVar(value=bool(settings["gpu_tuning_enabled"]))
         ttk.Checkbutton(gpu, text="Tune frequency range and thermal limits", variable=self.opt_gpu).pack(anchor="w")
         gpu_row = ttk.Frame(gpu)
         gpu_row.pack(fill="x", pady=3)
@@ -521,7 +531,7 @@ class Wizard(tk.Tk):
             "ubatch_size": self.opt_ubatch.get(),
             "kv_cache_type": self.opt_kv.get(),
             "parallel_slots": self.opt_parallel.get(),
-            "gpu_enabled": self.opt_gpu.get(),
+            "gpu_tuning_enabled": self.opt_gpu.get(),
             "gpu_min_mhz": self.opt_gpu_min.get(),
             "gpu_max_mhz": self.opt_gpu_max.get(),
             "thermal_throttle_c": self.opt_throttle.get(),
@@ -601,6 +611,7 @@ class Wizard(tk.Tk):
             "webui": tk.StringVar(value="Checking…"),
             "tailscale": tk.StringVar(value="Checking…"),
             "sharing": tk.StringVar(value="Checking…"),
+            "memory": tk.StringVar(value="Checking…"),
         }
         services = ttk.Frame(inner)
         services.pack(fill="x")
@@ -635,7 +646,13 @@ class Wizard(tk.Tk):
                 ("Enable", lambda: self._dashboard_action(lambda r: start_https_sharing(self.state_data, r))),
                 ("Disable", lambda: self._dashboard_action(lambda r: stop_https_sharing(self.state_data, r))),
             ),
-        ).pack(fill="x", expand=True)
+        ).pack(side="left", fill="both", expand=True, padx=(0, 4))
+        self._dashboard_service_card(
+            sharing,
+            "BC-250 memory profile",
+            self.dashboard_status_vars["memory"],
+            (),
+        ).pack(side="left", fill="both", expand=True, padx=(4, 0))
 
         quick = ttk.Frame(inner)
         quick.pack(fill="x", pady=6)
@@ -771,6 +788,7 @@ class Wizard(tk.Tk):
             return
         snapshot: dict[str, Any] = {}
         def work() -> None:
+            state_before = json.dumps(self.state_data, sort_keys=True, default=str)
             runner = self.runner()
             snapshot["llm"] = service_status(self.state_data, runner)
             if snapshot["llm"]["active"]:
@@ -781,7 +799,11 @@ class Wizard(tk.Tk):
             snapshot["webui"] = open_webui_status(self.state_data, runner)
             snapshot["tailscale"] = tailscale_status(runner)
             snapshot["sharing"] = https_sharing_status(self.state_data, runner)
-            self.save()
+            snapshot["memory"] = analyze_memory_profile(
+                detect_hardware(self.state_data["models_dir"], check_vulkan=False)
+            ).to_dict()
+            if json.dumps(self.state_data, sort_keys=True, default=str) != state_before:
+                self.save()
         def done() -> None:
             llm = snapshot["llm"]
             if snapshot.get("health"):
@@ -817,7 +839,19 @@ class Wizard(tk.Tk):
             else:
                 text = "Disabled or incomplete"
             self.dashboard_status_vars["sharing"].set(text)
+            memory = snapshot["memory"]
+            prefix = "Supported" if memory["supported"] else memory["risk"].title()
+            self.dashboard_status_vars["memory"].set(
+                f"{prefix} · {memory['estimated_bios_split']} · "
+                f"host usable {memory['detected_host_usable_gib']:.2f} GiB · live resize unavailable"
+            )
         self._work(work, done)
+
+    def _poll_dashboard(self) -> None:
+        """Keep external CLI/systemd changes visible without blocking tkinter."""
+        if self.current_step == 10 and not self.busy and hasattr(self, "dashboard_status_vars"):
+            self._refresh_dashboard()
+        self.after(5000, self._poll_dashboard)
 
     def _open_shared_webui(self) -> None:
         url = self.state_data.get("https_webui_url")
@@ -933,6 +967,10 @@ class Wizard(tk.Tk):
             selected_iid = self.model_tree.selection()[0]
             source, selected = self.model_choices[selected_iid]
             local_data = selected.to_dict() if source == "local" else None
+            self.state_data["pending_activation_previous"] = {
+                "current_model": self.state_data.get("current_model"),
+                "current_ctx": self.state_data.get("current_ctx", 8192),
+            }
             self.state_data.update(
                 selected_model=selected.id,
                 selected_source=source,
@@ -994,8 +1032,18 @@ class Wizard(tk.Tk):
         elif step == 8:
             def action() -> None:
                 runner = self.runner()
-                install_service(self.state_data, runner)
-                health_check(self.state_data, runner)
+                install_service(self.state_data, runner, enable_and_start=False)
+                previous = self.state_data.pop(
+                    "pending_activation_previous",
+                    {"current_model": None, "current_ctx": 8192},
+                )
+                restart_with_rollback(
+                    self.store,
+                    self.state_data,
+                    runner,
+                    previous,
+                    f"Activating {self.state_data.get('current_model', 'selected model')}",
+                )
                 if self.state_data.get("selected_source") != "local":
                     cleanup_conversion_intermediates(
                         self.state_data, model_by_id(self.state_data["selected_model"]), runner

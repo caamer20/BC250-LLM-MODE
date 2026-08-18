@@ -51,6 +51,11 @@ print(o.get('kv_cache_type', 'q8_0'))
 print(slots)
 alias = str(r.get('display_name') or r.get('id') or 'local').replace('\\n', ' ').strip()
 print(alias)
+print(r.get('temperature', 0.3))
+print(r.get('top_p', 0.9))
+print(r.get('top_k', 40))
+print(r.get('min_p', 0.05))
+print(r.get('repeat_penalty', 1.05))
 PY
 )
 export GGML_VK_DISABLE_F16=1
@@ -60,7 +65,8 @@ exec {llama_server} -m "${{CFG[0]}}" --host 127.0.0.1 --port "${{CFG[2]}}" \\
   --batch-size "${{CFG[4]}}" --ubatch-size "${{CFG[5]}}" \\
   --cache-type-k "${{CFG[6]}}" --cache-type-v "${{CFG[6]}}" \\
   --parallel "${{CFG[7]}}" --alias "${{CFG[8]}}" \\
-  --temp 0.3 --top-p 0.9 --min-p 0.05 --repeat-penalty 1.05
+  --temp "${{CFG[9]}}" --top-p "${{CFG[10]}}" --top-k "${{CFG[11]}}" \\
+  --min-p "${{CFG[12]}}" --repeat-penalty "${{CFG[13]}}"
 """
     launcher.write_text(content, encoding="utf-8")
     launcher.chmod(0o755)
@@ -153,6 +159,9 @@ def install_service(
 
 
 def restart_service(state: dict[str, Any], runner: CommandRunner) -> None:
+    # Refresh state-aware launch behavior on every controlled restart so newly
+    # added per-model profiles take effect without reinstalling the unit.
+    generate_launcher(state)
     runner.run(elevated(["systemctl", "restart", str(state["service_name"])]))
 
 

@@ -20,7 +20,14 @@ class ModelEntry:
     weights_gib_by_quant: dict[str, float]
     kv_kib_per_token: float
     notes: str
+    temperature: float = 0.3
+    top_p: float = 0.9
+    top_k: int = 40
+    min_p: float = 0.05
+    repeat_penalty: float = 1.05
     avoid: tuple[str, ...] = ("*MAX*", "*fused*", "*mmproj*", "*MTP*")
+    checksum_manifest: str | None = None
+    temporary_disk_gib: float | None = None
     source_repo: str | None = None
     conversion: bool = False
     true_block_count: int | None = None
@@ -86,6 +93,43 @@ CATALOG: tuple[ModelEntry, ...] = (
         max_context_tokens=128000,
     ),
     ModelEntry(
+        id="qwen38-9b",
+        display_name="Qwen3.8 9B (Empero distill)",
+        family="qwen35",
+        task_tags=("chat", "reasoning", "function-calling", "general"),
+        repo="empero-ai/Qwen3.8-9B-GGUF",
+        allow_globs={
+            "Q4_K_M": "Qwen3.8-9B-Q4_K_M.gguf",
+            "Q5_K_M": "Qwen3.8-9B-Q5_K_M.gguf",
+            "Q6_K": "Qwen3.8-9B-Q6_K.gguf",
+            "Q8_0": "Qwen3.8-9B-Q8_0.gguf",
+        },
+        params_b=9.7,
+        # Exact uploaded decimal-GB sizes converted to binary GiB.
+        weights_gib_by_quant={
+            "Q4_K_M": 5.383,
+            "Q5_K_M": 6.186,
+            "Q6_K": 7.040,
+            "Q8_0": 9.114,
+        },
+        # The student retains Qwen3.5-9B's 32-layer hybrid architecture:
+        # eight full-attention layers, four KV heads, and 256-wide heads.
+        kv_kib_per_token=72.0,
+        notes=(
+            "Standard text-generation GGUF of Empero's Qwen3.8 reasoning distillation. "
+            "Q4_K_M is recommended for four-user headroom. Requires a recent llama.cpp "
+            "build with Qwen3.5/Gated DeltaNet support; no MTP or vision artifacts are selected."
+        ),
+        temperature=0.6,
+        top_p=0.95,
+        top_k=20,
+        min_p=0.0,
+        checksum_manifest="SHA256SUMS",
+        source_repo="empero-ai/Qwen3.8-9B",
+        true_block_count=32,
+        max_context_tokens=262144,
+    ),
+    ModelEntry(
         id="qwen35-9b",
         display_name="Qwen3.5 9B Instruct",
         family="qwen35",
@@ -115,6 +159,9 @@ CATALOG: tuple[ModelEntry, ...] = (
         weights_gib_by_quant={"Q5_K_M": 6.3, "Q6_K": 7.0},
         kv_kib_per_token=72.0,
         notes="Converted locally to a text-only standard layout; fused MAX release is intentionally rejected.",
+        # Source shards, the temporary f16 GGUF, and the final quant coexist
+        # until the converted model has loaded successfully.
+        temporary_disk_gib=46.0,
         conversion=True,
         true_block_count=32,
     ),

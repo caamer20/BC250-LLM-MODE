@@ -81,3 +81,15 @@ def test_discovery_recognizes_lfm25_and_uses_low_kv_estimate(tmp_path, monkeypat
     result = discover_local_models({"models_dir": str(tmp_path), "installed_models": []})
     assert result.models[0].catalog_id == "lfm25-26b"
     assert result.models[0].kv_kib_per_token == 8.0
+
+
+def test_discovery_recognizes_qwen38_and_uses_qwen35_kv_estimate(tmp_path, monkeypatch):
+    from bc250_llm_mode import local_models
+
+    monkeypatch.setattr(local_models, "_candidate_roots", lambda _state: (tmp_path,))
+    target = tmp_path / "Qwen3.8-9B-Q4_K_M.gguf"
+    sparse_model(target)
+    result = discover_local_models({"models_dir": str(tmp_path), "installed_models": []})
+    assert result.models[0].catalog_id == "qwen38-9b"
+    assert result.models[0].family == "qwen35"
+    assert result.models[0].kv_kib_per_token == 72.0

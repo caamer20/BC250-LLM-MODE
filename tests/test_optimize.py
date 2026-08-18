@@ -27,7 +27,7 @@ class NoCommandRunner:
 def test_defaults_only_enable_safe_runtime_tuning():
     settings = normalized_settings(None)
     assert settings["runtime_enabled"] is True
-    assert settings["gpu_enabled"] is False
+    assert settings["gpu_tuning_enabled"] is False
     assert settings["memory_enabled"] is False
     assert settings["trim_services_enabled"] is False
     assert settings["safeguards_enabled"] is False
@@ -46,6 +46,12 @@ def test_kv_scale_tracks_runtime_toggle():
     assert kv_scale_for_settings({"runtime_enabled": True, "kv_cache_type": "q4_0"}) == 0.5
     assert kv_scale_for_settings({"runtime_enabled": False, "kv_cache_type": "q4_0"}) == 1.0
     assert parallel_slots_for_settings({"parallel_slots": 6}) == 6
+
+
+def test_legacy_gpu_enabled_setting_migrates_to_clear_name():
+    settings = normalized_settings({"gpu_enabled": True})
+    assert settings["gpu_tuning_enabled"] is True
+    assert "gpu_enabled" not in settings
 
 
 def test_default_apply_has_no_host_side_commands():

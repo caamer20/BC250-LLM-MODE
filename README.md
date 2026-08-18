@@ -25,6 +25,8 @@ The software has been developed and tested for the BC-250 on Bazzite. It is not 
 
 The BC-250 has no Re-Size BAR/Above-4G option that this tool can enable. Changing the recommended 12/4 UMA split does not solve the card's per-allocation limit, and fused/MAX repacks remain unsupported even when total free VRAM appears sufficient.
 
+The UMA carve-out is established by firmware before Linux boots. It cannot be safely changed on the fly. In particular, a 14 GiB GPU / 2 GiB OS split is rejected as host-starved: Bazzite, Podman, the AMD driver, and mmap bookkeeping need the supported approximately 4 GiB host allocation.
+
 ## Before installation
 
 1. Make sure all 40 compute units are unlocked in BIOS/firmware if your board exposes that option.
@@ -72,13 +74,13 @@ A plain SSH session cannot display the local desktop window unless graphical for
 
 The wizard is resumable and each step is designed to be safe to run again:
 
-1. **Hardware validation** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks VRAM, GTT, host RAM, disk space, and Vulkan identity.
+1. **Hardware validation** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks VRAM, GTT, host RAM, disk space, Vulkan identity, and whether the boot-time memory profile matches the supported 12/4 split.
 2. **Mandatory safety warning** — requires three checkboxes and the exact typed text `I ACCEPT` before any setup change.
 3. **LLM Mode** — starts a current-boot inference session with runtime-only sleep masks and a vendor-matched GPU-awake rule. It simultaneously stages normal `graphical.target` desktop mode and disables model auto-start for the next boot.
 4. **Inference environment** — creates or reuses the `llm` Distrobox/Podman container, builds `llama.cpp` with Vulkan, creates the model-preparation Python environment, and runs a Vulkan smoke test.
 5. **Model selection** — offers the curated BC-250 catalog and GGUF models already present on disk, with live context/VRAM fit estimates.
 6. **Optimize** — applies only the bounded options selected by the user. Host-level performance changes are opt-in.
-7. **Download** — performs a resumable Hugging Face download, or skips the network entirely for an existing local GGUF.
+7. **Download** — checks free space before transfer, performs a resumable Hugging Face download, verifies a publisher SHA-256 manifest when provided, or skips the network entirely for an existing local GGUF.
 8. **Prepare** — verifies GGUF architecture and tensor block metadata, applies guarded self-healing metadata patches when appropriate, and handles supported text-only conversion workflows.
 9. **Server** — creates the single owning `bc250-llm.service`, starts the model, and checks `/health` and `/v1/models`.
 10. **Open WebUI** — optionally starts Open WebUI on port 3000.
@@ -109,18 +111,21 @@ Running `bc250-llm-mode` after setup opens the native management dashboard direc
 - recent model-server and setup logs in the existing live log pane;
 - terminal chat launch, optimization controls, repair, current-boot LLM Mode, and non-destructive Bazzite desktop mode.
 
+The dashboard refreshes live service, API, WebUI, Tailscale, sharing, and memory-profile state every five seconds, so changes made from another terminal appear without reopening the app. Model, context, and user-slot activations are transactional: if a new configuration fails its health check, the application restores and restarts the last working configuration.
+
 The dashboard never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
 
 Tailscale is optional and is not installed by this application. On Linux, `tailscaled` is the systemd-managed daemon, while `tailscale up` joins/connects the machine to its tailnet. The app exposes those as separate actions so stopping the daemon is not confused with signing out or changing tailnet state. A first-time **Connect** may print an authentication URL in the application log.
 
 ## Choosing a model
 
-The curated catalog currently includes twelve models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
+The curated catalog currently includes thirteen models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
 
 | Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |
 | [LFM2.5 2.6B](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF) | Agentic/long-context/multi-user | Q5_K_M | 3.06 GiB | 3.31 GiB | 3.81 GiB |
 | [LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | Small chat/long-context/multi-user | Q5_K_M | 1.97 GiB | 2.16 GiB | 2.54 GiB |
+| [Qwen3.8 9B (Empero distill)](https://huggingface.co/empero-ai/Qwen3.8-9B-GGUF) | Reasoning/function calling | Q4_K_M | 8.63 GiB | 10.88 GiB (tight) | No fit |
 | [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 9.52 GiB | 11.77 GiB (tight) | No fit |
 | [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |
 | [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 7.45 GiB | 8.45 GiB | 10.45 GiB |
@@ -135,6 +140,10 @@ The curated catalog currently includes twelve models. Projected totals below use
 LFM2.5 is especially useful when several clients share the server. LiquidAI advertises a 128K-trained context window, and its hybrid convolution/attention layout uses only eight attention layers in the 2.6B model and six in the 1.2B model. At Q8 KV this projects to roughly 8 KiB/token and 6 KiB/token respectively. A 128K LFM2.5 2.6B Q5 configuration projects to about 3.78 GiB for one slot or 6.71 GiB for four; the 1.2B Instruct model projects to about 2.52 GiB for one slot or 4.71 GiB for four.
 
 The LFM2.5 2.6B Q5 model is hardware-validated on the project BC-250: Vulkan loaded 128,000 tokens per slot across four slots, measured about 6.54 GiB VRAM in use, and produced approximately 121 tokens/second in the smoke-test response. The 1.2B Instruct entry uses official GGUF/config metadata and remains a compatibility candidate until separately tested on-card.
+
+Qwen3.8 9B is Empero's full-parameter reasoning distillation into the Qwen3.5-9B architecture, not an official Alibaba Qwen model release. The catalog downloads Empero's exact standard-layout GGUF filenames and deliberately excludes BF16, MTP, vision-projector, fused, and MAX artifacts. Its model card requires a recent llama.cpp build with Qwen3.5/Gated DeltaNet support. It is currently a metadata-validated compatibility candidate until it completes an on-card Vulkan load and generation test.
+
+Catalog entries can carry model-specific sampling profiles. Qwen3.8 launches with the publisher-recommended temperature `0.6`, top-p `0.95`, top-k `20`, and min-p `0`; older installed records retain conservative application defaults. The generated launcher is refreshed on every controlled server restart.
 
 The context control is per user/slot. The launcher reserves `context × slots` in llama.cpp, and the VRAM fit engine applies the same multiplier before allowing a restart. Select 1–8 **User slots** on the Optimization page. More slots allow more simultaneous requests, but reserve more KV memory and divide available compute throughput; reducing slots restores headroom for larger models.
 
@@ -168,7 +177,7 @@ The scanner excludes fused/MAX/imatrix-MAX files, vision projectors, MTP artifac
 All host changes start unchecked. The page validates every numeric range before applying it.
 
 - **Runtime:** Flash Attention (`auto`, `on`, or `off`), Q8/Q4 KV cache, batch size 128–2048, micro-batch size 64–512, and 1–8 concurrent request slots (default 4).
-- **Cyan GPU governor:** 500–1200 MHz minimum, 1500–2000 MHz maximum, 75–90°C throttle, and 60–85°C recovery. Recovery must remain at least 5°C below throttling.
+- **BC-250 GPU tuning (Cyan controller):** 500–1200 MHz minimum, 1500–2000 MHz maximum, 75–90°C throttle, and 60–85°C recovery. Recovery must remain at least 5°C below throttling. This tunes the onboard BC-250 compute units used by Vulkan; it does not switch inference to the CPU.
 - **Server safeguards:** restart window 60–900 seconds, burst 1–10, delay 5–60 seconds, and server-log rotation at 10–500 MiB.
 - **Memory policy:** optional persistent swappiness from 10–200.
 - **Service trimming:** individual opt-in disabling of selected gaming/desktop services to recover host RAM.
@@ -235,6 +244,7 @@ bc250-llm-mode                         Open setup or the completed management GU
 bc250-llm-mode setup                   Open/resume the native wizard
 bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON
+bc250-llm-mode memory-profile          Analyze the fixed boot-time UMA split and host-RAM safety
 bc250-llm-mode chat                    Start terminal chat
 bc250-llm-mode llm <action>            start | stop | restart | status
 bc250-llm-mode webui <action>          start | stop | restart | status
@@ -354,6 +364,7 @@ Common failure guidance:
 
 - **No native window:** launch from the local Bazzite desktop; if prompted, stage `python3-tkinter`, reboot, and retry.
 - **Low VRAM:** verify the BIOS UMA allocation is approximately 12 GiB GPU / 4 GiB OS.
+- **14/2 or less than 3 GiB usable host RAM:** return to the supported 12/4 firmware split and reboot; this allocation cannot be changed safely at runtime.
 - **Vulkan initialization fails:** run `repair` and repeat the environment smoke test.
 - **Missing `blk.N` tensor:** GGUF block-count metadata may be inconsistent; the Prepare step attempts a guarded repair.
 - **Missing `nextn` tensor:** unsupported MTP metadata may be declared; the Prepare step attempts a guarded repair.
@@ -373,7 +384,7 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The current suite covers hardware discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, optimizer bounds, existing-model discovery, GGUF metadata healing, service lifecycle management, Tailscale state separation, server generation, and desktop-mode reversion.
+The current suite covers hardware and memory-profile discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, download-space and checksum safeguards, optimizer bounds, transactional activation rollback, existing-model discovery, GGUF metadata healing, service lifecycle management, Tailscale state separation, server generation, and desktop-mode reversion.
 
 ## License
 

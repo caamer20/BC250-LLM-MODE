@@ -18,6 +18,16 @@ HEADER_LIMIT = 4 * 1024 * 1024
 GGUF_UINT32 = 4
 
 
+def _sampling_fields(model: ModelEntry) -> dict[str, float | int]:
+    return {
+        "temperature": model.temperature,
+        "top_p": model.top_p,
+        "top_k": model.top_k,
+        "min_p": model.min_p,
+        "repeat_penalty": model.repeat_penalty,
+    }
+
+
 @dataclass(frozen=True)
 class MetadataPatch:
     key: str
@@ -223,6 +233,7 @@ def prepare_model(
         "quant": quant,
         "path": str(final),
         "architecture": verification["architecture"],
+        **_sampling_fields(model),
     }
     installed = [item for item in state.get("installed_models", []) if item.get("id") != model.id]
     installed.append(record)
@@ -243,6 +254,11 @@ def prepare_local_model(
     if not final.is_file():
         raise RuntimeError(f"Selected local GGUF no longer exists: {final}")
     verification = verify_and_heal_gguf(final, runner)
+    sampling: dict[str, float | int] = {}
+    if model.catalog_id:
+        from .catalog import model_by_id
+
+        sampling = _sampling_fields(model_by_id(model.catalog_id))
     record = {
         "id": model.id,
         "display_name": model.display_name,
@@ -255,6 +271,7 @@ def prepare_local_model(
         "family": model.family,
         "params_b": model.params_b,
         "kv_kib_per_token": model.kv_kib_per_token,
+        **sampling,
     }
     installed = [item for item in state.get("installed_models", []) if item.get("id") != model.id]
     installed.append(record)

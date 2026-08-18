@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from .catalog import calculate_fit
@@ -14,8 +15,40 @@ from .optimize import (
     validate_settings,
 )
 from .prepare import prepare_local_model
-from .server import health_check, restart_service
+from .server import health_check, restart_service, stop_service
 from .state import StateStore
+
+
+def restart_with_rollback(
+    store: StateStore,
+    state: dict[str, Any],
+    runner: CommandRunner,
+    previous: dict[str, Any],
+    description: str,
+) -> None:
+    """Restart and health-check an activation, restoring the last working state on failure."""
+    store.save(state)
+    try:
+        restart_service(state, runner)
+        health_check(state, runner)
+    except Exception as activation_error:  # noqa: BLE001 - rollback must cover every launch failure
+        state.update(deepcopy(previous))
+        store.save(state)
+        runner.emit(f"{description} failed; restoring the previous working server configuration")
+        try:
+            if state.get("current_model"):
+                restart_service(state, runner)
+                health_check(state, runner)
+            else:
+                stop_service(state, runner)
+        except Exception as rollback_error:  # noqa: BLE001 - report both failures to the caller
+            raise RuntimeError(
+                f"{description} failed ({activation_error}); rollback also failed ({rollback_error}). "
+                "Inspect the model server log."
+            ) from activation_error
+        raise RuntimeError(
+            f"{description} failed ({activation_error}); the previous working configuration was restored."
+        ) from activation_error
 
 
 def switch_model(
@@ -40,11 +73,13 @@ def switch_model(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
+    previous = {"current_model": state.get("current_model")}
     state["current_model"] = model_id
-    store.save(state)
-    restart_service(state, runner)
     if wait_for_health:
-        health_check(state, runner)
+        restart_with_rollback(store, state, runner, previous, f"Switching to {model_id}")
+    else:
+        store.save(state)
+        restart_service(state, runner)
     return state
 
 
@@ -67,10 +102,9 @@ def register_and_switch_local(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
+    previous = {"current_model": state.get("current_model")}
     prepare_local_model(state, LocalModel.from_dict(model.to_dict()), runner)
-    store.save(state)
-    restart_service(state, runner)
-    health_check(state, runner)
+    restart_with_rollback(store, state, runner, previous, f"Switching to {model.display_name}")
     return state
 
 
@@ -97,10 +131,9 @@ def change_context(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
+    previous = {"current_ctx": state.get("current_ctx", 8192)}
     state["current_ctx"] = ctx
-    store.save(state)
-    restart_service(state, runner)
-    health_check(state, runner)
+    restart_with_rollback(store, state, runner, previous, f"Changing context to {ctx}")
     return fit.detail
 
 
@@ -130,8 +163,7 @@ def change_parallel_slots(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
+    previous = {"optimizations": deepcopy(state.get("optimizations"))}
     state["optimizations"] = checked
-    store.save(state)
-    restart_service(state, runner)
-    health_check(state, runner)
+    restart_with_rollback(store, state, runner, previous, f"Changing request slots to {slots}")
     return fit.detail

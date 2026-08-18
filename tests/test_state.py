@@ -21,7 +21,7 @@ def test_v1_phase_is_migrated_for_new_optimize_step(tmp_path):
     store = StateStore(tmp_path / "state.json")
     store.path.write_text('{"schema_version": 1, "setup_phase": 7}', encoding="utf-8")
     state = store.load()
-    assert state["schema_version"] == 3
+    assert state["schema_version"] == 4
     assert state["setup_phase"] == 8
 
 
@@ -37,3 +37,16 @@ def test_llm_session_reconciles_to_desktop_after_boot(tmp_path, monkeypatch):
     assert state["system_mode"] == "desktop"
     assert state["llm_mode_done"] is False
     assert state["llm_session_boot_id"] is None
+
+
+def test_v3_gpu_tuning_name_is_migrated(tmp_path):
+    store = StateStore(tmp_path / "state.json")
+    store.path.write_text(
+        '{"schema_version": 3, "optimizations": {"gpu_enabled": true, "parallel_slots": 2}}',
+        encoding="utf-8",
+    )
+    state = store.load()
+    assert state["schema_version"] == 4
+    assert state["optimizations"]["gpu_tuning_enabled"] is True
+    assert "gpu_enabled" not in state["optimizations"]
+    assert state["optimizations"]["parallel_slots"] == 2

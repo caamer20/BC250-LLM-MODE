@@ -91,6 +91,8 @@ def _catalog_match(path: Path) -> ModelEntry | None:
         return next(model for model in CATALOG if model.id == "lfm25-26b")
     if "lfm2.5" in name and "1.2b" in name and "instruct" in name:
         return next(model for model in CATALOG if model.id == "lfm25-12b-instruct")
+    if ("qwen3.8" in name or "qwen38" in name) and "9b" in name:
+        return next(model for model in CATALOG if model.id == "qwen38-9b")
     if ("qwen3.5" in name or "qwen35" in name) and "9b" in name:
         return next(model for model in CATALOG if model.id == "qwen35-9b")
     if "qwen3" in name and "14b" in name:

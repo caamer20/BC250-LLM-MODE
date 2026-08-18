@@ -14,7 +14,14 @@ from .hardware import detect_hardware
 from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
-from .model_manager import change_context, change_parallel_slots, register_and_switch_local, switch_model
+from .memory_profile import analyze_memory_profile
+from .model_manager import (
+    change_context,
+    change_parallel_slots,
+    register_and_switch_local,
+    restart_with_rollback,
+    switch_model,
+)
 from .openwebui import (
     open_webui_status,
     restart_open_webui,
@@ -53,6 +60,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("repair", help="Open the native wizard at hardware validation")
     sub.add_parser("chat", help="Start terminal chat")
     sub.add_parser("status", help="Print hardware and server status")
+    sub.add_parser("memory-profile", help="Analyze the boot-time BC-250 UMA split")
     llm = sub.add_parser("llm", help="Manage the single systemd-owned model server")
     llm.add_argument("action", choices=("start", "stop", "restart", "status"))
     webui = sub.add_parser("webui", aliases=["openwebui"], help="Manage optional Open WebUI")
@@ -130,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "status":
         report = detect_hardware(state["models_dir"])
         result: dict[str, object] = {"hardware": report.to_dict(), "state": state}
+        result["memory_profile"] = analyze_memory_profile(report).to_dict()
         logger = configure_logging(state["logs_dir"])
         quiet_runner = CommandRunner(logger)
         result["llm_service"] = service_status(state, quiet_runner)
@@ -142,6 +151,10 @@ def main(argv: list[str] | None = None) -> int:
             except (OSError, RuntimeError, TimeoutError, ValueError, KeyError) as exc:
                 result["server"] = {"healthy": False, "error": str(exc)}
         print(json.dumps(result, indent=2))
+        return 0 if report.valid else 2
+    if args.command == "memory-profile":
+        report = detect_hardware(state["models_dir"])
+        print(json.dumps(analyze_memory_profile(report).to_dict(), indent=2))
         return 0 if report.valid else 2
     logger = configure_logging(state["logs_dir"])
     runner = CommandRunner(logger, print)
@@ -267,13 +280,18 @@ def main(argv: list[str] | None = None) -> int:
         )
         if fit.verdict == "NO-FIT":
             raise RuntimeError(fit.detail)
+        previous = {
+            "current_model": state.get("current_model"),
+            "current_ctx": state.get("current_ctx", 8192),
+        }
         downloaded = download_model(state, model, quant, runner)
         prepare_model(state, model, quant, downloaded, runner)
         state["current_ctx"] = args.ctx
         store.save(state)
         if state.get("setup_complete"):
-            restart_service(state, runner)
-            health_check(state, runner)
+            restart_with_rollback(
+                store, state, runner, previous, f"Activating {model.display_name}"
+            )
         return 0
     if args.command == "switch":
         require_acknowledgment(state)
