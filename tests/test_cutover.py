@@ -168,6 +168,61 @@ def test_compat_transaction_is_lost_update_safe(tmp_path):
     assert final["optimizations"]["threads"] == 20
 
 
+def test_same_store_concurrent_operations_are_serialized(tmp_path):
+    """P1-6: one shared store used from several threads stays consistent.
+
+    Transaction workers hold the io lock for whole read-modify-write
+    cycles; plain save workers reload-and-retry on StaleStateError, which
+    is the expected optimistic-convergence pattern. No update may be lost.
+    """
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    errors: list[BaseException] = []
+
+    def bump(state):
+        state["optimizations"]["threads"] = (
+            (state["optimizations"].get("threads") or 0) + 1
+        )
+        return state
+
+    def tx_worker():
+        try:
+            for _ in range(10):
+                store.transaction(bump)
+        except BaseException as exc:  # surfaced below
+            errors.append(exc)
+
+    def save_worker():
+        try:
+            for _ in range(10):
+                s = store.load()
+                s["optimizations"]["fast_sync"] = not bool(
+                    s["optimizations"].get("fast_sync")
+                )
+                while True:
+                    try:
+                        store.save(s)
+                        break
+                    except StaleStateError:
+                        s = store.load()  # converge and retry
+        except BaseException as exc:
+            errors.append(exc)
+
+    workers = [
+        threading.Thread(target=tx_worker),
+        threading.Thread(target=tx_worker),
+        threading.Thread(target=save_worker),
+        threading.Thread(target=save_worker),
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert not errors, errors
+    final = CompatStateStore(AppPaths.temporary(tmp_path / "root")).load()
+    assert final["optimizations"]["threads"] == 20
+
+
 def test_stale_draft_detected_after_same_store_refresh(tmp_path):
     """P0-2: the revision carried by the saved state is what matters.
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from copy import deepcopy
 from typing import Any
 
@@ -60,6 +61,13 @@ class CompatStateStore:
         self.thermal = ThermalStateRepository(self.conn)
         self.provenance = ComponentProvenanceRepository(self.conn)
         self.extras = ExtrasRepository(self.conn)
+        # Process-local serialization for the shared connection. With
+        # check_same_thread=False the connection is usable from worker
+        # threads; this lock is the actual application-level serialization
+        # (reentrant, so transaction() can call load()/save() while held).
+        # Cross-process writers are serialized by the flock in transaction()
+        # and by the importer's migration lock.
+        self._io_lock = threading.RLock()
 
     @property
     def path(self) -> Path:
@@ -70,6 +78,10 @@ class CompatStateStore:
         return self.paths.database_path.with_suffix(".txn-lock")
 
     def load(self) -> dict[str, Any]:
+        with self._io_lock:
+            return self._load_locked()
+
+    def _load_locked(self) -> dict[str, Any]:
         from copy import deepcopy
 
         from .state import DEFAULT_STATE, _current_boot_id
@@ -147,6 +159,10 @@ class CompatStateStore:
             )
 
     def save(self, state: dict[str, Any]) -> None:
+        with self._io_lock:
+            self._save_locked(state)
+
+    def _save_locked(self, state: dict[str, Any]) -> None:
         """Optimistic whole-state write validated against the state's revision.
 
         The revision carried by ``state`` — not any store-level cache — is
@@ -213,21 +229,22 @@ class CompatStateStore:
 
         lock = self.lock_path
         lock.parent.mkdir(parents=True, exist_ok=True)
-        with open(lock, "w", encoding="utf-8") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                state = self.load()
-                result = mutator(state)
-                if result is None:
-                    return state
-                if not isinstance(result, dict):
-                    raise TypeError(
-                        "transaction mutator must return a dict or None"
-                    )
-                self.save(result)
-                return self.load()
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        with self._io_lock:
+            with open(lock, "w", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+                try:
+                    state = self.load()
+                    result = mutator(state)
+                    if result is None:
+                        return state
+                    if not isinstance(result, dict):
+                        raise TypeError(
+                            "transaction mutator must return a dict or None"
+                        )
+                    self.save(result)
+                    return self.load()
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
     def _write_runtime_handoff(self, state: dict[str, Any]) -> None:
         """Render the launcher-consumption snapshot (regenerated every save).
