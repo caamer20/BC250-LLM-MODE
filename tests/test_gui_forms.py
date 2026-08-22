@@ -58,6 +58,77 @@ def test_optimization_settings_reject_no_fit():
         )
 
 
+class _WidgetHost:
+    """Duck-typed stand-in carrying only the optimization widget variables."""
+
+    def __init__(self, state_data, *, runtime=True, slots=4):
+        from bc250_llm_mode.optimize import TRIMMABLE_SERVICES
+
+        self.state_data = state_data
+        self.opt_runtime = _B(runtime)
+        self.opt_flash = _S("auto")
+        self.opt_batch = _I(2048)
+        self.opt_ubatch = _I(512)
+        self.opt_kv = _S("q8_0")
+        self.opt_parallel = _I(slots)
+        self.opt_gpu = _B(False)
+        self.opt_gpu_min = _I(500)
+        self.opt_gpu_max = _I(1850)
+        self.opt_throttle = _I(85)
+        self.opt_recovery = _I(75)
+        self.opt_memory = _B(False)
+        self.opt_swappiness = _I(100)
+        self.opt_safeguards = _B(True)
+        self.opt_restart_window = _I(120)
+        self.opt_restart_burst = _I(3)
+        self.opt_restart_delay = _I(10)
+        self.opt_log_max = _I(50)
+        self.opt_trim = _B(False)
+        self.opt_service_vars = {unit: _B(False) for unit in TRIMMABLE_SERVICES}
+
+
+class _B:
+    def __init__(self, v):
+        self._v = bool(v)
+
+    def get(self):
+        return self._v
+
+
+class _I:
+    def __init__(self, v):
+        self._v = int(v)
+
+    def get(self):
+        return self._v
+
+
+class _S:
+    def __init__(self, v):
+        self._v = str(v)
+
+    def get(self):
+        return self._v
+
+
+def test_collect_optimization_settings_reads_real_widget_values():
+    """Regression: the form collector must read the populated widget
+    variables (previously passed an undefined name and raised NameError)."""
+    from bc250_llm_mode.gui.forms import FormsMixin
+
+    host = _WidgetHost(_form_state("lfm25-26b", "Q5_K_M", 128000), runtime=True)
+    settings = FormsMixin._collect_optimization_settings(host)
+    assert settings["runtime_enabled"] is True
+    assert settings["parallel_slots"] == 4
+    assert settings["batch_size"] == 2048
+
+    host_disabled = _WidgetHost(
+        _form_state("lfm25-26b", "Q5_K_M", 128000), runtime=False, slots=1
+    )
+    settings_off = FormsMixin._collect_optimization_settings(host_disabled)
+    assert settings_off["runtime_enabled"] is False
+
+
 def test_optimization_settings_propagate_invalid_values():
     with pytest.raises(ValueError):
         optimization_settings_from_values(_form_state(), {"parallel_slots": 99})

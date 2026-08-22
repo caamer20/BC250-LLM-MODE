@@ -126,10 +126,6 @@ def _parser() -> argparse.ArgumentParser:
     thermals_p = sub.add_parser("thermals", help="GPU thermal watchdog controls")
     thermals_p.add_argument("action", choices=("status", "once", "watch", "reset"))
     thermals_p.add_argument("--interval", type=float, default=5.0)
-    thermals_p.add_argument(
-        "--force-reset", action="store_true",
-        help="Clear the latch without requiring a safe temperature reading",
-    )
     llamacpp = sub.add_parser("llamacpp", help="Manage the pinned llama.cpp Vulkan build")
     llamacpp.add_argument("action", choices=("status", "update", "rollback"))
     llamacpp.add_argument("--tag", help="Update to a specific upstream tag instead of the shipped pin")
@@ -388,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
             from .thermals import reset_latch
 
             print(json.dumps(
-                reset_latch(store, state, runner, require_safe_temperature=not args.force_reset),
+                reset_latch(store, state, runner),
                 indent=2,
             ))
         else:

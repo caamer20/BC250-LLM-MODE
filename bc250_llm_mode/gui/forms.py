@@ -381,4 +381,4 @@ class FormsMixin:
             "trim_services_enabled": self.opt_trim.get(),
             "trim_services": {unit: variable.get() for unit, variable in self.opt_service_vars.items()},
         }
-        return optimization_settings_from_values(self.state_data, values)
+        return optimization_settings_from_values(self.state_data, settings)

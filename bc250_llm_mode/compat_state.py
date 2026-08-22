@@ -19,7 +19,7 @@ from .db import connect, initialize
 from .legacy_import import utcnow  # noqa: F401  (re-exported for repositories)
 from .runtime_handoff import (
     HandoffPublicationError,
-    RuntimeConfigurationService,
+    RuntimeHandoffService,
     RuntimeHandoffRenderer,
     runtime_fingerprint,
 )
@@ -76,7 +76,7 @@ class CompatStateStore:
         # publication failures are reported separately from db commits via
         # handoff_publication_error (the commit itself has already landed).
         self.renderer = renderer or RuntimeHandoffRenderer(paths.app_dir)
-        self.handoff_service = RuntimeConfigurationService(self.renderer)
+        self.handoff_service = RuntimeHandoffService(self.renderer)
         self.handoff_publication_error: str | None = None
 
     @property

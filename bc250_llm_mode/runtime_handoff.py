@@ -140,7 +140,7 @@ def regenerate_for_app_state(state: dict) -> bool:
         return False
 
 
-class RuntimeConfigurationService:
+class RuntimeHandoffService:
     """Decides when committed changes require a fresh artifact.
 
     Transitional home for handoff policy while the compatibility facade
