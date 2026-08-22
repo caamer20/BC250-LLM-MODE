@@ -1,0 +1,259 @@
+"""R2.2 cutover: composition root serves SQLite; JSON is a read-only backup.
+
+Covers the ADR 001 cutover sequence end to end:
+- compose returns the compatibility facade over an initialized database
+- one-time automatic legacy import on first run
+- round-trip fidelity of the compatibility view
+- optimistic revision checks and lost-update-safe transactions
+- runtime handoff rendering consumed by the launcher (behavioral)
+- guard freezing direct StateStore instantiation in production
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import threading
+from pathlib import Path
+
+import pytest
+
+from bc250_llm_mode.app import Application, load_state_with_paths
+from bc250_llm_mode.compat_state import CompatStateStore, StaleStateError
+from bc250_llm_mode.paths import AppPaths
+from bc250_llm_mode.server import generate_launcher
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _compose(tmp_path):
+    return Application.compose(AppPaths.temporary(tmp_path / "root"))
+
+
+def test_compose_returns_sqlite_backed_store(tmp_path):
+    app = _compose(tmp_path)
+    assert isinstance(app.store, CompatStateStore)
+    # Database initialized with migration 001 applied.
+    applied = {
+        row["version"]
+        for row in app.store.conn.execute("SELECT version FROM schema_migrations")
+    }
+    assert 1 in applied
+
+
+def test_compose_auto_imports_legacy_state_once(tmp_path):
+    root = tmp_path / "root"
+    paths = AppPaths.temporary(root)
+    paths.ensure_directories()
+    fixture = (FIXTURES / "state_v5.json").read_text(encoding="utf-8")
+    original = json.loads(fixture)
+    paths.legacy_state_path.write_text(json.dumps(original), encoding="utf-8")
+
+    app = Application.compose(paths)
+    state = app.store.load()
+    assert state["disclaimer_ack"] is True or isinstance(state.get("setup_phase"), int)
+    # Import published a database next to the read-only backup.
+    assert paths.database_path.exists()
+
+    # Mutate through the facade; the backup stays byte-identical.
+    before = paths.legacy_state_path.read_bytes()
+    fresh = app.store.load()
+    fresh["server_port"] = 9999
+    app.store.save(fresh)
+    assert paths.legacy_state_path.read_bytes() == before
+
+    # Second compose must not re-import over newer SQLite data.
+    app2 = Application.compose(paths)
+    reloaded = app2.store.load()
+    assert reloaded["server_port"] == 9999
+
+
+def test_compat_round_trip_preserves_everything(tmp_path):
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    state = store.load()
+    state.update(
+        setup_complete=True,
+        setup_phase=5,
+        disclaimer_ack=True,
+        server_port=8123,
+        current_model="lfm25-26b",
+        current_ctx=16384,
+        selected_model="lfm25-26b",
+        selected_quant="Q4_K_M",
+        thermal_watchdog_state="stopped",
+        thermal_watchdog_baseline={"gpu_temp_c": 71.5},
+        llamacpp_build={"describe": "b6000-abc", "commit": "abc123"},
+        installed_models=[{
+            "id": "lfm25-26b",
+            "path": "/models/lfm25.gguf",
+            "quant": "Q4_K_M",
+            "display_name": "LFM2.5 2.6B",
+            "temperature": 0.4,
+        }],
+        bench_history=[{"timestamp": "2026-08-21T00:00:00Z", "tps": 41.5}],
+        autotune_history=[{"ctx": 16384, "tps": 40.0}],
+        some_future_key={"nested": [1, 2, 3]},
+    )
+    state["optimizations"] = {
+        **state["optimizations"],
+        "runtime_enabled": True,
+        "parallel_slots": 2,
+        "threads": 6,
+        "fast_sync": True,
+    }
+    store.save(state)
+
+    reloaded = CompatStateStore(AppPaths.temporary(tmp_path / "root")).load()
+    assert reloaded["server_port"] == 8123
+    assert reloaded["current_model"] == "lfm25-26b"
+    assert reloaded["current_ctx"] == 16384
+    assert reloaded["selected_quant"] == "Q4_K_M"
+    assert reloaded["thermal_watchdog_state"] == "stopped"
+    assert reloaded["thermal_watchdog_baseline"] == {"gpu_temp_c": 71.5}
+    assert reloaded["llamacpp_build"]["describe"] == "b6000-abc"
+    assert len(reloaded["installed_models"]) == 1
+    assert reloaded["installed_models"][0]["temperature"] == 0.4
+    assert reloaded["bench_history"][0]["tps"] == 41.5
+    assert reloaded["autotune_history"][0]["ctx"] == 16384
+    assert reloaded["some_future_key"] == {"nested": [1, 2, 3]}
+    assert reloaded["optimizations"]["threads"] == 6
+    assert reloaded["optimizations"]["parallel_slots"] == 2
+    # Derived paths recomputed from the profile, never persisted.
+    assert reloaded["app_dir"] == str(AppPaths.temporary(tmp_path / "root").app_dir)
+    assert "app_dir" not in store.settings.all()
+    assert "logs_dir" not in store.settings.all()
+
+
+def test_compat_save_uses_optimistic_revision(tmp_path):
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    state = store.load()
+    other = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    other.save(other.load())  # bumps revision behind `store`'s back
+
+    state["server_port"] = 7000
+    with pytest.raises(StaleStateError):
+        store.save(state)
+
+    fresh = store.load()
+    fresh["server_port"] = 7000
+    store.save(fresh)
+    assert store.load()["server_port"] == 7000
+
+
+def test_compat_transaction_is_lost_update_safe(tmp_path):
+    paths = AppPaths.temporary(tmp_path / "root")
+    store_a = CompatStateStore(paths)
+    store_b = CompatStateStore(paths)
+
+    def bump(state):
+        state["optimizations"]["threads"] = (
+            (state["optimizations"].get("threads") or 0) + 1
+        )
+        return state
+
+    def run_bump(store, times):
+        for _ in range(times):
+            store.transaction(bump)
+
+    threads = [
+        threading.Thread(target=run_bump, args=(s, 10)) for s in (store_a, store_b)
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    final = CompatStateStore(paths).load()
+    assert final["optimizations"]["threads"] == 20
+
+
+def test_handoff_rendered_on_save_and_consumed_by_launcher(tmp_path):
+    paths = AppPaths.temporary(tmp_path / "root")
+    store = CompatStateStore(paths)
+    state = store.load()
+    state.update(
+        current_model="lfm25-26b",
+        current_ctx=16384,
+        llama_cpp_path=str(tmp_path / "llama.cpp"),
+        server_port=9091,
+    )
+    state["installed_models"] = [{
+        "id": "lfm25-26b",
+        "path": "/models/lfm.gguf",
+        "display_name": "LFM 2.5\n2.6B",  # newline must be sanitized
+        "temperature": 0.35,
+    }]
+    state["optimizations"] = {
+        **state["optimizations"],
+        "runtime_enabled": True,
+        "parallel_slots": 2,
+        "threads": 6,
+        "fast_sync": True,
+    }
+    store.save(state)
+
+    handoff = paths.app_dir / "runtime-handoff.json"
+    assert handoff.exists()
+    mode = os.stat(handoff).st_mode & 0o777
+    assert mode == 0o600
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    assert payload["ctx_total"] == 32768  # 16384 x 2 slots
+    assert payload["port"] == 9091
+    assert payload["alias"] == "LFM 2.5 2.6B"
+    assert payload["fast_sync"] is True
+
+    # Behavioral: the launcher consumes the handoff, not the legacy JSON.
+    bin_dir = tmp_path / "llama.cpp" / "build" / "bin"
+    bin_dir.mkdir(parents=True)
+    record = tmp_path / "argv.txt"
+    stub = bin_dir / "llama-server"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf \'%s\\n\' "$@" >> "$BC250_RECORD"\n'
+        'printf "FORCE_SYNC=%s\\n" "${GGML_VK_FORCE_SYNC-UNSET}" >> "$BC250_RECORD"\n'
+        "exit 0\n"
+    )
+    stub.chmod(0o755)
+    launcher = generate_launcher(store.load())
+    result = subprocess.run(
+        ["bash", str(launcher)],
+        env={**os.environ, "BC250_RECORD": str(record)},
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    argv = record.read_text(encoding="utf-8").splitlines()
+    pairs = dict(zip(argv, argv[1:] + [""]))
+    assert pairs["--threads"] == "6"
+    assert pairs["--ctx-size"] == "32768"
+    assert pairs["--port"] == "9091"
+    assert pairs["--alias"] == "LFM 2.5 2.6B"
+    # fast_sync=True must NOT force sync.
+    assert "FORCE_SYNC=UNSET" in argv
+
+
+def test_guard_direct_statestore_instantiation_is_frozen():
+    """Compatibility saves are driven toward zero; this freezes the count.
+
+    Allowed today (transitional): the --state legacy branch, the two
+    no-store fallbacks in chat/GUI constructors, and the importer's staging
+    canonicalize step. Each removal is a commit; new call sites are banned.
+    """
+    package = Path(__file__).parent.parent / "bc250_llm_mode"
+    allowed = {
+        "__main__.py": 1,
+        "chat.py": 2,  # fallback chain on one line; collapses to 0 when migrated
+        "gui/app.py": 1,
+        "legacy_import.py": 1,
+    }
+    for py in sorted(package.rglob("*.py")):
+        rel = str(py.relative_to(package))
+        count = py.read_text(encoding="utf-8").count("StateStore(")
+        if rel in allowed:
+            assert count <= allowed[rel], (
+                f"{rel}: StateStore( usage grew ({count} > {allowed[rel]})"
+            )
+        elif rel == "app.py":
+            assert "CompatStateStore(resolved)" in py.read_text(encoding="utf-8")
+        else:
+            assert count == 0, f"{rel}: new direct StateStore( usage"
