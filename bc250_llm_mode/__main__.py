@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         if not bootstrap_tkinter(store):
             return 0
         from .gui import run_gui
-        run_gui(store, management=bool(state.get("setup_complete")))
+        run_gui(application, management=bool(state.get("setup_complete")))
         return 0
     if args.command == "repair":
         if not bootstrap_tkinter(store):
@@ -230,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
             state.update(setup_complete=False, setup_phase=reset["phase"])
         else:
             state.update(setup_complete=False, setup_phase=0)
-        run_gui(store)
+        run_gui(application, management=bool(state.get("setup_complete")))
         return 0
     if args.command == "chat":
         require_acknowledgment(state)

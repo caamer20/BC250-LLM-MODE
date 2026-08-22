@@ -56,10 +56,12 @@ class DiscoveryResult:
     roots: tuple[str, ...]
 
 
-def _candidate_roots(state: dict[str, Any]) -> tuple[Path, ...]:
+def _candidate_roots(state: dict[str, Any], *, home: Path | None = None) -> tuple[Path, ...]:
+    """Discovery roots. ``home`` is injected (composition/paths authority);
+    no module-level ``Path.home()`` evaluation happens here."""
     roots: list[Path] = [Path(str(state["models_dir"])).expanduser()]
     roots.extend(Path(str(item)).expanduser() for item in state.get("model_search_paths", []))
-    home = Path.home()
+    home = home or Path(os.environ.get("HOME", "/"))
     roots.extend((home / "models", home / "Models"))
     for record in state.get("installed_models", []):
         if record.get("path"):

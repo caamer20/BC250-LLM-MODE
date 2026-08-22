@@ -437,25 +437,18 @@ def test_guard_whole_state_saves_are_frozen():
     file is asserted EXACTLY. Each sweep slice must reduce its counts in
     the same commit; zero across the board is the only R2 exit value.
     Reduced so far: thermals (2 -> 0 via ThermalStateService), chat
-    benchmark history (narrow repository append), tune autotune history,
-    bootstrap (3 -> 0 via SetupService), tune trial/winner persistence
-    (2 -> 0 via RuntimeConfigurationService), model_manager activations
-    (3 -> 0 via ModelActivationService).
-    Remaining before the R2 exit gate: __main__ (10), gui/steps (10),
-    gui/dashboard (7), gui/app (3), chat (4), gui/forms (1) - the
-    Session-3 frontend sweep.
+    benchmark history (narrow repository append), bootstrap (3 -> 0 via
+    SetupService), tune (2 -> 0 via RuntimeConfigurationService),
+    model_manager (3 -> 0 via ModelActivationService), and the entire
+    frontend surface in Session 3: __main__ 10 -> 0, gui/steps 10 -> 0,
+    gui/dashboard 7 -> 0, gui/app 3 -> 0, gui/forms 1 -> 0, chat 4 -> 0.
+    Remaining allowed transactions are transitional legacy-JSON-store
+    fallbacks that die with the facade in Session 4.
     """
     import re
 
     package = Path(__file__).parent.parent / "bc250_llm_mode"
-    allowed_saves = {
-        "__main__.py": 0,
-        "chat.py": 4,
-        "gui/app.py": 3,
-        "gui/dashboard.py": 7,
-        "gui/forms.py": 1,
-        "gui/steps.py": 10,
-    }
+    allowed_saves: dict[str, int] = {}
     allowed_transactions = {
         "bootstrap.py": 1, "chat.py": 1, "thermals.py": 3, "tune.py": 1,
     }

@@ -321,6 +321,80 @@ class SetupService:
             return result
 
 
+class SharingService:
+    """Desired sharing mode and observed Tailscale/Serve state."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def start(self, view, runner) -> Any:
+        from .sharing import start_https_sharing
+
+        before = dict(view)
+        result = start_https_sharing(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def stop(self, view, runner) -> Any:
+        from .sharing import stop_https_sharing
+
+        before = dict(view)
+        result = stop_https_sharing(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def emergency_disable(self, view, runner) -> Any:
+        from .sharing import stop_https_sharing
+
+        before = dict(view)
+        view["https_sharing_enabled"] = False
+        result = stop_https_sharing(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+
+class ModelInstallationService:
+    """Synchronous download/prepare/register flow (Phase-B operation later)."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def download_and_prepare(self, view, model, quant, runner, *,
+                             downloaded=None) -> Path:
+        from .download import download_model
+        from .prepare import prepare_model
+
+        before = dict(view)
+        artifact = downloaded or download_model(view, model, quant, runner)
+        prepare_model(view, model, quant, Path(str(artifact)), runner)
+        persist_state_diff(self._units, before, view)
+        return Path(str(artifact))
+
+    def register_context_change(self, view, ctx: int) -> int:
+        before = dict(view)
+        view["current_ctx"] = ctx
+        return persist_state_diff(self._units, before, view)
+
+
+class MaintenanceService:
+    """Uninstall/desktop-safe teardown with exact destructive targets."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def uninstall(self, view, runner, *, remove_container=False,
+                  remove_models=False):
+        from .uninstall import uninstall
+
+        before = dict(view)
+        result = uninstall(
+            view, runner,
+            remove_container=remove_container, remove_models=remove_models,
+        )
+        persist_state_diff(self._units, before, view)
+        return result
+
+
 # --- Runtime configuration + model activation (A4/A5) ----------------------
 
 from dataclasses import dataclass, field  # noqa: E402
@@ -770,3 +844,149 @@ class ModelActivationService:
             "restored_model": prior.get("model_alias"),
             "handoff_published": restored.handoff_published,
         })
+
+
+# --- Session 3: narrow lifecycle services ----------------------------------
+
+_NON_DURABLE_KEYS = {"revision", "schema_version", "app_dir", "logs_dir",
+                     "state_path"}
+
+
+def persist_state_diff(units, before: dict, after: dict) -> int:
+    """Persist ONLY the keys an operation changed, in one unit of work.
+
+    A whole-state dictionary is never written: the diff between the
+    pre-command and post-command views is committed with a single revision
+    bump so stale frontends surface conflicts.
+    """
+    changes = {
+        key: value
+        for key, value in after.items()
+        if key not in _NON_DURABLE_KEYS and before.get(key) != value
+    }
+    if not changes:
+        return 0
+    with units.begin() as conn:
+        settings = SettingsRepository(conn)
+        settings.set_many(changes)
+        settings.set_revision(settings.revision() + 1)
+    return len(changes)
+
+
+class HostModeService:
+    """Boot-policy intent and current-boot LLM mode transitions."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def enforce_desktop_next_boot(self, view, runner) -> dict[str, Any]:
+        from .desktop_mode import stage_desktop_boot
+
+        before = dict(view)
+        stage_desktop_boot(view, runner)
+        persist_state_diff(self._units, before, view)
+        return {"boot_policy": view.get("boot_policy", "desktop")}
+
+    def enter_llm_mode(self, view, runner, *, install_service_fn=None,
+                       install: bool = False) -> dict[str, Any]:
+        from .llm_mode import apply_llm_mode
+
+        before = dict(view)
+        apply_llm_mode(view, runner)
+        if install and install_service_fn is not None:
+            install_service_fn(view, runner)
+        persist_state_diff(self._units, before, view)
+        return {"system_mode": view.get("system_mode")}
+
+    def return_to_desktop(self, view, runner, *, activate_now: bool = False) -> dict[str, Any]:
+        from .desktop_mode import switch_to_desktop_mode
+
+        before = dict(view)
+        switch_to_desktop_mode(view, runner, activate_now=activate_now)
+        persist_state_diff(self._units, before, view)
+        return {"boot_policy": view.get("boot_policy", "desktop")}
+
+
+class ComponentLifecycleService:
+    """Environment setup and llama.cpp update/rollback/provenance."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def record_provenance(self, component: str, describe: str,
+                          commit_sha=None) -> None:
+        from .legacy_import import utcnow
+        from .repositories import ComponentProvenanceRepository
+
+        with self._units.begin() as conn:
+            ComponentProvenanceRepository(conn).set_component(
+                component, describe, commit_sha
+            )
+
+    def setup_environment(self, view, runner) -> Any:
+        from .env import setup_environment
+
+        before = dict(view)
+        result = setup_environment(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def update_llamacpp(self, view, runner, *, tag: str | None = None) -> Any:
+        from .env import update_llamacpp
+
+        before = dict(view)
+        result = update_llamacpp(view, runner, tag=tag)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def rollback_llamacpp(self, view, runner) -> Any:
+        from .env import rollback_llamacpp
+
+        before = dict(view)
+        result = rollback_llamacpp(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+
+class OpenWebUIService:
+    """Desired Open WebUI install/run state; status queries never write."""
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    def install(self, view, runner) -> Any:
+        from .openwebui import install_open_webui
+
+        before = dict(view)
+        result = install_open_webui(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def start(self, view, runner) -> Any:
+        from .openwebui import start_open_webui
+
+        before = dict(view)
+        result = start_open_webui(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def stop(self, view, runner) -> Any:
+        from .openwebui import stop_open_webui
+
+        before = dict(view)
+        result = stop_open_webui(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def restart(self, view, runner) -> Any:
+        from .openwebui import restart_open_webui
+
+        before = dict(view)
+        result = restart_open_webui(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
+    def status(self, view, runner) -> Any:
+        from .openwebui import open_webui_status
+
+        return open_webui_status(view, runner)
