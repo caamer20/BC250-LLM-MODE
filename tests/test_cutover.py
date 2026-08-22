@@ -346,6 +346,53 @@ def test_handoff_rendered_on_save_and_consumed_by_launcher(tmp_path):
     assert "FORCE_SYNC=UNSET" in argv
 
 
+def test_guard_whole_state_saves_are_frozen():
+    """P1-8: the real migration target is store.save(state), not constructors.
+
+    Freezes the whole-state-save and transaction counts per production file.
+    Every sweep commit must reduce its number; growth or a new file fails.
+    state.py/compat_state.py are the persistence implementations themselves,
+    legacy_import.py's staging canonicalize is importer-specific legacy
+    usage — all three are exempt until Session 3 removes the facade.
+    """
+    import re
+
+    package = Path(__file__).parent.parent / "bc250_llm_mode"
+    allowed_saves = {
+        "__main__.py": 10,
+        "bootstrap.py": 3,
+        "chat.py": 5,
+        "model_manager.py": 3,
+        "thermals.py": 2,
+        "tune.py": 3,
+        "gui/app.py": 3,
+        "gui/dashboard.py": 7,
+        "gui/forms.py": 1,
+        "gui/steps.py": 10,
+    }
+    allowed_transactions = {"chat.py": 1}
+    exempt = {"state.py", "compat_state.py", "legacy_import.py"}
+
+    for py in sorted(package.rglob("*.py")):
+        rel = str(py.relative_to(package))
+        if rel in exempt:
+            continue
+        text = py.read_text(encoding="utf-8")
+        saves = text.count(".save(")
+        transactions = len(re.findall(r"\.transaction\(", text))
+
+        if saves:
+            assert rel in allowed_saves, f"{rel}: new whole-state save site"
+            assert saves <= allowed_saves[rel], (
+                f"{rel}: whole-state saves grew ({saves} > {allowed_saves[rel]})"
+            )
+        if transactions:
+            assert rel in allowed_transactions, f"{rel}: new transaction site"
+            assert transactions <= allowed_transactions[rel], (
+                f"{rel}: transactions grew ({transactions} > {allowed_transactions[rel]})"
+            )
+
+
 def test_guard_direct_statestore_instantiation_is_frozen():
     """Compatibility saves are driven toward zero; this freezes the count.
 
