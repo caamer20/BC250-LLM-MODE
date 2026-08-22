@@ -1983,3 +1983,42 @@ At the end of every implementation session:
 9. State the next task ID, its dependencies, and the safest first test.
 
 The immediate next task is **R0.1**. The immediate architectural milestone is the **R1 exit gate**. The first production foundation milestone is the **R3 exit gate**; no major new surface area should be added before it passes.
+
+---
+
+# 11. Handoff log
+
+## Session: phase-0 + R1.1/R1.3/R2.1 first batch (post-0.8.0.dev0)
+
+### Status updates
+
+| Task | Status | Evidence |
+| --- | --- | --- |
+| R0.1 path isolation | **DONE** | `AppPaths` composed in `main()`/`Application.compose`; `GuiBase` accepts injected paths; `tests/test_phase1_paths.py` home-sentinel test proves zero writes beneath HOME; dashboard refresh runs with `paths=` injection |
+| R0.2 CLI control flow | **DONE** | No duplicate branches (verified); exit codes 0/1/130 defined; parser wiring test covers 20 argv shapes; JSON-to-stdout policy in llm/status/doctor/bench/llamacpp branches |
+| R0.3 editable install | **DONE** | `pip install -e . --no-deps --no-build-isolation` repairs resolution; `bc250_llm_mode.__file__` resolves to the source tree; CI installs `-e '.[test]'` as the primary model |
+| R0.4 commit split | **DONE** | 8 commits: state-v5 foundation, catalog, chat, safety, runtime lifecycle, GUI refactor, CLI fixes, production/docs |
+| R1.1 AppPaths integration | **PARTIAL** | Composition root + CLI/GUI/logging/state done; download/prepare/openwebui/env still read state strings (safe: values derive from the profile via `load_state_with_paths`) |
+| R1.3 command audit | **DONE** | `docs/command_audit.md`: 109 sites classified (PROBE/CLEANUP/ELEVATED-MUTATION/SHELL-STAGING/FS-MUTATION); `elevated(` count frozen at 44 by guard test |
+| R2.1 schema freeze | **DONE** | `docs/STATE_SCHEMA.md` field-ownership table; fixtures `tests/fixtures/state_v4.json`, `state_v5.json` with migration and round-trip tests |
+| R2.2+ SQLite | NOT STARTED | Next milestone (0.9) |
+| R3 operation engine | NOT STARTED | Blocked on R2 by design |
+
+### Tests run this session
+
+- `PYTHONPATH=. .venv/bin/pytest -q` → **206 passed**
+- `.venv/bin/pytest -q` (editable install repaired) → **206 passed**
+- Behavioral launcher test: executed a dummy binary, asserted full argv in one invocation
+- Wheel built (`bc250_llm_mode-0.8.0.dev0-py3-none-any.whl`), installed into a clean venv; entry point and import verified
+- `git diff --check` clean; working tree clean after commit split
+
+### Schema / provenance notes
+
+- JSON schema v5 is frozen (`docs/STATE_SCHEMA.md`); the R2.2 SQLite migration must consume these exact fixtures.
+- Open WebUI pinned to `ghcr.io/open-webui/open-webui:v0.6.14`; release engineering must replace with an immutable digest.
+- llama.cpp pin remains tag-form (`b7598`); full-commit identity deferred to R8.3.
+- Elevation frozen at **44 call sites** pending the R5 privileged helper.
+
+### Next task
+
+**R2.2** (SQLite infrastructure) on a branch. Safest first test: migration round-trip over `tests/fixtures/state_v4.json` asserting every v5 key lands in its typed table.
