@@ -24,7 +24,7 @@ def test_fresh_database_creates_schema_at_version_one(paths):
     version = conn.execute(
         "SELECT MAX(version) AS v FROM schema_migrations"
     ).fetchone()["v"]
-    assert version == SCHEMA_VERSION == 1
+    assert version == SCHEMA_VERSION == 2
     tables = {
         r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
@@ -60,7 +60,10 @@ def test_integrity_check_passes_on_healthy_database(paths):
 def test_newer_database_schema_is_refused_never_reset(paths):
     conn = connect(paths.database_path)
     initialize(conn)
-    conn.execute("UPDATE schema_migrations SET version = 999")
+    conn.execute(
+        "UPDATE schema_migrations SET version = 999 "
+        "WHERE version = (SELECT MAX(version) FROM schema_migrations)"
+    )
     conn.commit()
     with pytest.raises(db.DatabaseTooNew, match="newer than supported"):
         initialize(connect(paths.database_path))

@@ -437,7 +437,8 @@ def test_guard_whole_state_saves_are_frozen():
     file is asserted EXACTLY. Each sweep slice must reduce its counts in
     the same commit; zero across the board is the only R2 exit value.
     Reduced so far: thermals (2 -> 0 via ThermalStateService), chat
-    benchmark history (narrow repository append), tune autotune history.
+    benchmark history (narrow repository append), tune autotune history,
+    bootstrap (3 -> 0 via SetupService).
 
     state.py/compat_state.py are the persistence implementations themselves,
     legacy_import.py's staging canonicalize is importer-specific legacy
@@ -448,7 +449,6 @@ def test_guard_whole_state_saves_are_frozen():
     package = Path(__file__).parent.parent / "bc250_llm_mode"
     allowed_saves = {
         "__main__.py": 10,
-        "bootstrap.py": 3,
         "chat.py": 4,
         "model_manager.py": 3,
         "tune.py": 2,
@@ -457,7 +457,7 @@ def test_guard_whole_state_saves_are_frozen():
         "gui/forms.py": 1,
         "gui/steps.py": 10,
     }
-    allowed_transactions = {"chat.py": 1, "thermals.py": 3, "tune.py": 1}
+    allowed_transactions = {"bootstrap.py": 1, "chat.py": 1, "thermals.py": 3, "tune.py": 1}
     exempt = {"state.py", "compat_state.py", "legacy_import.py"}
 
     for py in sorted(package.rglob("*.py")):

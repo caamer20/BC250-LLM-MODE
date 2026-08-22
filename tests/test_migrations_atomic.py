@@ -29,7 +29,7 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
     db.initialize(fresh_conn)  # baseline v1
 
     failing = (
-        2,
+        3,
         "broken-migration",
         (
             "CREATE TABLE good_table (id INTEGER PRIMARY KEY)",
@@ -45,12 +45,12 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
     applied = {int(r["version"]) for r in fresh_conn.execute(
         "SELECT version FROM schema_migrations"
     )}
-    assert 2 not in applied, "failed migration must not record its version"
+    assert 3 not in applied, "failed migration must not record its version"
 
     # Retry after the migration is fixed succeeds cleanly.
-    fixed = (2, "fixed-migration", ("CREATE TABLE good_table (id INTEGER PRIMARY KEY)",))
+    fixed = (3, "fixed-migration", ("CREATE TABLE good_table (id INTEGER PRIMARY KEY)",))
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:-1] + (fixed,))
-    assert db.initialize(fresh_conn) >= 2
+    assert db.initialize(fresh_conn) >= 3
     assert "good_table" in _tables(fresh_conn)
     applied = {int(r["version"]) for r in fresh_conn.execute(
         "SELECT version FROM schema_migrations"

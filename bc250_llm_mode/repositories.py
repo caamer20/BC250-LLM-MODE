@@ -290,3 +290,62 @@ class ExtrasRepository:
             "VALUES (?, ?)",
             (key, json.dumps(value)),
         )
+
+
+class KnownGoodRuntimeRepository:
+    """Single-row last verified-working runtime configuration (migration 002)."""
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def get(self):
+        row = self.conn.execute(
+            "SELECT model_alias, context, slots, profile_id, runtime_json, "
+            "runtime_fingerprint, runtime_component_identity, verified_at "
+            "FROM known_good_runtime WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "model_alias": row["model_alias"],
+            "context": row["context"],
+            "slots": row["slots"],
+            "profile_id": row["profile_id"],
+            "runtime": json.loads(row["runtime_json"] or "{}"),
+            "runtime_fingerprint": row["runtime_fingerprint"],
+            "runtime_component_identity": row["runtime_component_identity"],
+            "verified_at": row["verified_at"],
+        }
+
+    def set(
+        self,
+        *,
+        model_alias,
+        context: int,
+        slots: int,
+        profile_id=None,
+        runtime: dict | None = None,
+        runtime_fingerprint=None,
+        runtime_component_identity=None,
+        verified_at: str,
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO known_good_runtime(id, model_alias, context, slots, "
+            "profile_id, runtime_json, runtime_fingerprint, "
+            "runtime_component_identity, verified_at) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET model_alias=excluded.model_alias, "
+            "context=excluded.context, slots=excluded.slots, "
+            "profile_id=excluded.profile_id, runtime_json=excluded.runtime_json, "
+            "runtime_fingerprint=excluded.runtime_fingerprint, "
+            "runtime_component_identity=excluded.runtime_component_identity, "
+            "verified_at=excluded.verified_at",
+            (
+                model_alias, int(context), int(slots), profile_id,
+                json.dumps(runtime or {}), runtime_fingerprint,
+                runtime_component_identity, verified_at,
+            ),
+        )
+
+    def clear(self) -> None:
+        self.conn.execute("DELETE FROM known_good_runtime WHERE id = 1")

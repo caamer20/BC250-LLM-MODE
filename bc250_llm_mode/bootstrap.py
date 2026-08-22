@@ -57,11 +57,47 @@ def terminal_acknowledgment(
     return True
 
 
+def _setup_service(store: Any):
+    """SetupService for SQLite-backed stores; None on legacy JSON doubles."""
+    database_path = getattr(getattr(store, "paths", None), "database_path", None)
+    if database_path is None:
+        return None
+    from .services import SetupService
+    from .unit_of_work import UnitOfWorkFactory
+
+    return SetupService(UnitOfWorkFactory(database_path))
+
+
+def _persist_without_save(store: Any, state: dict[str, Any], changes: dict[str, Any]) -> None:
+    """Persist setup-scoped settings without a whole-state save.
+
+    SQLite stores go through SetupService's unit of work; legacy JSON
+    stores use a settings-only transaction; in-memory doubles keep the
+    dict mutation only.
+    """
+    state.update(changes)
+    service = _setup_service(store)
+    if service is not None:
+        if changes.get("disclaimer_ack"):
+            service.acknowledge_safety()
+        if changes.get("bootstrap_tkinter_staged"):
+            service.mark_tkinter_staged(evidence={"staged_by": "rpm-ostree"})
+        return
+    if hasattr(store, "transaction"):
+        def mutate(current: dict[str, Any]) -> dict[str, Any]:
+            current.update(changes)
+            return current
+
+        store.transaction(mutate)
+
+
 def _stage_tkinter(state: dict[str, Any], store: StateStore, runner: CommandRunner) -> None:
     runner.run(elevated(["rpm-ostree", "install", "python3-tkinter"]))
-    state["reboot_required"] = True
-    state["bootstrap_tkinter_staged"] = True
-    store.save(state)
+    _persist_without_save(
+        store,
+        state,
+        {"reboot_required": True, "bootstrap_tkinter_staged": True},
+    )
 
 
 def _terminal_bootstrap(store: StateStore, state: dict[str, Any]) -> bool:
@@ -73,7 +109,9 @@ def _terminal_bootstrap(store: StateStore, state: dict[str, Any]) -> bool:
     if not state.get("disclaimer_ack"):
         if not terminal_acknowledgment(state):
             return False
-        store.save(state)
+        _persist_without_save(
+            store, state, {"disclaimer_ack": True, "ack_timestamp": state.get("ack_timestamp")}
+        )
     answer = input(
         "Stage the native python3-tkinter package with rpm-ostree now? A reboot is required. [y/N]: "
     ).strip().lower()
@@ -139,7 +177,9 @@ def bootstrap_tkinter(store: StateStore) -> bool:
             _zenity(["--warning", "--text=The exact text I ACCEPT is required."])
             return False
         acknowledge(state)
-        store.save(state)
+        _persist_without_save(
+            store, state, {"disclaimer_ack": True, "ack_timestamp": state.get("ack_timestamp")}
+        )
     proceed = _zenity([
         "--question", "--title=BC250 LLM MODE — Native GUI dependency",
         "--text=The Bazzite host needs the python3-tkinter package for the local wizard. Stage it now with rpm-ostree? A reboot will be required.",

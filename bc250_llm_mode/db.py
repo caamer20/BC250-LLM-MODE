@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Each migration runs inside one explicit
@@ -25,6 +25,25 @@ BUSY_TIMEOUT_MS = 5000
 # schema_migrations row is written by the same transaction. A failure
 # mid-migration rolls back the partial schema AND the version row.
 MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
+    (
+        2,
+        "known-good-runtime",
+        (
+            """
+            CREATE TABLE known_good_runtime (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                model_alias TEXT,
+                context INTEGER NOT NULL,
+                slots INTEGER NOT NULL DEFAULT 1,
+                profile_id TEXT,
+                runtime_json TEXT NOT NULL DEFAULT '{}',
+                runtime_fingerprint TEXT,
+                runtime_component_identity TEXT,
+                verified_at TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
     (
         1,
         "initial-schema",
