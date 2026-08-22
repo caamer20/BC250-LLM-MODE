@@ -85,6 +85,14 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Open/resume the native setup wizard")
     sub.add_parser("repair", help="Open the native wizard at hardware validation")
+    sub.add_parser(
+        "repair-status",
+        help="Report why the state migration requires repair (repair mode)",
+    )
+    sub.add_parser(
+        "repair-retry",
+        help="Retry legacy-state migration after fixing the JSON source",
+    )
     sub.add_parser("chat", help="Start terminal chat")
     sub.add_parser("status", help="Print hardware and server status")
     sub.add_parser("memory-profile", help="Analyze the boot-time BC-250 UMA split")
@@ -157,6 +165,33 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _repair_entry(args, application) -> int:
+    """Repair-mode entry: only migration diagnosis is permitted here.
+
+    ``repair-retry`` is handled by the caller (it must run before the gate
+    because a successful retry composes an operational application).
+    """
+    import sys as _sys
+
+    if args.command == "repair-status":
+        print(json.dumps({
+            "repair_required": True,
+            "reason": application.repair_reason,
+            "database": str(application.paths.database_path),
+            "legacy_state": str(application.paths.legacy_state_path),
+        }, indent=2))
+        return 0
+    print(
+        json.dumps({
+            "error": "repair required",
+            "reason": application.repair_reason,
+            "allowed_commands": ["repair-status", "repair-retry"],
+        }, indent=2),
+        file=_sys.stderr,
+    )
+    return 78  # EX_CONFIG: the installation cannot operate until repaired
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     # Composition root: one validated path profile drives every surface.
@@ -169,6 +204,18 @@ def main(argv: list[str] | None = None) -> int:
         state = store.load()
     else:
         application = Application.compose()
+        if args.command == "repair-retry":
+            if application.store is None:
+                print(json.dumps({
+                    "repair_required": True,
+                    "reason": application.repair_reason,
+                }, indent=2))
+                return 78
+            print("Legacy state migration succeeded; database published.")
+            print("Run 'bc250-llm-mode setup' to continue.")
+            return 0
+        if application.store is None:
+            return _repair_entry(args, application)
         store = application.store
         state = store.load()
     if args.command in (None, "setup"):

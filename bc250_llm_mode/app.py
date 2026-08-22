@@ -19,11 +19,21 @@ from .state import StateStore
 
 @dataclass
 class Application:
-    """Everything the CLI/GUI/chat frontends need, built once."""
+    """Everything the CLI/GUI/chat frontends need, built once.
+
+    ``store`` is ``None`` only in repair mode: a legacy-state migration
+    failed and no database was published. ``repair_reason`` carries the
+    failure; normal operation is blocked until ``repair-retry`` succeeds.
+    """
 
     paths: AppPaths
-    store: StateStore
+    store: "StateStore | CompatStateStore | None"
     logger: logging.Logger
+    repair_reason: str | None = None
+
+    @property
+    def operational(self) -> bool:
+        return self.store is not None
 
     @classmethod
     def compose(cls, paths: AppPaths | None = None) -> "Application":
@@ -47,9 +57,17 @@ class Application:
             try:
                 LegacyImporter(resolved, runner).import_legacy()
             except LegacyImportError as exc:
-                # Repair mode: keep serving from JSON rather than initializing
-                # empty state over a failed migration.
+                # Repair mode: publish nothing, serve nothing from empty
+                # state. The JSON backup stays untouched on disk.
                 logger.error("Legacy state import failed: %s", exc)
+                return cls(
+                    paths=resolved,
+                    store=None,
+                    logger=logger,
+                    repair_reason=(
+                        f"Legacy state migration failed and was not published: {exc}"
+                    ),
+                )
 
         store = CompatStateStore(resolved)
         return cls(paths=resolved, store=store, logger=logger)
