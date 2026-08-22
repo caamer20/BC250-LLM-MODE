@@ -23,19 +23,33 @@ class ThermalLatchProtected(RuntimeError):
 class ThermalStateService:
     """Safety-authoritative persistence for the thermal latch and baseline.
 
-    The thermal_state row is writable ONLY through this service. The
-    compatibility facade never persists thermal keys from whole-state
-    dictionaries, so a stale GUI/CLI draft cannot clear or downgrade a
-    latched stop. Escalation to STOPPED is always allowed; every other
-    transition out of STOPPED requires :meth:`reset_to_nominal`.
+    Every command runs in its own unit of work (one connection,
+    ``BEGIN IMMEDIATE``, commit-or-rollback), so concurrent status probes
+    and configuration writers serialize through SQLite instead of sharing
+    the facade's connection. The thermal_state row is writable ONLY through
+    this service; whole-state dictionaries can never clear or downgrade a
+    latched stop.
     """
 
-    def __init__(self, conn) -> None:
-        self._repo = ThermalStateRepository(conn)
-        self._conn = conn
+    def __init__(self, units: "UnitOfWorkFactory") -> None:
+        from .unit_of_work import UnitOfWorkFactory
+
+        if not isinstance(units, UnitOfWorkFactory):
+            raise TypeError(
+                "ThermalStateService requires a UnitOfWorkFactory; raw "
+                "shared connections bypass serialization"
+            )
+        self._units = units
+
+    @classmethod
+    def for_database(cls, database_path) -> "ThermalStateService":
+        from .unit_of_work import UnitOfWorkFactory
+
+        return cls(UnitOfWorkFactory(database_path))
 
     def current(self) -> dict[str, Any]:
-        return self._repo.get()
+        with self._units.read() as conn:
+            return ThermalStateRepository(conn).get()
 
     def _apply(
         self,
@@ -46,33 +60,35 @@ class ThermalStateService:
         annotate_baseline: dict[str, Any] | None = None,
         allow_from_stopped: bool = False,
     ) -> dict[str, Any]:
-        current = self.current()
-        current_latch = str(current.get("latch_state") or NOMINAL)
-        if (
-            current_latch == STOPPED
-            and not allow_from_stopped
-            and latch_state is not None
-            and latch_state != STOPPED
-        ):
-            raise ThermalLatchProtected(
-                "Thermal latch is STOPPED; an explicit safe reset is required "
-                "before the state can change."
-            )
-        new_state = latch_state or current_latch
+        with self._units.begin() as conn:
+            repo = ThermalStateRepository(conn)
+            current = repo.get()
+            current_latch = str(current.get("latch_state") or NOMINAL)
+            if (
+                current_latch == STOPPED
+                and not allow_from_stopped
+                and latch_state is not None
+                and latch_state != STOPPED
+            ):
+                raise ThermalLatchProtected(
+                    "Thermal latch is STOPPED; an explicit safe reset is required "
+                    "before the state can change."
+                )
+            new_state = latch_state or current_latch
 
-        if clear_baseline:
-            new_baseline = None
-        elif set_baseline is not None:
-            new_baseline = set_baseline
-        elif annotate_baseline is not None:
-            merged = dict(current.get("baseline") or {})
-            merged.update(annotate_baseline)
-            new_baseline = merged
-        else:
-            new_baseline = current.get("baseline")
+            if clear_baseline:
+                new_baseline = None
+            elif set_baseline is not None:
+                new_baseline = set_baseline
+            elif annotate_baseline is not None:
+                merged = dict(current.get("baseline") or {})
+                merged.update(annotate_baseline)
+                new_baseline = merged
+            else:
+                new_baseline = current.get("baseline")
 
-        self._repo.set(new_state, new_baseline)
-        self._conn.commit()
+            repo.set(new_state, new_baseline)
+        # Commit happened atomically on context exit.
         return {"latch_state": new_state, "baseline": new_baseline}
 
     # -- commands ---------------------------------------------------------

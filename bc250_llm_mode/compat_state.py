@@ -213,11 +213,10 @@ class CompatStateStore:
             slots=int((state.get("optimizations") or {}).get("parallel_slots", 4)),
         )
         self.models.replace_all(state.get("installed_models") or [])
-        self.bench.replace_all(state.get("bench_history") or [])
-        self.autotune.replace_all(state.get("autotune_history") or [])
-        # Thermal latch/baseline are deliberately NOT written here: they are
-        # safety-authoritative and change only through ThermalStateService,
-        # so a stale whole-state draft can never clear or downgrade a latch.
+        # Bench/autotune histories are append-only: they are written through
+        # their repositories (narrow appends) and NEVER replaced from
+        # whole-state dictionaries, or concurrent recorders would be clobbered.
+        # Thermal latch/baseline likewise change only via ThermalStateService.
         build = state.get("llamacpp_build")
         if isinstance(build, dict) and build.get("describe"):
             self.provenance.set_component(

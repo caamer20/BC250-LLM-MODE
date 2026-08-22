@@ -64,15 +64,18 @@ def _cool_max_mhz(settings: dict[str, Any]) -> int:
 def _service_for(store: Any) -> Any:
     """ThermalStateService when the store is SQLite-backed, else None.
 
+    The service runs on its own per-command connections (unit of work), so
+    concurrent watchdog polls serialize with facade writers through SQLite.
     Legacy JSON stores fall back to bounded transactions below; neither
     path uses a whole-state save.
     """
-    conn = getattr(store, "conn", None)
-    if conn is None:
+    paths = getattr(store, "paths", None)
+    database_path = getattr(paths, "database_path", None)
+    if database_path is None:
         return None
     from .services import ThermalStateService
 
-    return ThermalStateService(conn)
+    return ThermalStateService.for_database(database_path)
 
 
 def _persist_stopped(store: Any, state: dict[str, Any]) -> None:

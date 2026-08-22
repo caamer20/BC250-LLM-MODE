@@ -34,7 +34,7 @@ def _store(tmp_path):
 
 
 def _latch_stopped(store) -> ThermalStateService:
-    service = ThermalStateService(store.conn)
+    service = ThermalStateService.for_database(store.paths.database_path)
     service.ensure_throttle({
         "gpu_max_mhz": 1850, "gpu_min_mhz": 500, "governor_profile": "balanced",
     })
@@ -61,7 +61,7 @@ def test_stale_whole_state_save_cannot_clear_or_downgrade_latch(tmp_path):
     assert reloaded["server_port"] == 1234
 
     # Direct service downgrade attempts are refused at the persistence layer.
-    service = ThermalStateService(store.conn)
+    service = ThermalStateService.for_database(store.paths.database_path)
     with pytest.raises(ThermalLatchProtected):
         service.mark_nominal(clear_baseline=True)
     with pytest.raises(ThermalLatchProtected):
@@ -115,7 +115,7 @@ def test_reset_after_safe_probe_clears_latch_and_baseline(
 
     fresh = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
     assert fresh.load()["thermal_watchdog_state"] == "nominal"
-    assert ThermalStateService(fresh.conn).current()["baseline"] is None
+    assert ThermalStateService.for_database(fresh.paths.database_path).current()["baseline"] is None
 
 
 def test_failed_profile_restoration_retains_recovery_evidence(
@@ -135,7 +135,7 @@ def test_failed_profile_restoration_retains_recovery_evidence(
     with pytest.raises(RuntimeError, match="clock write failed"):
         thermals.reset_latch(store, state, FakeRunner())
 
-    service = ThermalStateService(store.conn)
+    service = ThermalStateService.for_database(store.paths.database_path)
     current = service.current()
     assert current["latch_state"] == "stopped"
     assert "clock write failed" in (current["baseline"] or {}).get(
@@ -158,7 +158,7 @@ def test_latch_survives_new_service_and_store_instances(tmp_path):
     fresh_store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
     assert fresh_store.load()["thermal_watchdog_state"] == "stopped"
     assert (
-        ThermalStateService(fresh_store.conn).current()["latch_state"]
+        ThermalStateService.for_database(fresh_store.paths.database_path).current()["latch_state"]
         == "stopped"
     )
 
@@ -191,7 +191,7 @@ def test_stop_intent_persisted_before_server_stop(tmp_path, monkeypatch):
     def fake_stop(st, rn):
         # The latch must already be durable when the server stops.
         observed_at_stop.append(
-            ThermalStateService(store.conn).current()["latch_state"]
+            ThermalStateService.for_database(store.paths.database_path).current()["latch_state"]
         )
 
     monkeypatch.setattr("bc250_llm_mode.server.stop_service", fake_stop)

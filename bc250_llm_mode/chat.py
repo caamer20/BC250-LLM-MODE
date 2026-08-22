@@ -288,9 +288,15 @@ def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) 
         "slots": (state.get("optimizations") or {}).get("parallel_slots"),
     }
 
-    bench = getattr(store, "bench", None)
-    if bench is not None:
-        bench.append(entry)
+    paths = getattr(store, "paths", None)
+    if paths is not None:
+        # SQLite store: dedicated per-command connection via the unit of
+        # work (insert + retention trim commit atomically).
+        from .repositories import BenchHistoryRepository
+        from .unit_of_work import UnitOfWorkFactory
+
+        with UnitOfWorkFactory(paths.database_path).begin() as conn:
+            BenchHistoryRepository(conn).append(entry, commit=False)
         return
 
     def mutate(current: dict[str, Any]) -> dict[str, Any]:

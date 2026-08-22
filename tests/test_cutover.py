@@ -95,6 +95,13 @@ def test_compat_round_trip_preserves_everything(tmp_path):
         autotune_history=[{"ctx": 16384, "tps": 40.0}],
         some_future_key={"nested": [1, 2, 3]},
     )
+    # Histories are append-only: seed them through their repositories, then
+    # prove a whole-state save (which no longer carries them) leaves them so.
+    store.bench.append({"timestamp": "2026-08-21T00:00:00Z", "tps": 41.5}, commit=False)
+    store.autotune.append({"ctx": 16384, "tps": 40.0}, commit=False)
+    store.conn.commit()
+    del state["bench_history"]
+    del state["autotune_history"]
     state["optimizations"] = {
         **state["optimizations"],
         "runtime_enabled": True,
@@ -224,6 +231,80 @@ def test_same_store_concurrent_operations_are_serialized(tmp_path):
     assert not errors, errors
     final = CompatStateStore(AppPaths.temporary(tmp_path / "root")).load()
     assert final["optimizations"]["threads"] == 20
+
+
+def test_unit_of_work_services_coexist_with_facade_activity(tmp_path):
+    """A3-A5 prerequisite: per-command UoW services, narrow history appends,
+    and compatibility-facade saves run concurrently without recursion
+    errors, lost updates, or partial commits."""
+    from bc250_llm_mode import chat
+    from bc250_llm_mode.services import ThermalStateService
+
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    seed = store.load()
+    seed["optimizations"]["threads"] = 0
+    store.save(seed)
+
+    errors: list[BaseException] = []
+
+    def bump(state):
+        state["optimizations"]["threads"] = (
+            (state["optimizations"].get("threads") or 0) + 1
+        )
+        return state
+
+    def thermal_worker():
+        try:
+            service = ThermalStateService.for_database(
+                AppPaths.temporary(tmp_path / "root").database_path
+            )
+            for _ in range(10):
+                service.ensure_throttle({"gpu_max_mhz": 1850})
+                service.mark_nominal(clear_baseline=True)
+        except BaseException as exc:
+            errors.append(exc)
+
+    def history_worker():
+        try:
+            snapshot = store.load()
+            for i in range(10):
+                chat.record_benchmark(
+                    store, snapshot, {"predicted_per_second": float(i)}
+                )
+        except BaseException as exc:
+            errors.append(exc)
+
+    def facade_worker():
+        try:
+            for _ in range(10):
+                snapshot = store.load()
+                snapshot["optimizations"]["fast_sync"] = not bool(
+                    snapshot["optimizations"].get("fast_sync")
+                )
+                while True:
+                    try:
+                        store.save(snapshot)
+                        break
+                    except StaleStateError:
+                        snapshot = store.load()
+        except BaseException as exc:
+            errors.append(exc)
+
+    workers = [
+        threading.Thread(target=thermal_worker),
+        threading.Thread(target=thermal_worker),
+        threading.Thread(target=history_worker),
+        threading.Thread(target=facade_worker),
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join()
+
+    assert not errors, errors
+    fresh = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    # Benchmark appends are independent of the revision gate: all 10 survive.
+    assert len(fresh.load()["bench_history"]) == 10
 
 
 def test_stale_draft_detected_after_same_store_refresh(tmp_path):

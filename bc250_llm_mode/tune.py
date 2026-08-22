@@ -125,15 +125,21 @@ def autotune(
     else:
         state["optimizations"] = original
         runner.emit("autotune: no candidate completed successfully; original settings restored")
-    # Narrow history persistence: capped repository appends (SQLite) or a
-    # history-only transaction (legacy JSON). Never a whole-state save.
-    autotune_repo = getattr(store, "autotune", None)
-    if autotune_repo is not None:
-        for entry in results:
-            entry.setdefault("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S"))
-            entry.setdefault("model", state.get("current_model"))
-            entry.setdefault("context", state.get("current_ctx"))
-            autotune_repo.append(entry)
+    # Narrow history persistence: capped repository appends on a dedicated
+    # per-command connection (SQLite), a history-only transaction (legacy
+    # JSON), or direct dict mutation (in-memory doubles). Never a save.
+    paths = getattr(store, "paths", None)
+    if paths is not None:
+        from .repositories import AutotuneHistoryRepository
+        from .unit_of_work import UnitOfWorkFactory
+
+        with UnitOfWorkFactory(paths.database_path).begin() as conn:
+            repo = AutotuneHistoryRepository(conn)
+            for entry in results:
+                entry.setdefault("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S"))
+                entry.setdefault("model", state.get("current_model"))
+                entry.setdefault("context", state.get("current_ctx"))
+                repo.append(entry, commit=False)
     elif hasattr(store, "transaction"):
         def mutate(current: dict[str, Any]) -> dict[str, Any]:
             history = [
