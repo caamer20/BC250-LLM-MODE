@@ -29,7 +29,6 @@ from .env import (
     setup_environment,
     update_llamacpp,
 )
-from .paths import AppPaths
 from .hardware import detect_hardware
 from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
@@ -161,14 +160,17 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     # Composition root: one validated path profile drives every surface.
-    from .app import Application, load_state_with_paths
+    # Composition root: SQLite is the source of truth by default; explicit
+    # --state opts into transitional legacy JSON mode (ADR 001, 0.9 window).
+    from .app import Application
 
-    explicit_state = bool(args.state)
-    application = Application.compose(
-        AppPaths.from_app_dir(Path(args.state).parent) if explicit_state else None
-    )
-    store = StateStore(args.state) if explicit_state else application.store
-    state = load_state_with_paths(store, application.paths)
+    if args.state:
+        store = StateStore(args.state)
+        state = store.load()
+    else:
+        application = Application.compose()
+        store = application.store
+        state = store.load()
     if args.command in (None, "setup"):
         if not bootstrap_tkinter(store):
             return 0

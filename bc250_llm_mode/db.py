@@ -107,7 +107,14 @@ def connect(database_path: str | Path) -> sqlite3.Connection:
     Every PRAGMA result is fully consumed: an unconsumed statement keeps a
     read transaction open and would block WAL checkpoints later.
     """
-    conn = sqlite3.connect(str(database_path), timeout=BUSY_TIMEOUT_MS / 1000.0)
+    # check_same_thread=False: the compatibility facade and watchdogs use
+    # worker threads. Safety comes from the file-lock + busy_timeout write
+    # discipline, not from sqlite's thread affinity.
+    conn = sqlite3.connect(
+        str(database_path),
+        timeout=BUSY_TIMEOUT_MS / 1000.0,
+        check_same_thread=False,
+    )
     conn.row_factory = sqlite3.Row
     for pragma in (
         "PRAGMA foreign_keys=ON",

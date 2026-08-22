@@ -100,8 +100,9 @@ def test_load_state_redirects_untouched_default_models_dir(tmp_path):
     assert loaded["models_dir"] == str(profile.models_dir)
 
 
-def test_cli_main_uses_state_parent_as_profile_root(tmp_path, monkeypatch, capsys):
-    """--state under a custom root composes logs/state from that root."""
+def test_cli_state_flag_uses_legacy_json_mode(tmp_path, monkeypatch, capsys):
+    """Explicit --state opts into transitional legacy mode: JSON only, no
+    database is created or imported."""
     monkeypatch.setattr(cli_module, "configure_logging", lambda *_a: None)
     runner = SimpleNamespace(
         run=lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""),
@@ -112,12 +113,10 @@ def test_cli_main_uses_state_parent_as_profile_root(tmp_path, monkeypatch, capsy
 
     custom_root = tmp_path / "custom-root"
     state_file = custom_root / "state.json"
-    StateStore(state_file).save({})
+    StateStore(state_file).save({"disclaimer_ack": True})
 
     assert main(["--state", str(state_file), "llm", "status"]) == 0
     json.loads(capsys.readouterr().out)
-
-    log_dir = custom_root / "logs"
-    assert (log_dir / "setup.log").exists(), (
-        "composition must place setup.log under the --state root"
+    assert not (custom_root / "state.db").exists(), (
+        "--state is legacy JSON mode; it must not create a database"
     )

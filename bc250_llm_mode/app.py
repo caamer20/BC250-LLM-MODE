@@ -27,11 +27,31 @@ class Application:
 
     @classmethod
     def compose(cls, paths: AppPaths | None = None) -> "Application":
+        """Compose with SQLite as the source of truth (ADR 001 cutover).
+
+        One-time migration: if no database exists and a legacy ``state.json``
+        is present, it is imported into a staged database and published
+        atomically before anything else runs. The JSON is retained as a
+        read-only backup.
+        """
         resolved = paths or AppPaths.for_home()
         resolved.validate()
         resolved.ensure_directories()
         logger = configure_logging(resolved.logs_dir)
-        store = StateStore(resolved.state_path)
+
+        from .compat_state import CompatStateStore
+        from .legacy_import import LegacyImportError, LegacyImporter
+
+        if not resolved.database_path.exists() and resolved.legacy_state_path.exists():
+            runner = CommandRunner(logger)
+            try:
+                LegacyImporter(resolved, runner).import_legacy()
+            except LegacyImportError as exc:
+                # Repair mode: keep serving from JSON rather than initializing
+                # empty state over a failed migration.
+                logger.error("Legacy state import failed: %s", exc)
+
+        store = CompatStateStore(resolved)
         return cls(paths=resolved, store=store, logger=logger)
 
     def runner(self, callback=None) -> CommandRunner:
