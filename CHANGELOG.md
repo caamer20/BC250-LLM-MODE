@@ -5,6 +5,36 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Changed (Road to 1.0 — Phase A: Session 3 frontend sweep)
+
+- **Frontends can no longer persist whole-state dictionaries.** All ten
+  `__main__` saves, ten gui/steps saves, seven dashboard saves, three
+  gui/app saves, one forms save, and four chat saves are gone — routed
+  through SetupService / HostModeService / ComponentLifecycleService /
+  OpenWebUIService / SharingService / ModelInstallationService /
+  MaintenanceService / ModelActivationService, or the application's narrow
+  diff-persistence primitive. The exact-count guard is now zero across the
+  entire frontend surface.
+- **Repository-native query layer**: `ApplicationQueryService.snapshot()`
+  assembles state from repositories + AppPaths (never wrapping the facade),
+  exposing disposable drafts that carry their source revision. Status
+  refreshes are pure queries and never bump revisions.
+- **Composition expansion**: `Application.compose()` now wires paths,
+  logger, unit-of-work factory, query service, setup/safety/runtime/
+  activation/host-mode/component/OpenWebUI/sharing/model-install/maintenance
+  services, and a typed systemd runtime controller. `run_gui(application)`
+  / `run_chat(application)` receive the composition; constructor fallback
+  stores (`StateStore()`) are removed from GUI/chat paths.
+- **Safety**: `thermals --force-reset` removed from the normal CLI — a
+  missing sensor now denies latch reset, and no normal flag can bypass the
+  safe-temperature requirement.
+- **Architecture guards** enforce: zero `.save(` outside persistence
+  implementations; transitional transaction allowlist only; no
+  `StateStore(` in frontends (the `--state` legacy branch excepted);
+  no `Path.home()` outside paths.py; GUI modules import neither subprocess
+  nor sqlite nor repositories nor privilege helpers; runtime-handoff path
+  literal confined to its service; status refresh never persists.
+
 ### Changed (Road to 1.0 — Phase A: A3–A5)
 
 - **Per-command unit of work**: services no longer share the facade

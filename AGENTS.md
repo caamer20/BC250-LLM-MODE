@@ -28,18 +28,16 @@ drives the count to zero), then remove the facade before the R2 exit gate.
 
 ## Immediate next tasks
 
-1. ~~Session 1: safety + histories~~ and ~~Session 2: setup/runtime/model
-   services~~ **DONE** — ThermalStateService, narrow history appends,
-   SetupService (named stages), RuntimeConfigurationService
-   (preview/apply/known-good), ModelActivationService; UnitOfWork boundary
-   added. Guard exact counts now: bootstrap 0, model_manager 0, tune 0,
-   thermals 0.
-2. **Session 3 — frontend sweep**: convert `__main__` mutation branches,
-   gui/steps, gui/dashboard, gui/forms, gui/app, and remaining chat saves
-   to the services; remove constructor fallback stores.
-3. **Session 4**: facade removal (`compat_state` deleted), `--state`
-   import-only, R1/R2 exit gates per ROAD_TO_1_0_IMPLEMENTATION_PLAN.md;
-   then Phase B operations engine.
+1. ~~Sessions 1–2: safety/history/setup/runtime/model sweeps~~ **DONE**.
+2. ~~Session 3: frontend persistence removal + path closure~~ **DONE** —
+   all frontend saves at zero, `run_gui(application)`/`run_chat(application)`,
+   fallback stores removed, query layer + full service composition wired,
+   architecture guards enforced (no Path.home outside paths.py, GUI import
+   bans, status-refresh purity).
+3. **Session 4 — facade removal (small, isolated)**: delete
+   `compat_state.py`; make `Application` expose repositories/services only;
+   `--state` becomes import-only; migrate legacy-path tests; run the R1/R2
+   exit gates per ROAD_TO_1_0_IMPLEMENTATION_PLAN.md. Then Phase B.
 
 ## Layout highlights
 
