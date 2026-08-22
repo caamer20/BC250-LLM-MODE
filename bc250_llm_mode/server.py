@@ -33,7 +33,11 @@ def generate_launcher(state: dict[str, Any]) -> Path:
     content = f"""#!/usr/bin/env bash
 set -euo pipefail
 STATE=${{BC250_STATE_PATH:-{state_path}}}
-readarray -t CFG < <(python3 - "$STATE" <<'PY'
+# Portable CFG load: bash 3.2 lacks readarray, so fill the array line by line.
+CFG=()
+while IFS= read -r cfg_line; do
+  CFG+=("$cfg_line")
+done < <(python3 - "$STATE" <<'PY'
 import json, sys
 s = json.load(open(sys.argv[1], encoding='utf-8'))
 r = next(x for x in s['installed_models'] if x['id'] == s['current_model'])
@@ -56,17 +60,44 @@ print(r.get('top_p', 0.9))
 print(r.get('top_k', 40))
 print(r.get('min_p', 0.05))
 print(r.get('repeat_penalty', 1.05))
+_cores = set()
+_socket = None
+try:
+    _info = open('/proc/cpuinfo', encoding='utf-8').read()
+    for _line in _info.splitlines():
+        _parts = _line.split(':')
+        if len(_parts) != 2:
+            continue
+        _key = _parts[0].strip()
+        _val = _parts[1].strip()
+        if _key == 'physical id':
+            _socket = _val
+        elif _key == 'core id' and _socket is not None:
+            _cores.add((_socket, _val))
+            _socket = None
+    _n = len(_cores) or sum(1 for _l in _info.splitlines() if _l.startswith('processor'))
+except OSError:
+    _n = 0
+_threads = int(o.get('threads', 0) or 0)
+if not 1 <= _threads <= 64:
+    _threads = _n if 1 <= _n <= 64 else 0
+print(_threads)
+print(1 if o.get('fast_sync') else 0)
 PY
 )
 export GGML_VK_DISABLE_F16=1
-export GGML_VK_FORCE_SYNC=1
+if [ "${{CFG[15]}}" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
 exec {llama_server} -m "${{CFG[0]}}" --host 127.0.0.1 --port "${{CFG[2]}}" \\
   --n-gpu-layers 99 --ctx-size "${{CFG[1]}}" --flash-attn "${{CFG[3]}}" \\
   --batch-size "${{CFG[4]}}" --ubatch-size "${{CFG[5]}}" \\
   --cache-type-k "${{CFG[6]}}" --cache-type-v "${{CFG[6]}}" \\
   --parallel "${{CFG[7]}}" --alias "${{CFG[8]}}" \\
   --temp "${{CFG[9]}}" --top-p "${{CFG[10]}}" --top-k "${{CFG[11]}}" \\
-  --min-p "${{CFG[12]}}" --repeat-penalty "${{CFG[13]}}"
+  --min-p "${{CFG[12]}}" --repeat-penalty "${{CFG[13]}}" \\
+  --threads "${{CFG[14]}}" --threads-batch "${{CFG[14]}}" \\
+  --cache-reuse 256 --defrag-threshold 0.1
 """
     launcher.write_text(content, encoding="utf-8")
     launcher.chmod(0o755)
@@ -101,6 +132,7 @@ def _service_text(state: dict[str, Any], launcher: Path) -> str:
     state["server_log"] = server_log
     tuning = normalized_settings(state.get("optimizations"))
     limits = ""
+    resource_guards = ""
     restart_delay = 10
     if tuning["safeguards_enabled"]:
         limits = (
@@ -108,6 +140,13 @@ def _service_text(state: dict[str, Any], launcher: Path) -> str:
             f"StartLimitBurst={int(tuning['restart_burst'])}\n"
         )
         restart_delay = int(tuning["restart_delay_sec"])
+        # The host only owns ~4 GiB after the 12/4 UMA carve-out. Capping the
+        # service means the OOM killer and systemd take out the *server*, never
+        # the Bazzite desktop, and the server yields I/O to interactive use.
+        resource_guards = (
+            "MemoryHigh=3000M\nMemoryMax=3500M\nOOMScoreAdjust=500\n"
+            "IOSchedulingClass=idle\n"
+        )
     return f"""[Unit]
 Description=BC250 llama.cpp model server
 After=network-online.target
@@ -115,7 +154,7 @@ Wants=network-online.target
 {limits}
 
 [Service]
-{identity}{runtime_prep}ExecStartPre=-{podman} start {container}
+{identity}{runtime_prep}{resource_guards}ExecStartPre=-{podman} start {container}
 ExecStart={podman} exec --user root {container} {launcher}
 Restart=on-failure
 RestartSec={restart_delay}
@@ -296,6 +335,24 @@ def show_server_failure(state: dict[str, Any], runner: CommandRunner, error: str
     runner.emit(f"Server health failure: {error}")
     runner.emit(f"Guidance: {guidance}")
     return guidance
+
+
+def ensure_server(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Self-healing entry point: healthy stays up, stopped starts, sick restarts."""
+    status = service_status(state, runner)
+    if not status.get("active"):
+        if not state.get("current_model"):
+            raise RuntimeError("No model is installed yet; complete setup before ensuring the server")
+        if runner:
+            runner.emit("Model server is stopped; starting it and waiting for health")
+        return {"ensured": "started", **restart_and_wait(state, runner)}
+    try:
+        health = health_check(state, timeout=3)
+    except (OSError, urllib.error.URLError, TimeoutError, ValueError, RuntimeError) as exc:
+        if runner:
+            runner.emit(f"Active server is unhealthy ({exc}); restarting it")
+        return {"ensured": "restarted", **restart_and_wait(state, runner)}
+    return {"ensured": "already-healthy", **health}
 
 
 def system_metrics() -> dict[str, Any]:

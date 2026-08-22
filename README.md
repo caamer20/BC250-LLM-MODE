@@ -2,7 +2,7 @@
 
 BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
-The interface is a real local `tkinter` window—not a web app. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, context, Open WebUI, Tailscale HTTPS sharing, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
+The interface is a real local `tkinter` window—not a web app. The window code lives in the `bc250_llm_mode/gui/` package: `app.py` (shell, threading, navigation), `steps.py` (setup wizard screens), `dashboard.py` (operations dashboard, catalog browser, llama.cpp runtime card), and `forms.py` (model/optimization forms with unit-tested pure decision helpers); the composed `Wizard` surface is frozen by a headless contract test. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, a searchable catalog browser with live VRAM fit badges and one-click install, one-click benchmarks, llama.cpp updates/rollback, context, Open WebUI, Tailscale HTTPS sharing, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
@@ -88,6 +88,28 @@ The wizard is resumable and each step is designed to be safe to run again:
 
 The application never changes BIOS settings and never reboots the computer automatically.
 
+### Performance optimizations
+
+Runtime tuning (applied to the generated launcher, always reversible through the Optimize step):
+
+- **Flash attention** (`auto`/`on`/`off`), **batch/ubatch sizing**, and **Q8_0/Q4_0 KV-cache quantization** with automatic VRAM fit re-projection (Q4 KV halves the projected cache).
+- **CPU thread autodetection** — the launcher counts physical cores from `/proc/cpuinfo` at each start and passes `--threads`/`--threads-batch`; override with the bounded `threads` setting.
+- **KV-cache reuse and defragmentation** — `--cache-reuse 256` keeps agentic/tool-calling sessions fast across context shifts; `--defrag-threshold 0.1` reduces fragmentation in long multi-slot sessions.
+- **`fast_sync` (experimental, off by default)** — when enabled, the conservative `GGML_VK_FORCE_SYNC=1` workaround is dropped so advanced users can measure throughput on newer drivers. The `--no-mmap` ban is never relaxed.
+
+Host-level options (all opt-in and reverted by `revert-optimizations`/uninstall):
+
+- **Governor profiles** — `cool-quiet` (500–1400 MHz), `balanced` (500–1850 MHz, default), `maximum` (800–2000 MHz), or a custom range, applied through the cyan-skillfish SMU governor.
+- **Thermal watchdog** — when `thermal_watchdog_enabled`, each poll reads the GPU hwmon sensor and applies hysteresis: at `thermal_throttle_c` the clock ceiling is capped through the governor, at `thermal_recovery_c` the profile is restored, and at `thermal_stop_c` the model server is stopped (it stays stopped until a human restarts it). Drive it with `bc250-llm-mode thermals status|once|watch`.
+- **Service memory guards** — with safeguards enabled, `bc250-llm.service` runs under `MemoryHigh`/`MemoryMax` sized for the ~4 GiB host share, with `OOMScoreAdjust` and idle I/O scheduling so an out-of-memory event takes out the server, never the desktop.
+- **Memory/service trimming** — bounded swappiness and optional stopping of listed game-oriented services.
+- **`autotune`** — opt-in sweep over `{ubatch 256/512} × {kv q8_0/q4_0} × {flash-attention auto/on}`: each combo is fit-checked, restarted, benchmarked, and rolled back on failure; the fastest safe winner stays applied and results are kept in state history.
+
+### llama.cpp runtime updates
+
+Setup builds llama.cpp once from a shallow clone and records the exact commit into state. Updates are **never automatic**: each application release ships a `KNOWN_GOOD_LLAMACPP` pin that has been vetted for BC-250/GFX1013 Vulkan, and `bc250-llm-mode llamacpp status` reports drift against it. `llamacpp update [--tag TAG]` fetches the pinned tag into a **separate staging clone**, builds there, smoke-checks the binaries, then atomically swaps the active source+build tree with the previous one (kept as `llama.cpp-backup`) and restarts through the same health-checked rollback path as model activation — if the new build cannot serve the current model, the previous build is restored automatically and the active checkout is never left on the failed tag. `llamacpp rollback` flips back manually; a latched thermal stop requires an explicit `thermals reset`. The dashboard exposes the same actions on its "llama.cpp runtime" card.
+
+
 ### Reboot safety policy
 
 LLM Mode is intentionally limited to the current boot. Every setup, repair, and **Start current-boot LLM Mode** action guarantees that:
@@ -119,7 +141,7 @@ Tailscale is optional and is not installed by this application. On Linux, `tails
 
 ## Choosing a model
 
-The curated catalog currently includes thirteen models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
+The curated catalog currently includes twenty-four models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
 
 | Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -127,6 +149,7 @@ The curated catalog currently includes thirteen models. Projected totals below u
 | [LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | Small chat/long-context/multi-user | Q5_K_M | 1.97 GiB | 2.16 GiB | 2.54 GiB |
 | [Qwen3.8 9B (Empero distill)](https://huggingface.co/empero-ai/Qwen3.8-9B-GGUF) | Reasoning/function calling | Q4_K_M | 8.63 GiB | 10.88 GiB (tight) | No fit |
 | [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 9.52 GiB | 11.77 GiB (tight) | No fit |
+| [Qwen3.8 9B Distill (converted)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) | Reasoning/function calling (local conversion) | Q5_K_M | 9.49 GiB | 11.74 GiB (tight) | No fit |
 | [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |
 | [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 7.45 GiB | 8.45 GiB | 10.45 GiB |
 | [Qwen3 14B](https://huggingface.co/ggml-org/Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 10.63 GiB (tight) | 11.88 GiB (tight) | No fit |
@@ -136,12 +159,28 @@ The curated catalog currently includes thirteen models. Projected totals below u
 | [DeepSeek R1 Distill Qwen 7B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF) | Reasoning/math | Q6_K | 7.70 GiB | 8.57 GiB | 10.32 GiB |
 | [Mistral Nemo 12B Instruct](https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF) | Capable multilingual chat | Q5_K_M | 11.63 GiB (tight) | No fit | No fit |
 | [Phi-4 14B](https://huggingface.co/bartowski/phi-4-GGUF) | Reasoning/math/code | Q4_K_M | No fit | No fit | No fit |
+| [Qwen3 4B Instruct 2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507-GGUF) | Fast general/long-context | Q4_K_M | 7.84 GiB | No fit | No fit |
+| [Qwen2.5 3B Instruct](https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF) | Tiny multi-user assistant | Q8_0 | 5.19 GiB | 6.31 GiB | 8.56 GiB |
+| [Mistral 7B Instruct v0.3](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF) | Classic general chat | Q5_K_M | 10.15 GiB | No fit | No fit |
+| [DeepSeek R1 Distill Llama 8B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Llama-8B-GGUF) | Reasoning/math | Q5_K_M | 10.34 GiB | No fit | No fit |
+| [Gemma 2 9B IT](https://huggingface.co/bartowski/gemma-2-9b-it-GGUF) | Prose quality (single user, 8K) | Q4_K_M | No fit | No fit | No fit |
+| [Llama 3.2 1B Instruct](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF) | Ultra-light/multi-user | Q8_0 | 3.32 GiB | 4.32 GiB | 6.32 GiB |
+| [Ornith 1.5 9B](https://huggingface.co/ornith-ai/Ornith-1.5-9B-GGUF) | Newest generalist (compat. candidate) | Q6_K | 10.48 GiB | No fit | No fit |
+| [Qwen3.8 2B Distill](https://huggingface.co/empero-ai/Qwen3.8-2B-Distill-GGUF) | Small reasoning/long context | Q8_0 | 5.40 GiB | 7.65 GiB | No fit |
+| [Qwen2.5 Coder 3B Instruct](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF) | Smallest dedicated coder | Q8_0 | 5.42 GiB | 6.54 GiB | 8.79 GiB |
+| [Qwen2.5 Coder 14B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF) | Largest coder that fits (single user) | Q4_K_M | No fit² | No fit | No fit |
+
+² Qwen2.5 Coder 14B carries a heavy 192 KiB/token KV cache: plan a single user at 8K (Q3_K_M 9.51 GiB FITS; Q4_K_M 11.49 GiB TIGHT).
+
+The six newest entries widen the coverage at both ends of the size spectrum. Qwen3 4B Instruct 2507 and Qwen2.5 3B Instruct are the new quality-per-gib sweet spot; Mistral 7B v0.3 and DeepSeek R1 Distill Llama 8B fill classic-chat and reasoning niches; Llama 3.2 1B is an ultra-light tier that fits near-full precision with large contexts or many slots. Gemma 2 9B IT carries a wide 336 KiB/token KV cache and a native 8192-token limit, so it is planned as a single-user short-context model: it projects to roughly 9.07 GiB for one slot at 8K and no fit for four shared slots.
 
 LFM2.5 is especially useful when several clients share the server. LiquidAI advertises a 128K-trained context window, and its hybrid convolution/attention layout uses only eight attention layers in the 2.6B model and six in the 1.2B model. At Q8 KV this projects to roughly 8 KiB/token and 6 KiB/token respectively. A 128K LFM2.5 2.6B Q5 configuration projects to about 3.78 GiB for one slot or 6.71 GiB for four; the 1.2B Instruct model projects to about 2.52 GiB for one slot or 4.71 GiB for four.
 
 The LFM2.5 2.6B Q5 model is hardware-validated on the project BC-250: Vulkan loaded 128,000 tokens per slot across four slots, measured about 6.54 GiB VRAM in use, and produced approximately 121 tokens/second in the smoke-test response. The 1.2B Instruct entry uses official GGUF/config metadata and remains a compatibility candidate until separately tested on-card.
 
 Qwen3.8 9B is Empero's full-parameter reasoning distillation into the Qwen3.5-9B architecture, not an official Alibaba Qwen model release. The catalog downloads Empero's exact standard-layout GGUF filenames and deliberately excludes BF16, MTP, vision-projector, fused, and MAX artifacts. Its model card requires a recent llama.cpp build with Qwen3.5/Gated DeltaNet support. It is currently a metadata-validated compatibility candidate until it completes an on-card Vulkan load and generation test.
+
+The separate [Qwen3.8 9B Distill](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) release ships only a 19.3 GB BF16 safetensors checkpoint — no GGUF — so the catalog entry uses the same local-conversion workflow as The Defiant Fable: the wizard downloads the official checkpoint (plus tokenizer/config files), converts it inside the container with `convert_hf_to_gguf.py`, quantizes to a standard per-tensor K-quant (Q5_K_M recommended; Q6_K available), applies the guarded `qwen3_5` block-count/nextn repairs, and verifies before activation. Approximately 46 GiB of temporary space coexists during conversion. The multimodal projector is excluded: this catalog is text-only. Sampling follows the publisher's reasoning profile (`temperature 0.6`, `top-p 0.95`, `top-k 20`, `min-p 0`).
 
 Catalog entries can carry model-specific sampling profiles. Qwen3.8 launches with the publisher-recommended temperature `0.6`, top-p `0.95`, top-k `20`, and min-p `0`; older installed records retain conservative application defaults. The generated launcher is refreshed on every controlled server restart.
 
@@ -213,7 +252,7 @@ After setup, start the terminal client with:
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode chat
 ```
 
-The client streams responses and retains conversation history for the current session. It is also a full management console. Available commands are:
+The client streams responses and retains conversation history for the current session. Every request enables llama.cpp prompt caching (`cache_prompt`), so follow-up turns reuse the KV cache for the shared prefix instead of reprocessing it, and each answer ends with a live tokens/second reading from the server's own timing data. It is also a full management console. Available commands are:
 
 | Command | Purpose |
 | --- | --- |
@@ -224,12 +263,21 @@ The client streams responses and retains conversation history for the current se
 | `/scan` | Find compatible standard-layout GGUF files in configured model folders |
 | `/ctx <tokens>` | Change context size from 512 to 262144 after a fit check |
 | `/slots <1-8>` | Set concurrent request slots after a multiplied KV/VRAM fit check |
-| `/llm start\|stop\|restart\|status` | Manage the single systemd-owned model server |
+| `/llm start\|stop\|restart\|status\|ensure` | Manage the single systemd-owned model server; `ensure` self-heals (starts when stopped, restarts when unhealthy) |
+| `/recommend [tag]` | Suggest catalog models that safely fit the current context/slots budget |
 | `/webui start\|stop\|restart\|status` | Install/start or manage Open WebUI |
 | `/tailscale start\|stop\|restart\|status\|connect\|disconnect` | Manage the optional daemon and tailnet connection separately |
 | `/serve start\|stop\|restart\|status` | Manage tailnet-only HTTPS for Open WebUI and the model API |
 | `/logs [server\|setup] [lines]` | Show 1–1000 recent log lines |
 | `/sys` | Show GPU temperature, clocks, utilization, and memory metrics |
+| `/bench [tokens]` | Measure prompt-processing and generation speed (tokens/second) |
+| `/save [name]` / `/load [name]` | Save or restore the conversation under `~/.bc250-llm-mode/conversations/` |
+| `/system [text\|clear]` | Show, set, or clear the system prompt for this session |
+| `/temp <0.0-2.0\|off>` | Per-request sampling temperature override (server default when off) |
+| `/think on\|off` | Hide or show `<think>` reasoning blocks (raw text is always stored) |
+| `/trim [messages]` | Drop oldest turns; auto-trim also runs near the context limit |
+| `/export [name]` | Export this conversation as Markdown |
+| `/retry` | Regenerate the last answer from the same history |
 | `/clear` | Clear the current in-memory conversation |
 | `/quit` | Exit the terminal client |
 
@@ -246,21 +294,36 @@ bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON
 bc250-llm-mode memory-profile          Analyze the fixed boot-time UMA split and host-RAM safety
 bc250-llm-mode chat                    Start terminal chat
-bc250-llm-mode llm <action>            start | stop | restart | status
+bc250-llm-mode llm <action>            start | stop | restart | status | ensure
+                                       (ensure self-heals: starts when stopped, restarts when sick)
 bc250-llm-mode webui <action>          start | stop | restart | status
 bc250-llm-mode tailscale <action>      start | stop | restart | status | connect | disconnect
 bc250-llm-mode serve <action>          start | stop | restart | status (tailnet HTTPS)
 bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
+bc250-llm-mode models search [query]   Search the catalog by tag/name with live fit
+                                       recommendations at the current context/slots
+bc250-llm-mode models recommend        Rank catalog models that safely fit a budget
+  [--ctx N] [--slots N] [--tag X] [--limit N]
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
+bc250-llm-mode bench [--max-tokens N] [--repeat 1-10] [--prompt "..."]
+                                       Measure generation speed; repeats report min/median/max
+bc250-llm-mode doctor                  Run local diagnostics and print a JSON report
+bc250-llm-mode autotune [--repeat 1-3] [--max-tokens N]
+                                       Benchmark runtime combos and apply the fastest safe one
+bc250-llm-mode thermals status|once|watch [--interval SEC]
+                                       GPU thermal watchdog controls
+bc250-llm-mode llamacpp status|update|rollback [--tag TAG]
+                                       Manage the pinned llama.cpp Vulkan build;
+                                       staged rebuild, atomic switch, auto-rollback
 bc250-llm-mode ctx <tokens>            Change context after a VRAM fit check and restart
 bc250-llm-mode slots <1-8>             Set concurrent users after a VRAM fit check and restart
 bc250-llm-mode boot-policy [status|desktop]
                                         Show or restage desktop/no-LLM next boot
 bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
 bc250-llm-mode llm-mode                Start LLM Mode for the current boot only
-bc250-llm-mode install-model <id>      Install a curated catalog model
-  [--quant <quant>] [--ctx <tokens>]
+bc250-llm-mode install-model <id>      Install a curated catalog model; without --quant the
+  [--quant <quant>] [--ctx <tokens>]   best-fitting quantization is chosen automatically
 bc250-llm-mode switch <model-id>       Switch the single server to an installed model
 bc250-llm-mode desktop-mode [--now]    Restore regular Bazzite desktop mode
 bc250-llm-mode uninstall               Remove the service and revert LLM Mode
@@ -384,7 +447,7 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The current suite covers hardware and memory-profile discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, download-space and checksum safeguards, optimizer bounds, transactional activation rollback, existing-model discovery, GGUF metadata healing, service lifecycle management, Tailscale state separation, server generation, and desktop-mode reversion.
+The current suite covers hardware and memory-profile discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, catalog search, best-fit quantization selection, and budget-aware model recommendations, download-space and checksum safeguards, optimizer bounds including governor profiles and thermal limits, the hysteresis thermal watchdog state machine, launcher thread/cache-reuse generation, systemd memory guards, transactional activation rollback, existing-model discovery, GGUF metadata healing, service lifecycle management including self-healing restarts, Tailscale state separation, server generation, chat benchmarking with persisted history, streaming timing capture, reasoning-block filtering, conversation trimming/export/persistence, and desktop-mode reversion.
 
 ## License
 
