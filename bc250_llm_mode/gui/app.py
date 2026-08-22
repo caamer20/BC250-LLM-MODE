@@ -78,6 +78,8 @@ class GuiBase(tk.Tk):
         paths: AppPaths | None = None,
     ) -> None:
         super().__init__()
+        # Path authority: injected profile wins; otherwise the tilde default
+        # (expanded by StateStore, never evaluated at import time).
         self.store = store or StateStore()
         self._paths = paths
         self.state_data = self.store.load()

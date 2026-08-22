@@ -1,5 +1,4 @@
 import re
-from pathlib import Path
 
 APP_NAME = "BC250 LLM MODE"
 AMD_VENDOR_ID = "0x1002"
@@ -15,8 +14,11 @@ KNOWN_GOOD_LLAMACPP = "b7598"
 TAG_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 DEFAULT_PORT = 8080
 DEFAULT_CTX = 8192
-DEFAULT_APP_DIR = Path.home() / ".bc250-llm-mode"
-DEFAULT_STATE_PATH = DEFAULT_APP_DIR / "state.json"
-DEFAULT_MODELS_DIR = DEFAULT_APP_DIR / "models"
-DEFAULT_LOGS_DIR = DEFAULT_APP_DIR / "logs"
+# Tilde-prefixed defaults: expanded by consumers (StateStore,
+# configure_logging, download/prepare/gui) so home is never evaluated at
+# module import time. The composed AppPaths profile is the authority.
+DEFAULT_APP_DIR = "~/.bc250-llm-mode"
+DEFAULT_STATE_PATH = DEFAULT_APP_DIR + "/state.json"
+DEFAULT_MODELS_DIR = DEFAULT_APP_DIR + "/models"
+DEFAULT_LOGS_DIR = DEFAULT_APP_DIR + "/logs"
 
