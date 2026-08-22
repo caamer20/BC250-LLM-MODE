@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .db import SCHEMA_VERSION, connect, initialize, integrity_ok
+from .fsops import atomic_write_text, publish_staged
 from .paths import AppPaths
 
 # Configuration keys imported into `settings` (ADR field-mapping table).
@@ -118,8 +119,7 @@ class LegacyImporter:
             finally:
                 conn.close()
 
-            os.replace(staging_db, self.paths.database_path)
-            os.chmod(self.paths.database_path, 0o600)
+            publish_staged(staging_db, self.paths.database_path)
             published = True
             receipt = self._write_receipt(source)
             self.emit(
@@ -164,7 +164,7 @@ class LegacyImporter:
             self.paths.migration_receipts_dir
             / f"legacy-import-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.json"
         )
-        receipt.write_text(json.dumps({
+        atomic_write_text(receipt, json.dumps({
             "type": "legacy-json-import",
             "source": str(source),
             "source_sha256": digest,
@@ -172,8 +172,7 @@ class LegacyImporter:
             "counts": dict(self.counts),
             "warnings": list(self.warnings),
             "created": utcnow(),
-        }, indent=2), encoding="utf-8")
-        os.chmod(receipt, 0o600)
+        }, indent=2))
         return receipt
 
     def _import_mapped(self, conn, migrated: dict[str, Any]) -> None:

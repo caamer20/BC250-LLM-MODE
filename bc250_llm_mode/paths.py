@@ -65,12 +65,18 @@ class AppPaths:
         return cls.from_app_dir(Path(tmp_path) / APP_DIR_NAME)
 
     def ensure_directories(self) -> None:
+        from .fsops import ensure_private_dir
+
+        # models_dir holds user content and keeps default permissions; every
+        # app-owned directory below may contain telemetry, conversations, or
+        # migration material and is enforced private on every run.
+        self.models_dir.mkdir(parents=True, exist_ok=True)
         for directory in (
-            self.app_dir, self.models_dir, self.logs_dir,
+            self.app_dir, self.logs_dir,
             self.conversations_dir, self.backups_dir, self.staging_dir,
             self.migration_receipts_dir,
         ):
-            directory.mkdir(parents=True, exist_ok=True)
+            ensure_private_dir(directory)
 
     def validate(self) -> None:
         """Reject symlink swaps on directories the app owns."""
