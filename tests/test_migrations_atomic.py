@@ -37,6 +37,7 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
         ),
     )
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (failing,))
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
 
     with pytest.raises(sqlite3.OperationalError):
         db.initialize(fresh_conn)
@@ -55,7 +56,7 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
     applied = {int(r["version"]) for r in fresh_conn.execute(
         "SELECT version FROM schema_migrations"
     )}
-    assert 2 in applied
+    assert 3 in applied
 
 
 def test_initialize_is_idempotent_across_connections(tmp_path):
@@ -66,3 +67,71 @@ def test_initialize_is_idempotent_across_connections(tmp_path):
     assert db.initialize(conn_b) == db.SCHEMA_VERSION
     conn_a.close()
     conn_b.close()
+
+
+# --- Registry contract (R2 exit plan §3.1) ---------------------------------
+
+
+def test_registry_declared_ascending_and_contiguous():
+    versions = [version for version, _name, _stmts in db.MIGRATIONS]
+    assert versions == sorted(versions)
+    assert versions == list(range(1, len(versions) + 1))
+    assert db.SCHEMA_VERSION == max(versions)
+
+
+def test_later_migration_depends_on_earlier_one(fresh_conn, monkeypatch):
+    """Ordering is behavioral: a later migration's statement references a
+    table created by the immediately preceding migration, and runs only
+    because numeric order guarantees that predecessor exists."""
+    dependent = (
+        3,
+        "depends-on-v2",
+        (
+            "INSERT INTO known_good_runtime(id, model_alias, context, slots, "
+            "verified_at) VALUES (1, 'probe', 8192, 1, 'now')",
+        ),
+    )
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (dependent,))
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+
+    assert db.initialize(fresh_conn) == 3
+    row = fresh_conn.execute(
+        "SELECT model_alias FROM known_good_runtime WHERE id = 1"
+    ).fetchone()
+    assert row["model_alias"] == "probe"
+
+
+@pytest.mark.parametrize(
+    "registry, schema_version",
+    [
+        ((2, "b", ("SELECT 1",)), 2),                      # gap: missing 1
+        (
+            (1, "a", ("SELECT 1",)),
+            (1, "a", ("SELECT 1",)),                        # duplicate
+        ),
+        ((0, "zero", ("SELECT 1",)), 1),                    # non-positive
+        ((1, "a", ("SELECT 1",)), (2, "b", ("SELECT 1",))),  # wrong SCHEMA_VERSION (declared desc)
+    ],
+)
+def test_invalid_registries_rejected(fresh_conn, monkeypatch, registry, schema_version):
+    if isinstance(registry[0], tuple):
+        migrations = registry
+    else:
+        migrations = (registry,)
+    monkeypatch.setattr(db, "MIGRATIONS", migrations)
+    with pytest.raises(db.MigrationRegistryError):
+        db.validate_registry(db.MIGRATIONS, schema_version)
+
+
+def test_reordered_declaration_still_executes_numerically(fresh_conn, monkeypatch):
+    """Even if declarations are accidentally reversed, execution order is
+    numeric — the dependent statement must still succeed."""
+    first = (3, "creates-probe-table", ("CREATE TABLE probe_t (v INTEGER)",))
+    second = (4, "uses-probe-table", ("INSERT INTO probe_t VALUES (7)",))
+    monkeypatch.setattr(
+        db, "MIGRATIONS", db.MIGRATIONS + (second, first)
+    )
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+
+    assert db.initialize(fresh_conn) == 4
+    assert fresh_conn.execute("SELECT v FROM probe_t").fetchone()["v"] == 7

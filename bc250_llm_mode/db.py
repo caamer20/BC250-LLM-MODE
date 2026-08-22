@@ -19,31 +19,14 @@ from typing import Any
 SCHEMA_VERSION = 2
 BUSY_TIMEOUT_MS = 5000
 
-# (version, name, statements). Each migration runs inside one explicit
-# transaction: every statement is executed individually (never
-# executescript(), which commits pending work first), and the
-# schema_migrations row is written by the same transaction. A failure
-# mid-migration rolls back the partial schema AND the version row.
+# (version, name, statements). Declared in ASCENDING version order; the
+# registry is validated at initialization so ordering is a contract, not a
+# convention. Each migration runs inside one explicit transaction: every
+# statement is executed individually (never executescript(), which commits
+# pending work first), and the schema_migrations row is written by the same
+# transaction. A failure mid-migration rolls back the partial schema AND the
+# version row.
 MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
-    (
-        2,
-        "known-good-runtime",
-        (
-            """
-            CREATE TABLE known_good_runtime (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                model_alias TEXT,
-                context INTEGER NOT NULL,
-                slots INTEGER NOT NULL DEFAULT 1,
-                profile_id TEXT,
-                runtime_json TEXT NOT NULL DEFAULT '{}',
-                runtime_fingerprint TEXT,
-                runtime_component_identity TEXT,
-                verified_at TEXT NOT NULL
-            )
-            """,
-        ),
-    ),
     (
         1,
         "initial-schema",
@@ -127,6 +110,25 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """,
         ),
     ),
+    (
+        2,
+        "known-good-runtime",
+        (
+            """
+            CREATE TABLE known_good_runtime (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                model_alias TEXT,
+                context INTEGER NOT NULL,
+                slots INTEGER NOT NULL DEFAULT 1,
+                profile_id TEXT,
+                runtime_json TEXT NOT NULL DEFAULT '{}',
+                runtime_fingerprint TEXT,
+                runtime_component_identity TEXT,
+                verified_at TEXT NOT NULL
+            )
+            """,
+        ),
+    ),
 )
 
 
@@ -177,8 +179,38 @@ def _applied_versions(conn: sqlite3.Connection) -> set[int]:
     return {int(r["version"]) for r in conn.execute("SELECT version FROM schema_migrations")}
 
 
+class MigrationRegistryError(RuntimeError):
+    """The declared migration registry violates the ordering contract."""
+
+
+def validate_registry(
+    migrations: tuple[tuple[int, str, tuple[str, ...]], ...],
+    schema_version: int,
+) -> None:
+    """Reject duplicate versions, gaps, non-positive versions, and a
+    ``SCHEMA_VERSION`` that is not the highest declared version."""
+    versions = [version for version, _name, _statements in migrations]
+    if not versions:
+        raise MigrationRegistryError("migration registry is empty")
+    if any(not isinstance(v, int) or v <= 0 for v in versions):
+        raise MigrationRegistryError("migration versions must be positive integers")
+    if len(set(versions)) != len(versions):
+        raise MigrationRegistryError(f"duplicate migration versions: {versions}")
+    expected = set(range(1, max(versions) + 1))
+    if set(versions) != expected:
+        raise MigrationRegistryError(
+            f"migration versions must be contiguous from 1; got {sorted(versions)}"
+        )
+    if schema_version != max(versions):
+        raise MigrationRegistryError(
+            f"SCHEMA_VERSION {schema_version} does not equal the highest "
+            f"declared migration version {max(versions)}"
+        )
+
+
 def initialize(conn: sqlite3.Connection) -> int:
     """Apply pending migrations; returns the resulting schema version."""
+    validate_registry(MIGRATIONS, SCHEMA_VERSION)
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -197,7 +229,9 @@ def initialize(conn: sqlite3.Connection) -> int:
                 f"Database schema v{newest} is newer than supported v{SCHEMA_VERSION}; "
                 "refusing to open (repair mode required)."
             )
-    for version, name, statements in MIGRATIONS:
+    # Execute unapplied migrations in NUMERIC order even if a future edit
+    # accidentally reorders declarations.
+    for version, name, statements in sorted(MIGRATIONS, key=lambda m: m[0]):
         if version in applied:
             continue
         # Explicit transaction: sqlite supports transactional DDL, so a
