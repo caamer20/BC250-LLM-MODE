@@ -3,6 +3,39 @@
 All notable changes to BC250 LLM MODE. Format follows Keep a Changelog;
 versions are tagged in git.
 
+## [0.9.0.dev0] — unreleased development line
+
+### Fixed (R2 hardening)
+
+- **Failed legacy import no longer publishes an empty database**: compose
+  returns an explicit repair-required application; only `repair-status`
+  and `repair-retry` are permitted; every other command exits 78 until
+  migration succeeds.
+- **Stale drafts can no longer overwrite newer state**: whole-state saves
+  validate against the revision carried by the saved mapping, not a
+  store-level cache.
+- **Schema migrations are atomic**: statement-by-statement execution inside
+  an explicit transaction (no `executescript`); a mid-migration failure
+  leaves neither partial tables nor a recorded version.
+- **Durability is real**: all durable artifacts publish through fsynced
+  six-step atomic writes; new databases are 0600 from first connect;
+  app-owned sensitive directories are enforced 0700.
+
+### Changed
+
+- Compatibility `transaction()` now matches the legacy contract exactly
+  (replacement mappings persisted, `None` cancels, other types rejected).
+- Shared SQLite connections are serialized by a process-local reentrant
+  lock; cross-process writers remain flock-serialized.
+- `runtime-handoff.json` is rendered by a dedicated renderer/service —
+  only after committed runtime/model/profile changes, carrying
+  `config_revision` and model identity, regenerated when missing or stale
+  at daemon start, with publication failures reported separately from
+  database commits.
+- Two guard tests now drive transitional persistence toward zero:
+  direct `StateStore(` construction sites and per-file whole-state
+  save/transaction counts.
+
 ## [Unreleased] — R2.2 cutover
 
 ### Added

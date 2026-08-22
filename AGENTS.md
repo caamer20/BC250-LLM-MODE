@@ -5,11 +5,15 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0129ab8`+ (post-`v0.7.0`, version `0.8.0.dev0`)** with a **clean
-tree, 206+-test green baseline**, and reviewed commits above the tag covering:
-24-model catalog with tiers/recommendations, chat + benchmark features,
-thermal latch/baseline watchdog, autotune, llama.cpp staged update/rollback,
-schema v5 + transactional store, production hardening, and the `gui/` package.
+is at **`0.9.0.dev0`** with a **clean tree, 252-test green baseline**, and
+reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
+`v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
+tiers/recommendations, chat + benchmark features, thermal latch/baseline
+watchdog, autotune, llama.cpp staged update/rollback, schema v5 +
+transactional store, production hardening, the `gui/` package, the **SQLite
+composition cutover** (repositories, compatibility facade, repair gate,
+atomic migrations, durable publication, runtime handoff renderer/service),
+and the R2 hardening pass.
 
 ## Where we are in the master plan
 
