@@ -449,7 +449,7 @@ def test_guard_whole_state_saves_are_frozen():
 
     package = Path(__file__).parent.parent / "bc250_llm_mode"
     allowed_saves = {
-        "__main__.py": 10,
+        "__main__.py": 0,
         "chat.py": 4,
         "gui/app.py": 3,
         "gui/dashboard.py": 7,

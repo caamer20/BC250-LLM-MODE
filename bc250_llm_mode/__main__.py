@@ -198,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.state:
         store = StateStore(args.state)
         state = store.load()
+        application = Application.wrap(store)
     else:
         application = Application.compose()
         if args.command == "repair-retry":
@@ -224,9 +225,11 @@ def main(argv: list[str] | None = None) -> int:
         if not bootstrap_tkinter(store):
             return 0
         from .gui import run_gui
-        state["setup_phase"] = 0
-        state["setup_complete"] = False
-        store.save(state)
+        if application.setup is not None:
+            reset = application.setup.reset_for_repair("repair command")
+            state.update(setup_complete=False, setup_phase=reset["phase"])
+        else:
+            state.update(setup_complete=False, setup_phase=0)
         run_gui(store)
         return 0
     if args.command == "chat":
@@ -348,13 +351,14 @@ def main(argv: list[str] | None = None) -> int:
             "status": lambda: service_status(state, runner),
             "ensure": lambda: ensure_server(state, runner),
         }
+        before = dict(state)
         try:
             result = actions[args.action]()
         except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         if args.action != "status":
-            store.save(state)
+            application.persist_state_changes(before, state)
         print(json.dumps(result, indent=2, default=str))
         return 0
     if args.command == "autotune":
@@ -396,25 +400,30 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(llamacpp_status(state, status_runner), indent=2))
             return 0
         require_acknowledgment(state)
+        before = dict(state)
         if args.action == "update":
-            result = update_llamacpp(state, runner, tag=args.tag)
+            result = application.component.update_llamacpp(
+                state, runner, tag=args.tag
+            )
         else:
-            result = rollback_llamacpp(state, runner)
-        store.save(state)
+            result = application.component.rollback_llamacpp(state, runner)
+        application.persist_state_changes(before, state)
         print(json.dumps(result, indent=2, default=str))
         return 0
         print(json.dumps(actions[args.action](), indent=2))
         return 0
     if args.command in {"webui", "openwebui"}:
         require_acknowledgment(state)
+        svc = application.openwebui
         actions = {
-            "start": lambda: start_open_webui(state, runner),
-            "stop": lambda: stop_open_webui(state, runner),
-            "restart": lambda: restart_open_webui(state, runner),
-            "status": lambda: open_webui_status(state, runner),
+            "start": lambda: svc.start(state, runner),
+            "stop": lambda: svc.stop(state, runner),
+            "restart": lambda: svc.restart(state, runner),
+            "status": lambda: svc.status(state, runner),
         }
+        before = dict(state)
         result = actions[args.action]()
-        store.save(state)
+        application.persist_state_changes(before, state)
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "tailscale":
@@ -431,14 +440,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command in {"serve", "share"}:
         if args.action != "status":
             require_acknowledgment(state)
+        svc = application.sharing
         actions = {
-            "start": lambda: start_https_sharing(state, runner),
-            "stop": lambda: stop_https_sharing(state, runner),
-            "restart": lambda: start_https_sharing(state, runner),
+            "start": lambda: svc.start(state, runner),
+            "stop": lambda: svc.stop(state, runner),
+            "restart": lambda: svc.start(state, runner),
             "status": lambda: https_sharing_status(state, runner),
         }
+        before = dict(state)
         result = actions[args.action]()
-        store.save(state)
+        application.persist_state_changes(before, state)
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "models":
@@ -518,8 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "boot-policy":
         if args.action == "desktop":
             require_acknowledgment(state)
-            stage_desktop_boot(state, runner)
-            store.save(state)
+            application.host_mode.enforce_desktop_next_boot(state, runner)
         default_target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()
         print(json.dumps({
             "policy": state.get("boot_policy", "desktop"),
@@ -542,10 +552,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "llm-mode":
         require_acknowledgment(state)
-        apply_llm_mode(state, runner)
-        if state.get("setup_complete") and state.get("current_model"):
-            install_service(state, runner)
-        store.save(state)
+        application.host_mode.enter_llm_mode(
+            state, runner,
+            install_service_fn=install_service,
+            install=bool(state.get("setup_complete") and state.get("current_model")),
+        )
         runner.emit("LLM Mode is active for this boot; reboot returns to desktop with no LLM auto-start.")
         return 0
     if args.command == "install-model":
@@ -574,8 +585,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         downloaded = download_model(state, model, quant, runner)
         prepare_model(state, model, quant, downloaded, runner)
-        state["current_ctx"] = args.ctx
-        store.save(state)
+        application.model_install.register_context_change(state, args.ctx)
         if state.get("setup_complete"):
             restart_with_rollback(
                 store, state, runner, previous, f"Activating {model.display_name}"
@@ -586,14 +596,16 @@ def main(argv: list[str] | None = None) -> int:
         switch_model(store, state, args.model_id, runner)
         return 0
     if args.command in {"desktop-mode", "desktop"}:
-        state = switch_to_desktop_mode(state, runner, activate_now=args.now)
-        store.save(state)
+        application.host_mode.return_to_desktop(
+            state, runner, activate_now=args.now
+        )
         return 0
     if args.command == "uninstall":
-        state = uninstall(
-            state, runner, remove_container=args.remove_container, remove_models=args.remove_models
+        application.maintenance.uninstall(
+            state, runner,
+            remove_container=args.remove_container,
+            remove_models=args.remove_models,
         )
-        store.save(state)
         return 0
     return 1
 
