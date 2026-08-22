@@ -26,6 +26,9 @@ class AppPaths:
     conversations_dir: Path
     backups_dir: Path
     staging_dir: Path
+    database_path: Path
+    migration_lock_path: Path
+    migration_receipts_dir: Path
 
     @classmethod
     def for_home(cls, home: str | Path | None = None) -> "AppPaths":
@@ -38,13 +41,23 @@ class AppPaths:
         app = Path(app_dir).expanduser()
         return cls(
             app_dir=app,
+            # state.json is the LEGACY import source; SQLite (database_path)
+            # becomes the sole source of truth after the 0.9 cutover.
             state_path=app / "state.json",
             models_dir=app / "models",
             logs_dir=app / "logs",
             conversations_dir=app / "conversations",
             backups_dir=app / "backups",
             staging_dir=app / "staging",
+            database_path=app / "state.db",
+            migration_lock_path=app / "state.db.import-lock",
+            migration_receipts_dir=app / "migration-receipts",
         )
+
+    @property
+    def legacy_state_path(self) -> Path:
+        """Explicit alias: the read-only JSON import source."""
+        return self.state_path
 
     @classmethod
     def temporary(cls, tmp_path: str | Path) -> "AppPaths":
@@ -55,6 +68,7 @@ class AppPaths:
         for directory in (
             self.app_dir, self.models_dir, self.logs_dir,
             self.conversations_dir, self.backups_dir, self.staging_dir,
+            self.migration_receipts_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
 
