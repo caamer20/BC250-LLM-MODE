@@ -339,14 +339,14 @@ def _print_help(console) -> None:
     )
 
 
-def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> None:
+def run_chat(application) -> None:
     httpx, PromptSession, FileHistory, Console = _dependencies()
-    # Path authority: an injected profile wins; otherwise derive from the
-    # loaded state's own state_path (never a fresh home evaluation).
-    if store is None:
-        derived = (paths.state_path if paths else None) or probe.get("state_path")
-        store = StateStore(derived) if derived else StateStore()
-    state = store.load()
+    store = application.store
+    snapshot = (
+        application.query.snapshot()
+        if application.query is not None else None
+    )
+    state = snapshot.data if snapshot is not None else store.load()
     console = Console()
     log = configure_logging(state["logs_dir"])
     runner = CommandRunner(log, lambda line: console.print(f"[dim]{line}[/dim]"))
@@ -473,8 +473,9 @@ def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> 
                 "ensure": lambda: ensure_server(state, runner),
             }
             try:
+                before_llm = dict(state)
                 console.print_json(data=actions[action]())
-                store.save(state)
+                application.persist_state_changes(before_llm, state)
             except KeyError:
                 console.print("[red]Usage: /llm start|stop|restart|status|ensure[/red]")
             except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
@@ -511,8 +512,9 @@ def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> 
                 "status": lambda: open_webui_status(state, runner),
             }
             try:
+                before_webui = dict(state)
                 console.print_json(data=actions[action]())
-                store.save(state)
+                application.persist_state_changes(before_webui, state)
             except KeyError:
                 console.print("[red]Usage: /webui start|stop|restart|status[/red]")
             except (OSError, RuntimeError, ValueError) as exc:
@@ -546,8 +548,9 @@ def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> 
                 "status": lambda: https_sharing_status(state, runner),
             }
             try:
+                before_serve = dict(state)
                 console.print_json(data=actions[action]())
-                store.save(state)
+                application.persist_state_changes(before_serve, state)
             except KeyError:
                 console.print("[red]Usage: /serve start|stop|restart|status[/red]")
             except (OSError, RuntimeError, ValueError) as exc:
@@ -575,9 +578,10 @@ def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> 
             parts = prompt.split()
             action = parts[1] if len(parts) > 1 else "status"
             try:
+                before_boot = dict(state)
                 if action == "desktop":
                     stage_desktop_boot(state, runner)
-                    store.save(state)
+                    application.persist_state_changes(before_boot, state)
                 elif action != "status":
                     raise ValueError("action must be status or desktop")
                 target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()

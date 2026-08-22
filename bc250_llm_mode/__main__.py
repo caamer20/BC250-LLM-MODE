@@ -234,7 +234,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "chat":
         require_acknowledgment(state)
-        run_chat(store)
+        run_chat(application)
         return 0
     if args.command == "status":
         report = detect_hardware(state["models_dir"])
