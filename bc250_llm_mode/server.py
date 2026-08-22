@@ -913,6 +913,37 @@ def _json_get(url: str, timeout: float = 5) -> Any:
         return json.load(response)
 
 
+def minimal_inference_probe(state: dict[str, Any], timeout: float = 20.0) -> dict[str, Any]:
+    """Bounded single-token completion proving real generation works.
+
+    Used by activation verification: /health only proves the process is up;
+    this proves the model actually produces tokens. Connect, write, and
+    total timeouts are all bounded.
+    """
+    port = int(state.get("server_port", 8080))
+    alias = str((state.get("installed_models") and next(
+        (m.get("display_name") or m.get("id") for m in state["installed_models"]
+         if m.get("id") == state.get("current_model")), state.get("current_model"),
+    )) or "local").replace("\n", " ").strip()
+    body = json.dumps({
+        "model": alias,
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "stream": False,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{port}/v1/chat/completions",
+        data=body,
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.load(response)
+    text = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content")
+    if not isinstance(text, str):
+        raise RuntimeError("inference probe returned no completion content")
+    return {"ok": True, "sample": text[:64]}
+
+
 def health_check(state: dict[str, Any], runner: CommandRunner | None = None, timeout: int = 120) -> dict[str, Any]:
     port = int(state.get("server_port", 8080))
     deadline = time.monotonic() + timeout
