@@ -24,85 +24,729 @@ def current_model_record(state: dict[str, Any]) -> dict[str, Any]:
     raise RuntimeError("No current installed model is selected")
 
 
+LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+HANDOFF="${BC250_HANDOFF_PATH:-@HANDOFF@}"
+LEGACY_STATE="${BC250_STATE_PATH:-@LEGACY_STATE@}"
+ARGV=()
+FAST_SYNC=0
+append_argv() {
+  while IFS= read -r argv_line; do
+    ARGV+=("$argv_line")
+  done
+}
+if [ -f "$HANDOFF" ]; then
+  FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(0 if h.get("fast_sync") else 1)' "$HANDOFF")
+  append_argv < <(python3 - "$HANDOFF" <<'PYH'
+import json
+import os
+import sys
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+argv = [
+    os.path.join(h["llama_cpp_path"], "build", "bin", "llama-server"),
+    "-m", h["model_path"],
+    "--host", "127.0.0.1",
+    "--port", str(h["port"]),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(h["ctx_total"]),
+    "--flash-attn", h["flash_attention"],
+    "--batch-size", str(h["batch_size"]),
+    "--ubatch-size", str(h["ubatch_size"]),
+    "--cache-type-k", h["kv_cache_type"],
+    "--cache-type-v", h["kv_cache_type"],
+    "--parallel", str(h["parallel_slots"]),
+    "--alias", h["alias"],
+    "--temp", str(h.get("temperature", 0.3)),
+    "--top-p", str(h.get("top_p", 0.9)),
+    "--top-k", str(h.get("top_k", 40)),
+    "--min-p", str(h.get("min_p", 0.05)),
+    "--repeat-penalty", str(h.get("repeat_penalty", 1.05)),
+]
+threads = h.get("threads")
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+if not (isinstance(threads, int) and 1 <= threads <= 64):
+    threads = detected
+if isinstance(threads, int) and threads >= 1:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYH
+)"
+else
+  FAST_SYNC=$(python3 -c 'import json, sys; s=json.load(open(sys.argv[1])); o=s.get("optimizations") or {}; enabled=o.get("runtime_enabled", True); print(1 if (enabled and o.get("fast_sync")) else 0)' "$LEGACY_STATE")
+  append_argv < <(python3 - "$LEGACY_STATE" "@SERVER@" <<'PYS'
+import json
+import sys
+
+state_path = sys.argv[1]
+server_binary = sys.argv[2]
+s = json.load(open(state_path, encoding="utf-8"))
+r = next(x for x in s["installed_models"] if x["id"] == s["current_model"])
+o = s.get("optimizations") or {}
+if not o.get("runtime_enabled", True):
+    o = {}
+slots = int(o.get("parallel_slots", 4))
+argv = [
+    r["path"],
+    "--host", "127.0.0.1",
+    "--port", str(s.get("server_port", 8080)),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(int(s.get("current_ctx", 8192)) * slots),
+    "--flash-attn", str(o.get("flash_attention", "auto")),
+    "--batch-size", str(int(o.get("batch_size", 2048))),
+    "--ubatch-size", str(int(o.get("ubatch_size", 512))),
+    "--cache-type-k", str(o.get("kv_cache_type", "q8_0")),
+    "--cache-type-v", str(o.get("kv_cache_type", "q8_0")),
+    "--parallel", str(slots),
+    "--alias", str(r.get("display_name") or r.get("id") or "local").replace(chr(10), " ").strip(),
+    "--temp", str(r.get("temperature", 0.3)),
+    "--top-p", str(r.get("top_p", 0.9)),
+    "--top-k", str(r.get("top_k", 40)),
+    "--min-p", str(r.get("min_p", 0.05)),
+    "--repeat-penalty", str(r.get("repeat_penalty", 1.05)),
+]
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+threads = int(o.get("threads", 0) or 0)
+if not 1 <= threads <= 64:
+    threads = detected
+if 1 <= threads <= 64:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYS
+)"
+fi
+export GGML_VK_DISABLE_F16=1
+if [ "$FAST_SYNC" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
+exec "${ARGV[@]}"
+"""
+
+
+LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+HANDOFF="${BC250_HANDOFF_PATH:-@HANDOFF@}"
+LEGACY_STATE="${BC250_STATE_PATH:-@LEGACY_STATE@}"
+ARGV=()
+FAST_SYNC=0
+append_argv() {
+  while IFS= read -r argv_line; do
+    ARGV+=("$argv_line")
+  done
+}
+if [ -f "$HANDOFF" ]; then
+  FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(0 if h.get("fast_sync") else 1)' "$HANDOFF")
+  append_argv < <(python3 - "$HANDOFF" <<'PYH'
+import json
+import os
+import sys
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+argv = [
+    os.path.join(h["llama_cpp_path"], "build", "bin", "llama-server"),
+    "-m", h["model_path"],
+    "--host", "127.0.0.1",
+    "--port", str(h["port"]),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(h["ctx_total"]),
+    "--flash-attn", h["flash_attention"],
+    "--batch-size", str(h["batch_size"]),
+    "--ubatch-size", str(h["ubatch_size"]),
+    "--cache-type-k", h["kv_cache_type"],
+    "--cache-type-v", h["kv_cache_type"],
+    "--parallel", str(h["parallel_slots"]),
+    "--alias", h["alias"],
+    "--temp", str(h.get("temperature", 0.3)),
+    "--top-p", str(h.get("top_p", 0.9)),
+    "--top-k", str(h.get("top_k", 40)),
+    "--min-p", str(h.get("min_p", 0.05)),
+    "--repeat-penalty", str(h.get("repeat_penalty", 1.05)),
+]
+threads = h.get("threads")
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+if not (isinstance(threads, int) and 1 <= threads <= 64):
+    threads = detected
+if isinstance(threads, int) and threads >= 1:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYH
+)
+else
+  FAST_SYNC=$(python3 -c 'import json, sys; s=json.load(open(sys.argv[1])); o=s.get("optimizations") or {}; enabled=o.get("runtime_enabled", True); print(1 if (enabled and o.get("fast_sync")) else 0)' "$LEGACY_STATE")
+  append_argv < <(python3 - "$LEGACY_STATE" "@SERVER@" <<'PYS'
+import json
+import sys
+
+state_path = sys.argv[1]
+server_binary = sys.argv[2]
+s = json.load(open(state_path, encoding="utf-8"))
+r = next(x for x in s["installed_models"] if x["id"] == s["current_model"])
+o = s.get("optimizations") or {}
+if not o.get("runtime_enabled", True):
+    o = {}
+slots = int(o.get("parallel_slots", 4))
+argv = [
+    r["path"],
+    "--host", "127.0.0.1",
+    "--port", str(s.get("server_port", 8080)),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(int(s.get("current_ctx", 8192)) * slots),
+    "--flash-attn", str(o.get("flash_attention", "auto")),
+    "--batch-size", str(int(o.get("batch_size", 2048))),
+    "--ubatch-size", str(int(o.get("ubatch_size", 512))),
+    "--cache-type-k", str(o.get("kv_cache_type", "q8_0")),
+    "--cache-type-v", str(o.get("kv_cache_type", "q8_0")),
+    "--parallel", str(slots),
+    "--alias", str(r.get("display_name") or r.get("id") or "local").replace(chr(10), " ").strip(),
+    "--temp", str(r.get("temperature", 0.3)),
+    "--top-p", str(r.get("top_p", 0.9)),
+    "--top-k", str(r.get("top_k", 40)),
+    "--min-p", str(r.get("min_p", 0.05)),
+    "--repeat-penalty", str(r.get("repeat_penalty", 1.05)),
+]
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+threads = int(o.get("threads", 0) or 0)
+if not 1 <= threads <= 64:
+    threads = detected
+if 1 <= threads <= 64:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYS
+)
+fi
+export GGML_VK_DISABLE_F16=1
+if [ "$FAST_SYNC" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
+exec "${ARGV[@]}"
+"""
+
+
+LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+HANDOFF="${BC250_HANDOFF_PATH:-@HANDOFF@}"
+LEGACY_STATE="${BC250_STATE_PATH:-@LEGACY_STATE@}"
+ARGV=()
+FAST_SYNC=0
+append_argv() {
+  while IFS= read -r argv_line; do
+    ARGV+=("$argv_line")
+  done
+}
+if [ -f "$HANDOFF" ]; then
+  FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(0 if h.get("fast_sync") else 1)' "$HANDOFF")
+  append_argv < <(python3 - "$HANDOFF" <<'PYH'
+import json
+import os
+import sys
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+argv = [
+    os.path.join(h["llama_cpp_path"], "build", "bin", "llama-server"),
+    "-m", h["model_path"],
+    "--host", "127.0.0.1",
+    "--port", str(h["port"]),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(h["ctx_total"]),
+    "--flash-attn", h["flash_attention"],
+    "--batch-size", str(h["batch_size"]),
+    "--ubatch-size", str(h["ubatch_size"]),
+    "--cache-type-k", h["kv_cache_type"],
+    "--cache-type-v", h["kv_cache_type"],
+    "--parallel", str(h["parallel_slots"]),
+    "--alias", h["alias"],
+    "--temp", str(h.get("temperature", 0.3)),
+    "--top-p", str(h.get("top_p", 0.9)),
+    "--top-k", str(h.get("top_k", 40)),
+    "--min-p", str(h.get("min_p", 0.05)),
+    "--repeat-penalty", str(h.get("repeat_penalty", 1.05)),
+]
+threads = h.get("threads")
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+if not (isinstance(threads, int) and 1 <= threads <= 64):
+    threads = detected
+if isinstance(threads, int) and threads >= 1:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYH
+)
+else
+  FAST_SYNC=$(python3 -c 'import json, sys; s=json.load(open(sys.argv[1])); o=s.get("optimizations") or {}; enabled=o.get("runtime_enabled", True); print(1 if (enabled and o.get("fast_sync")) else 0)' "$LEGACY_STATE")
+  append_argv < <(python3 - "$LEGACY_STATE" "@SERVER@" <<'PYS'
+import json
+import sys
+
+state_path = sys.argv[1]
+server_binary = sys.argv[2]
+s = json.load(open(state_path, encoding="utf-8"))
+r = next(x for x in s["installed_models"] if x["id"] == s["current_model"])
+o = s.get("optimizations") or {}
+if not o.get("runtime_enabled", True):
+    o = {}
+slots = int(o.get("parallel_slots", 4))
+argv = [
+    server_binary,
+    r["path"],
+    "--host", "127.0.0.1",
+    "--port", str(s.get("server_port", 8080)),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(int(s.get("current_ctx", 8192)) * slots),
+    "--flash-attn", str(o.get("flash_attention", "auto")),
+    "--batch-size", str(int(o.get("batch_size", 2048))),
+    "--ubatch-size", str(int(o.get("ubatch_size", 512))),
+    "--cache-type-k", str(o.get("kv_cache_type", "q8_0")),
+    "--cache-type-v", str(o.get("kv_cache_type", "q8_0")),
+    "--parallel", str(slots),
+    "--alias", str(r.get("display_name") or r.get("id") or "local").replace(chr(10), " ").strip(),
+    "--temp", str(r.get("temperature", 0.3)),
+    "--top-p", str(r.get("top_p", 0.9)),
+    "--top-k", str(r.get("top_k", 40)),
+    "--min-p", str(r.get("min_p", 0.05)),
+    "--repeat-penalty", str(r.get("repeat_penalty", 1.05)),
+]
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+threads = int(o.get("threads", 0) or 0)
+if not 1 <= threads <= 64:
+    threads = detected
+if 1 <= threads <= 64:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYS
+)
+fi
+export GGML_VK_DISABLE_F16=1
+if [ "$FAST_SYNC" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
+exec "${ARGV[@]}"
+"""
+
+
+LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+HANDOFF="${BC250_HANDOFF_PATH:-@HANDOFF@}"
+LEGACY_STATE="${BC250_STATE_PATH:-@LEGACY_STATE@}"
+ARGV=()
+FAST_SYNC=0
+append_argv() {
+  while IFS= read -r argv_line; do
+    ARGV+=("$argv_line")
+  done
+}
+if [ -f "$HANDOFF" ]; then
+  FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(0 if h.get("fast_sync") else 1)' "$HANDOFF")
+  append_argv < <(python3 - "$HANDOFF" <<'PYH'
+import json
+import os
+import sys
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+argv = [
+    os.path.join(h["llama_cpp_path"], "build", "bin", "llama-server"),
+    "-m", h["model_path"],
+    "--host", "127.0.0.1",
+    "--port", str(h["port"]),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(h["ctx_total"]),
+    "--flash-attn", h["flash_attention"],
+    "--batch-size", str(h["batch_size"]),
+    "--ubatch-size", str(h["ubatch_size"]),
+    "--cache-type-k", h["kv_cache_type"],
+    "--cache-type-v", h["kv_cache_type"],
+    "--parallel", str(h["parallel_slots"]),
+    "--alias", h["alias"],
+    "--temp", str(h.get("temperature", 0.3)),
+    "--top-p", str(h.get("top_p", 0.9)),
+    "--top-k", str(h.get("top_k", 40)),
+    "--min-p", str(h.get("min_p", 0.05)),
+    "--repeat-penalty", str(h.get("repeat_penalty", 1.05)),
+]
+threads = h.get("threads")
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+if not (isinstance(threads, int) and 1 <= threads <= 64):
+    threads = detected
+if isinstance(threads, int) and threads >= 1:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYH
+)
+else
+  FAST_SYNC=$(python3 -c 'import json, sys; s=json.load(open(sys.argv[1])); o=s.get("optimizations") or {}; enabled=o.get("runtime_enabled", True); print(1 if (enabled and o.get("fast_sync")) else 0)' "$LEGACY_STATE")
+  append_argv < <(python3 - "$LEGACY_STATE" "@SERVER@" <<'PYS'
+import json
+import sys
+
+state_path = sys.argv[1]
+server_binary = sys.argv[2]
+s = json.load(open(state_path, encoding="utf-8"))
+r = next(x for x in s["installed_models"] if x["id"] == s["current_model"])
+o = s.get("optimizations") or {}
+if not o.get("runtime_enabled", True):
+    o = {}
+slots = int(o.get("parallel_slots", 4))
+argv = [
+    server_binary,
+    "-m", r["path"],
+    "--host", "127.0.0.1",
+    "--port", str(s.get("server_port", 8080)),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(int(s.get("current_ctx", 8192)) * slots),
+    "--flash-attn", str(o.get("flash_attention", "auto")),
+    "--batch-size", str(int(o.get("batch_size", 2048))),
+    "--ubatch-size", str(int(o.get("ubatch_size", 512))),
+    "--cache-type-k", str(o.get("kv_cache_type", "q8_0")),
+    "--cache-type-v", str(o.get("kv_cache_type", "q8_0")),
+    "--parallel", str(slots),
+    "--alias", str(r.get("display_name") or r.get("id") or "local").replace(chr(10), " ").strip(),
+    "--temp", str(r.get("temperature", 0.3)),
+    "--top-p", str(r.get("top_p", 0.9)),
+    "--top-k", str(r.get("top_k", 40)),
+    "--min-p", str(r.get("min_p", 0.05)),
+    "--repeat-penalty", str(r.get("repeat_penalty", 1.05)),
+]
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+threads = int(o.get("threads", 0) or 0)
+if not 1 <= threads <= 64:
+    threads = detected
+if 1 <= threads <= 64:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYS
+)
+fi
+export GGML_VK_DISABLE_F16=1
+if [ "$FAST_SYNC" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
+exec "${ARGV[@]}"
+"""
+
+
+LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
+set -euo pipefail
+HANDOFF="${BC250_HANDOFF_PATH:-@HANDOFF@}"
+LEGACY_STATE="${BC250_STATE_PATH:-@LEGACY_STATE@}"
+ARGV=()
+FAST_SYNC=0
+append_argv() {
+  while IFS= read -r argv_line; do
+    ARGV+=("$argv_line")
+  done
+}
+if [ -f "$HANDOFF" ]; then
+  FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(1 if h.get("fast_sync") else 0)' "$HANDOFF")
+  append_argv < <(python3 - "$HANDOFF" <<'PYH'
+import json
+import os
+import sys
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+argv = [
+    os.path.join(h["llama_cpp_path"], "build", "bin", "llama-server"),
+    "-m", h["model_path"],
+    "--host", "127.0.0.1",
+    "--port", str(h["port"]),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(h["ctx_total"]),
+    "--flash-attn", h["flash_attention"],
+    "--batch-size", str(h["batch_size"]),
+    "--ubatch-size", str(h["ubatch_size"]),
+    "--cache-type-k", h["kv_cache_type"],
+    "--cache-type-v", h["kv_cache_type"],
+    "--parallel", str(h["parallel_slots"]),
+    "--alias", h["alias"],
+    "--temp", str(h.get("temperature", 0.3)),
+    "--top-p", str(h.get("top_p", 0.9)),
+    "--top-k", str(h.get("top_k", 40)),
+    "--min-p", str(h.get("min_p", 0.05)),
+    "--repeat-penalty", str(h.get("repeat_penalty", 1.05)),
+]
+threads = h.get("threads")
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+if not (isinstance(threads, int) and 1 <= threads <= 64):
+    threads = detected
+if isinstance(threads, int) and threads >= 1:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYH
+)
+else
+  FAST_SYNC=$(python3 -c 'import json, sys; s=json.load(open(sys.argv[1])); o=s.get("optimizations") or {}; enabled=o.get("runtime_enabled", True); print(1 if (enabled and o.get("fast_sync")) else 0)' "$LEGACY_STATE")
+  append_argv < <(python3 - "$LEGACY_STATE" "@SERVER@" <<'PYS'
+import json
+import sys
+
+state_path = sys.argv[1]
+server_binary = sys.argv[2]
+s = json.load(open(state_path, encoding="utf-8"))
+r = next(x for x in s["installed_models"] if x["id"] == s["current_model"])
+o = s.get("optimizations") or {}
+if not o.get("runtime_enabled", True):
+    o = {}
+slots = int(o.get("parallel_slots", 4))
+argv = [
+    server_binary,
+    "-m", r["path"],
+    "--host", "127.0.0.1",
+    "--port", str(s.get("server_port", 8080)),
+    "--n-gpu-layers", "99",
+    "--ctx-size", str(int(s.get("current_ctx", 8192)) * slots),
+    "--flash-attn", str(o.get("flash_attention", "auto")),
+    "--batch-size", str(int(o.get("batch_size", 2048))),
+    "--ubatch-size", str(int(o.get("ubatch_size", 512))),
+    "--cache-type-k", str(o.get("kv_cache_type", "q8_0")),
+    "--cache-type-v", str(o.get("kv_cache_type", "q8_0")),
+    "--parallel", str(slots),
+    "--alias", str(r.get("display_name") or r.get("id") or "local").replace(chr(10), " ").strip(),
+    "--temp", str(r.get("temperature", 0.3)),
+    "--top-p", str(r.get("top_p", 0.9)),
+    "--top-k", str(r.get("top_k", 40)),
+    "--min-p", str(r.get("min_p", 0.05)),
+    "--repeat-penalty", str(r.get("repeat_penalty", 1.05)),
+]
+cores = set()
+socket_id = None
+try:
+    info = open("/proc/cpuinfo", encoding="utf-8").read()
+    for line in info.splitlines():
+        parts = line.split(":", 1)
+        if len(parts) != 2:
+            continue
+        key = parts[0].strip()
+        value = parts[1].strip()
+        if key == "physical id":
+            socket_id = value
+        elif key == "core id" and socket_id is not None:
+            cores.add((socket_id, value))
+            socket_id = None
+    detected = len(cores) or sum(
+        1 for entry in info.splitlines() if entry.startswith("processor"))
+except OSError:
+    detected = 0
+threads = int(o.get("threads", 0) or 0)
+if not 1 <= threads <= 64:
+    threads = detected
+if 1 <= threads <= 64:
+    argv += ["--threads", str(threads), "--threads-batch", str(threads)]
+argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+for item in argv:
+    print(item)
+PYS
+)
+fi
+export GGML_VK_DISABLE_F16=1
+if [ "$FAST_SYNC" != "1" ]; then
+  export GGML_VK_FORCE_SYNC=1
+fi
+exec "${ARGV[@]}"
+"""
+
+
 def generate_launcher(state: dict[str, Any]) -> Path:
+    """Generate the runtime launcher (handoff-first, legacy fallback).
+
+    Handoff mode (SQLite era): reads ``runtime-handoff.json`` — a rendered
+    artifact regenerated on every committed state save — and execs the argv
+    it describes. Legacy fallback (pre-cutover installs): reads
+    ``state.json`` directly. Both paths deliver one argument per line into a
+    single ``exec``, so no positional CFG array and no fragile
+    continuations remain.
+    """
     app_dir = Path(str(state["app_dir"])).expanduser()
     app_dir.mkdir(parents=True, exist_ok=True)
     launcher = app_dir / "run-model.sh"
     state_path = Path(str(state.get("state_path", app_dir / "state.json"))).expanduser()
     llama_server = Path(str(state["llama_cpp_path"])) / "build/bin/llama-server"
-    content = f"""#!/usr/bin/env bash
-set -euo pipefail
-STATE=${{BC250_STATE_PATH:-{state_path}}}
-# Portable CFG load: bash 3.2 lacks readarray, so fill the array line by line.
-CFG=()
-while IFS= read -r cfg_line; do
-  CFG+=("$cfg_line")
-done < <(python3 - "$STATE" <<'PY'
-import json, sys
-s = json.load(open(sys.argv[1], encoding='utf-8'))
-r = next(x for x in s['installed_models'] if x['id'] == s['current_model'])
-print(r['path'])
-o = s.get('optimizations', {{}})
-if not o.get('runtime_enabled', True):
-    o = {{}}
-slots = int(o.get('parallel_slots', 4))
-print(int(s.get('current_ctx', 8192)) * slots)
-print(s.get('server_port', 8080))
-print(o.get('flash_attention', 'auto'))
-print(o.get('batch_size', 2048))
-print(o.get('ubatch_size', 512))
-print(o.get('kv_cache_type', 'q8_0'))
-print(slots)
-alias = str(r.get('display_name') or r.get('id') or 'local').replace('\\n', ' ').strip()
-print(alias)
-print(r.get('temperature', 0.3))
-print(r.get('top_p', 0.9))
-print(r.get('top_k', 40))
-print(r.get('min_p', 0.05))
-print(r.get('repeat_penalty', 1.05))
-_cores = set()
-_socket = None
-try:
-    _info = open('/proc/cpuinfo', encoding='utf-8').read()
-    for _line in _info.splitlines():
-        _parts = _line.split(':')
-        if len(_parts) != 2:
-            continue
-        _key = _parts[0].strip()
-        _val = _parts[1].strip()
-        if _key == 'physical id':
-            _socket = _val
-        elif _key == 'core id' and _socket is not None:
-            _cores.add((_socket, _val))
-            _socket = None
-    _n = len(_cores) or sum(1 for _l in _info.splitlines() if _l.startswith('processor'))
-except OSError:
-    _n = 0
-_threads = int(o.get('threads', 0) or 0)
-if not 1 <= _threads <= 64:
-    _threads = _n if 1 <= _n <= 64 else 0
-print(_threads)
-print(1 if o.get('fast_sync') else 0)
-PY
-)
-export GGML_VK_DISABLE_F16=1
-if [ "${{CFG[15]}}" != "1" ]; then
-  export GGML_VK_FORCE_SYNC=1
-fi
-exec {llama_server} -m "${{CFG[0]}}" --host 127.0.0.1 --port "${{CFG[2]}}" \\
-  --n-gpu-layers 99 --ctx-size "${{CFG[1]}}" --flash-attn "${{CFG[3]}}" \\
-  --batch-size "${{CFG[4]}}" --ubatch-size "${{CFG[5]}}" \\
-  --cache-type-k "${{CFG[6]}}" --cache-type-v "${{CFG[6]}}" \\
-  --parallel "${{CFG[7]}}" --alias "${{CFG[8]}}" \\
-  --temp "${{CFG[9]}}" --top-p "${{CFG[10]}}" --top-k "${{CFG[11]}}" \\
-  --min-p "${{CFG[12]}}" --repeat-penalty "${{CFG[13]}}" \\
-  --threads "${{CFG[14]}}" --threads-batch "${{CFG[14]}}" \\
-  --cache-reuse 256 --defrag-threshold 0.1
-"""
+    handoff_path = app_dir / "runtime-handoff.json"
+    content = (
+        LAUNCHER_TEMPLATE
+        .replace("@HANDOFF@", str(handoff_path))
+        .replace("@LEGACY_STATE@", str(state_path))
+        .replace("@SERVER@", str(llama_server))
+    )
     launcher.write_text(content, encoding="utf-8")
     launcher.chmod(0o755)
     return launcher
-
 
 def _service_text(state: dict[str, Any], launcher: Path) -> str:
     container = state.get("container_name", "llm")

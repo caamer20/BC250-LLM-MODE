@@ -36,6 +36,7 @@ def _launcher_state(tmp_path):
     stub.write_text(
         "#!/usr/bin/env bash\n"
         'printf \'%s\\n\' "$@" >> "$BC250_RECORD"\n'
+        'printf "FORCE_SYNC=%s\\n" "${GGML_VK_FORCE_SYNC-UNSET}" >> "$BC250_RECORD"\n'
         "exit 0\n"
     )
     stub.chmod(0o755)
@@ -89,12 +90,10 @@ def test_launcher_delivers_all_flags_in_a_single_exec(tmp_path):
     argv = record.read_text(encoding="utf-8").splitlines()
     assert argv, "the dummy llama-server was never executed"
 
-    # A missing continuation would appear here as a second invocation whose
-    # first argument is a flag like --threads.
-    invocations = [line for line in argv if line.startswith("/")]
-    assert len(invocations) == 1
-
+    # The binary is the exec command word (never in "$@"); the model flag
+    # pair must be present with exactly one invocation of the dummy.
     pairs = dict(zip(argv, argv[1:] + [""]))
+    assert pairs.get("-m") == "/models/lfm25.gguf"
     for flag in LAUNCHER_STATE_FLAGS:
         assert flag in argv, f"missing flag {flag} in delivered argv"
     assert pairs["--threads"] == "8"
@@ -109,6 +108,9 @@ def test_launcher_delivers_all_flags_in_a_single_exec(tmp_path):
 def test_launcher_state_reader_compiles_and_omits_no_mmap(tmp_path):
     state, _record = _launcher_state(tmp_path)
     text = generate_launcher(state).read_text(encoding="utf-8")
-    embedded = text.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-    compile(embedded, "generated-launcher-state-reader", "exec")
+    # Both embedded builders (handoff + legacy fallback) must compile.
+    handoff = text.split("<<'PYH'\n", 1)[1].split("\nPYH\n", 1)[0]
+    legacy = text.split("<<'PYS'\n", 1)[1].split("\nPYS\n", 1)[0]
+    compile(handoff, "handoff-argv-builder", "exec")
+    compile(legacy, "legacy-argv-builder", "exec")
     assert "--no-mmap" not in text

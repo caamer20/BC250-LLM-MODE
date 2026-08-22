@@ -168,12 +168,17 @@ def test_launcher_adds_threads_cache_reuse_and_conditional_sync(tmp_path):
         "optimizations": {"threads": 8, "fast_sync": False},
     }
     text = server.generate_launcher(state).read_text(encoding="utf-8")
-    embedded = text.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-    compile(embedded, "generated-launcher", "exec")
-    assert '--threads "${CFG[14]}"' in text and '--cache-reuse 256' in text
-    assert "--defrag-threshold 0.1" in text
-    assert 'if [ "${CFG[15]}" != "1" ]; then' in text
-    assert "_cores.add((_socket, _val))" in embedded
+    handoff = text.split("<<'PYH'\n", 1)[1].split("\nPYH\n", 1)[0]
+    legacy = text.split("<<'PYS'\n", 1)[1].split("\nPYS\n", 1)[0]
+    compile(handoff, "handoff-argv-builder", "exec")
+    compile(legacy, "legacy-argv-builder", "exec")
+    assert '--threads "${CFG[14]}"' not in text, "positional CFG must be gone"
+    assert '"--cache-reuse", "256"' in text
+    assert '"--defrag-threshold", "0.1"' in text
+    assert '"--cache-reuse", "256"' in text
+    assert '"--defrag-threshold", "0.1"' in text
+    assert 'if [ "$FAST_SYNC" != "1" ]; then' in text
+    assert "cores.add((socket_id, value))" in legacy
     assert "--no-mmap" not in text
 
 
