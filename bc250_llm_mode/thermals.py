@@ -61,6 +61,36 @@ def _cool_max_mhz(settings: dict[str, Any]) -> int:
     return max(floor + 200, min(ceiling, 1400))
 
 
+def _service_for(store: Any) -> Any:
+    """ThermalStateService when the store is SQLite-backed, else None.
+
+    Legacy JSON stores fall back to bounded transactions below; neither
+    path uses a whole-state save.
+    """
+    conn = getattr(store, "conn", None)
+    if conn is None:
+        return None
+    from .services import ThermalStateService
+
+    return ThermalStateService(conn)
+
+
+def _persist_stopped(store: Any, state: dict[str, Any]) -> None:
+    """Durably record the stop intent BEFORE the host effect (crash safety)."""
+    service = _service_for(store)
+    if service is not None:
+        service.mark_stopped()
+        state["thermal_watchdog_state"] = STOPPED
+        return
+
+    def mark(current: dict[str, Any]) -> dict[str, Any]:
+        current["thermal_watchdog_state"] = STOPPED
+        return current
+
+    store.transaction(mark)
+    state["thermal_watchdog_state"] = STOPPED
+
+
 def run_watchdog_once(
     store: Any,
     state: dict[str, Any],
@@ -71,7 +101,9 @@ def run_watchdog_once(
     A latched stop is idempotent: polling reports ``latched`` and never calls
     stop_service again; only an explicit reset (safe temperature + human
     intent) clears the latch. Throttling preserves the user's configured GPU
-    profile in a dedicated baseline so recovery restores it exactly.
+    profile in a dedicated baseline so recovery restores it exactly. All
+    durable thermal writes go through ThermalStateService — never a
+    whole-state save.
     """
     from .optimize import apply_gpu_clock_limit, normalized_settings, restore_gpu_profile
 
@@ -97,13 +129,17 @@ def run_watchdog_once(
         recovery_c=float(settings["thermal_recovery_c"]),
         stop_c=None if current == STOPPED else float(settings["thermal_stop_c"]),
     )
+    service = _service_for(store)
     if action == "throttle":
         if not state.get("thermal_watchdog_baseline"):
-            state["thermal_watchdog_baseline"] = {
+            baseline = {
                 "gpu_max_mhz": int(settings["gpu_max_mhz"]),
                 "gpu_min_mhz": int(settings["gpu_min_mhz"]),
                 "governor_profile": settings.get("governor_profile", "balanced"),
             }
+            if service is not None:
+                service.ensure_throttle(baseline)
+            state["thermal_watchdog_baseline"] = baseline
             runner.emit(
                 "Thermal watchdog: saved original GPU profile "
                 f"({settings['gpu_min_mhz']}-{settings['gpu_max_mhz']} MHz) before throttling"
@@ -111,6 +147,8 @@ def run_watchdog_once(
         cool = _cool_max_mhz(settings)
         runner.emit(f"Thermal watchdog: {temp:.1f}°C >= throttle point; capping GPU clocks to {cool} MHz")
         apply_gpu_clock_limit(state, cool, runner)
+        if service is not None:
+            service.mark_hold()
         new_state = THROTTLED
     elif action == "resume":
         baseline = state.get("thermal_watchdog_baseline") or {}
@@ -124,19 +162,40 @@ def run_watchdog_once(
             f"Thermal watchdog: {temp:.1f}°C <= recovery point; restoring saved GPU profile "
             f"({restored['gpu_min_mhz']}-{restored['gpu_max_mhz']} MHz)"
         )
-        restore_gpu_profile(state, restored, runner)
+        try:
+            restore_gpu_profile(state, restored, runner)
+        except Exception as exc:
+            # Restoration failed: keep the baseline as durable recovery
+            # evidence and remain throttled. Never mark nominal unverified.
+            if service is not None:
+                service.annotate_restore_failure(str(exc))
+            raise
+        if service is not None:
+            service.mark_nominal(clear_baseline=True)
+        else:
+
+            def clear(current: dict[str, Any]) -> dict[str, Any]:
+                current["thermal_watchdog_state"] = NOMINAL
+                current.pop("thermal_watchdog_baseline", None)
+                return current
+
+            store.transaction(clear)
         state.pop("thermal_watchdog_baseline", None)
         new_state = NOMINAL
     elif action == "stop":
         from .server import stop_service
 
         runner.emit(f"Thermal watchdog: {temp:.1f}°C hit the stop point; stopping the model server")
+        # Persist the latch BEFORE stopping the service: a crash between the
+        # two must never forget that the stop was required.
+        _persist_stopped(store, state)
         stop_service(state, runner)
         new_state = STOPPED
     else:
         new_state = THROTTLED if action == "hold" else current
+        if service is not None and action == "hold":
+            service.mark_hold()
     state["thermal_watchdog_state"] = new_state
-    store.save(state)
     result: dict[str, Any] = {"state": new_state, "temperature": round(temp, 1), "action": action}
     if state.get("thermal_watchdog_baseline"):
         result["baseline_preserved"] = True
@@ -152,20 +211,27 @@ def reset_latch(
     """Explicit human reset of a latched thermal stop.
 
     Restores any preserved GPU baseline and clears the latch only when the
-    current temperature is at or below the recovery threshold.
+    current temperature is at or below the recovery threshold. A missing
+    sensor can never verify safety, so it can never clear the latch.
     """
-    from .optimize import normalized_settings
+    from .optimize import normalized_settings, restore_gpu_profile
 
     settings = normalized_settings(state.get("optimizations"))
     temp = read_gpu_temperature()
-    if require_safe_temperature and temp is not None:
+    if require_safe_temperature:
         recovery = float(settings["thermal_recovery_c"])
+        if temp is None:
+            raise RuntimeError(
+                "No GPU temperature sensor is readable; a thermal latch can "
+                "only be reset after a sensor verifies a safe temperature."
+            )
         if temp > recovery:
             raise RuntimeError(
                 f"GPU is still at {temp:.1f}°C (recovery threshold {recovery:.0f}°C); "
                 "let it cool before resetting the thermal latch."
             )
-    baseline = state.pop("thermal_watchdog_baseline", None)
+    service = _service_for(store)
+    baseline = state.get("thermal_watchdog_baseline")
     if baseline:
         restored = dict(settings)
         restored.update(
@@ -173,9 +239,25 @@ def reset_latch(
             gpu_min_mhz=int(baseline.get("gpu_min_mhz", settings["gpu_min_mhz"])),
             gpu_max_mhz=int(baseline.get("gpu_max_mhz", settings["gpu_max_mhz"])),
         )
-        restore_gpu_profile(state, restored, runner)
+        try:
+            restore_gpu_profile(state, restored, runner)
+        except Exception as exc:
+            # Keep the baseline as durable recovery evidence; the latch stays.
+            if service is not None:
+                service.annotate_restore_failure(str(exc))
+            raise
+    if service is not None:
+        service.reset_to_nominal()
+    else:
+
+        def clear(current: dict[str, Any]) -> dict[str, Any]:
+            current.pop("thermal_watchdog_baseline", None)
+            current["thermal_watchdog_state"] = NOMINAL
+            return current
+
+        store.transaction(clear)
+    state.pop("thermal_watchdog_baseline", None)
     state["thermal_watchdog_state"] = NOMINAL
-    store.save(state)
     runner.emit("Thermal latch cleared by explicit reset; model server may be started manually.")
     return {"state": NOMINAL, "temperature": round(temp, 1) if temp is not None else None}
 

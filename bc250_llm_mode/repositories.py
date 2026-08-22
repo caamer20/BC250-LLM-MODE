@@ -130,7 +130,14 @@ class BenchHistoryRepository:
     def __init__(self, conn) -> None:
         self.conn = conn
 
-    def append(self, entry: dict) -> None:
+    def append(self, entry: dict, *, commit: bool = True) -> None:
+        """Append one benchmark record and enforce retention atomically.
+
+        The insert and the oldest-first trim share one implicit transaction,
+        closed by this method's commit when ``commit`` is true (the default
+        for standalone/narrow callers; the facade passes commit=False inside
+        its own whole-state unit of work).
+        """
         self.conn.execute(
             "INSERT INTO bench_history(ts, payload_json) VALUES (?, ?)",
             (str(entry.get("timestamp") or utcnow()), json.dumps(entry)),
@@ -145,6 +152,8 @@ class BenchHistoryRepository:
                 "(SELECT id FROM bench_history ORDER BY id LIMIT ?)",
                 (excess,),
             )
+        if commit:
+            self.conn.commit()
 
     def list(self) -> list:
         rows = self.conn.execute(
@@ -167,6 +176,27 @@ class AutotuneHistoryRepository:
 
     def __init__(self, conn) -> None:
         self.conn = conn
+
+    def append(self, entry: dict, *, commit: bool = True) -> None:
+        """Append one autotune result and enforce retention atomically."""
+        self.conn.execute(
+            "INSERT INTO autotune_history(payload_json) VALUES (?)",
+            (json.dumps(entry),),
+        )
+        excess = (
+            self.conn.execute(
+                "SELECT COUNT(*) AS c FROM autotune_history"
+            ).fetchone()["c"]
+            - self.MAX_ITEMS
+        )
+        if excess > 0:
+            self.conn.execute(
+                "DELETE FROM autotune_history WHERE id IN "
+                "(SELECT id FROM autotune_history ORDER BY id LIMIT ?)",
+                (excess,),
+            )
+        if commit:
+            self.conn.commit()
 
     def replace_all(self, entries: list) -> None:
         self.conn.execute("DELETE FROM autotune_history")

@@ -215,10 +215,9 @@ class CompatStateStore:
         self.models.replace_all(state.get("installed_models") or [])
         self.bench.replace_all(state.get("bench_history") or [])
         self.autotune.replace_all(state.get("autotune_history") or [])
-        self.thermal.set(
-            str(state.get("thermal_watchdog_state") or "nominal"),
-            state.get("thermal_watchdog_baseline"),
-        )
+        # Thermal latch/baseline are deliberately NOT written here: they are
+        # safety-authoritative and change only through ThermalStateService,
+        # so a stale whole-state draft can never clear or downgrade a latch.
         build = state.get("llamacpp_build")
         if isinstance(build, dict) and build.get("describe"):
             self.provenance.set_component(

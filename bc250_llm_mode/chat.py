@@ -274,28 +274,31 @@ def export_conversation(
 def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) -> None:
     """Keep the last 20 benchmark results so tuning changes can be compared.
 
-    Uses a locked transaction because benchmark history is exactly the
-    append-only data that concurrent GUI/CLI writers previously clobbered.
+    SQLite-backed stores record through the capped repository (narrow
+    append; no prompts or generated content stored). Legacy JSON stores use
+    a locked transaction touching only the history key.
     """
     entry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
         **{key: result.get(key) for key in (
             "model", "prompt_per_second", "predicted_per_second", "predicted_tokens", "max_tokens",
         )},
+        "model": result.get("model") or state.get("current_model"),
+        "context": state.get("current_ctx"),
+        "slots": (state.get("optimizations") or {}).get("parallel_slots"),
     }
+
+    bench = getattr(store, "bench", None)
+    if bench is not None:
+        bench.append(entry)
+        return
 
     def mutate(current: dict[str, Any]) -> dict[str, Any]:
         history = [item for item in (current.get("bench_history") or []) if isinstance(item, dict)]
         current["bench_history"] = ([*history, entry])[-20:]
         return current
 
-    if hasattr(store, "transaction"):
-        store.transaction(mutate)
-        state.update(store.load())
-    else:
-        history = [item for item in (state.get("bench_history") or []) if isinstance(item, dict)]
-        state["bench_history"] = ([*history, entry])[-20:]
-        store.save(state)
+    store.transaction(mutate)
 
 
 def _print_help(console) -> None:

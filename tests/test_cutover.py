@@ -81,8 +81,8 @@ def test_compat_round_trip_preserves_everything(tmp_path):
         current_ctx=16384,
         selected_model="lfm25-26b",
         selected_quant="Q4_K_M",
-        thermal_watchdog_state="stopped",
-        thermal_watchdog_baseline={"gpu_temp_c": 71.5},
+        thermal_watchdog_state="nominal",  # stale draft claims nominal...
+        thermal_watchdog_baseline=None,
         llamacpp_build={"describe": "b6000-abc", "commit": "abc123"},
         installed_models=[{
             "id": "lfm25-26b",
@@ -109,8 +109,11 @@ def test_compat_round_trip_preserves_everything(tmp_path):
     assert reloaded["current_model"] == "lfm25-26b"
     assert reloaded["current_ctx"] == 16384
     assert reloaded["selected_quant"] == "Q4_K_M"
-    assert reloaded["thermal_watchdog_state"] == "stopped"
-    assert reloaded["thermal_watchdog_baseline"] == {"gpu_temp_c": 71.5}
+    # The latch is safety-authoritative: the stale draft claimed "nominal",
+    # but the durable default (nominal, no baseline) is all a whole-state
+    # save can ever see — it cannot manufacture or clear a latched stop.
+    assert reloaded["thermal_watchdog_state"] == "nominal"
+    assert reloaded["thermal_watchdog_baseline"] is None
     assert reloaded["llamacpp_build"]["describe"] == "b6000-abc"
     assert len(reloaded["installed_models"]) == 1
     assert reloaded["installed_models"][0]["temperature"] == 0.4
@@ -347,13 +350,17 @@ def test_handoff_rendered_on_save_and_consumed_by_launcher(tmp_path):
 
 
 def test_guard_whole_state_saves_are_frozen():
-    """P1-8: the real migration target is store.save(state), not constructors.
+    """P1-8 / Phase A: the exact whole-state save inventory, per file.
 
-    Freezes the whole-state-save and transaction counts per production file.
-    Every sweep commit must reduce its number; growth or a new file fails.
+    This is a migration checklist, not an allowance: the number for every
+    file is asserted EXACTLY. Each sweep slice must reduce its counts in
+    the same commit; zero across the board is the only R2 exit value.
+    Reduced so far: thermals (2 -> 0 via ThermalStateService), chat
+    benchmark history (narrow repository append), tune autotune history.
+
     state.py/compat_state.py are the persistence implementations themselves,
     legacy_import.py's staging canonicalize is importer-specific legacy
-    usage — all three are exempt until Session 3 removes the facade.
+    usage — all three are exempt until Session 4 removes the facade.
     """
     import re
 
@@ -361,16 +368,15 @@ def test_guard_whole_state_saves_are_frozen():
     allowed_saves = {
         "__main__.py": 10,
         "bootstrap.py": 3,
-        "chat.py": 5,
+        "chat.py": 4,
         "model_manager.py": 3,
-        "thermals.py": 2,
-        "tune.py": 3,
+        "tune.py": 2,
         "gui/app.py": 3,
         "gui/dashboard.py": 7,
         "gui/forms.py": 1,
         "gui/steps.py": 10,
     }
-    allowed_transactions = {"chat.py": 1}
+    allowed_transactions = {"chat.py": 1, "thermals.py": 3, "tune.py": 1}
     exempt = {"state.py", "compat_state.py", "legacy_import.py"}
 
     for py in sorted(package.rglob("*.py")):
@@ -381,16 +387,16 @@ def test_guard_whole_state_saves_are_frozen():
         saves = text.count(".save(")
         transactions = len(re.findall(r"\.transaction\(", text))
 
-        if saves:
-            assert rel in allowed_saves, f"{rel}: new whole-state save site"
-            assert saves <= allowed_saves[rel], (
-                f"{rel}: whole-state saves grew ({saves} > {allowed_saves[rel]})"
-            )
-        if transactions:
-            assert rel in allowed_transactions, f"{rel}: new transaction site"
-            assert transactions <= allowed_transactions[rel], (
-                f"{rel}: transactions grew ({transactions} > {allowed_transactions[rel]})"
-            )
+        expected_saves = allowed_saves.get(rel, 0)
+        assert saves == expected_saves, (
+            f"{rel}: whole-state save count drifted ({saves} != {expected_saves}); "
+            "reduce it in the same commit as the narrow-persistence change"
+        )
+        expected_transactions = allowed_transactions.get(rel, 0)
+        assert transactions == expected_transactions, (
+            f"{rel}: transaction count drifted "
+            f"({transactions} != {expected_transactions})"
+        )
 
 
 def test_guard_direct_statestore_instantiation_is_frozen():

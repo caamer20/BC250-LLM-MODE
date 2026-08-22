@@ -6,6 +6,7 @@ a combo that fails health is rolled back and excluded. The winner stays applied.
 
 from __future__ import annotations
 
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -124,8 +125,32 @@ def autotune(
     else:
         state["optimizations"] = original
         runner.emit("autotune: no candidate completed successfully; original settings restored")
-    history = [item for item in (state.get("autotune_history") or []) if isinstance(item, dict)]
-    state["autotune_history"] = ([*history, *results])[-40:]
-    store.save(state)
+    # Narrow history persistence: capped repository appends (SQLite) or a
+    # history-only transaction (legacy JSON). Never a whole-state save.
+    autotune_repo = getattr(store, "autotune", None)
+    if autotune_repo is not None:
+        for entry in results:
+            entry.setdefault("timestamp", time.strftime("%Y-%m-%dT%H:%M:%S"))
+            entry.setdefault("model", state.get("current_model"))
+            entry.setdefault("context", state.get("current_ctx"))
+            autotune_repo.append(entry)
+    elif hasattr(store, "transaction"):
+        def mutate(current: dict[str, Any]) -> dict[str, Any]:
+            history = [
+                item for item in (current.get("autotune_history") or [])
+                if isinstance(item, dict)
+            ]
+            stamped = [dict(entry, timestamp=time.strftime("%Y-%m-%dT%H:%M:%S")) for entry in results]
+            current["autotune_history"] = ([*history, *stamped])[-40:]
+            return current
+
+        store.transaction(mutate)
+    else:
+        # In-memory stores (test doubles): mutate the dict directly.
+        history = [
+            item for item in (state.get("autotune_history") or [])
+            if isinstance(item, dict)
+        ]
+        state["autotune_history"] = ([*history, *results])[-40:]
     restart_and_wait(state, runner)
     return {"winner": best, "results": results}
