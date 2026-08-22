@@ -1,0 +1,35 @@
+{
+  "schema_version": 5,
+  "disclaimer_ack": true,
+  "ack_timestamp": "2026-08-01",
+  "setup_phase": 10,
+  "setup_complete": true,
+  "boot_policy": "desktop",
+  "env_ready": true,
+  "installed_models": [
+    {
+      "id": "lfm25-26b",
+      "path": "/var/home/user/.bc250-llm-mode/models/lfm25-26b/lfm25-2.6b-q5_k_m.gguf",
+      "quant": "Q5_K_M",
+      "weights_gib": 1.81,
+      "display_name": "LFM2.5 2.6B",
+      "temperature": 0.3
+    }
+  ],
+  "current_model": "lfm25-26b",
+  "current_ctx": 8192,
+  "bench_history": [
+    {"timestamp": "2026-08-01T12:00:00", "model": "lfm25-26b", "predicted_per_second": 21.4}
+  ],
+  "autotune_history": [],
+  "thermal_watchdog_state": "nominal",
+  "thermal_watchdog_baseline": null,
+  "llamacpp_build": {
+    "commit": "abc123def4567890",
+    "describe": "b7598",
+    "recorded": "2026-08-01"
+  },
+  "llamacpp_history": [],
+  "revision": 7,
+  "optimizations": {"parallel_slots": 4, "kv_cache_type": "q8_0"}
+}

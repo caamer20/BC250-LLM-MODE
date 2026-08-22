@@ -4,10 +4,14 @@ import logging
 import shlex
 import subprocess
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 LogCallback = Callable[[str], None]
+
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_BACKUPS = 3
 
 
 def configure_logging(logs_dir: str | Path) -> logging.Logger:
@@ -16,8 +20,13 @@ def configure_logging(logs_dir: str | Path) -> logging.Logger:
     logger = logging.getLogger("bc250_llm_mode")
     logger.setLevel(logging.INFO)
     log_path = (path / "setup.log").resolve()
-    if not any(isinstance(h, logging.FileHandler) and Path(h.baseFilename) == log_path for h in logger.handlers):
-        handler = logging.FileHandler(log_path, encoding="utf-8")
+    if not any(
+        isinstance(h, RotatingFileHandler) and Path(h.baseFilename) == log_path
+        for h in logger.handlers
+    ):
+        handler = RotatingFileHandler(
+            log_path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUPS, encoding="utf-8"
+        )
         handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         logger.addHandler(handler)
     return logger

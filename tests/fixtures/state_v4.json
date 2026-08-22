@@ -1,0 +1,50 @@
+{
+  "schema_version": 4,
+  "disclaimer_ack": true,
+  "ack_timestamp": "2026-01-15",
+  "setup_phase": 8,
+  "setup_complete": true,
+  "llm_mode_done": false,
+  "system_mode": "desktop",
+  "boot_policy": "desktop",
+  "desktop_on_reboot": true,
+  "llm_autostart": false,
+  "env_ready": true,
+  "installed_models": [
+    {
+      "id": "lfm25-26b",
+      "path": "/var/home/user/.bc250-llm-mode/models/lfm25-26b/source/lfm25-2.6b-q5_k_m.gguf",
+      "quant": "Q5_K_M",
+      "weights_gib": 1.81,
+      "display_name": "LFM2.5 2.6B",
+      "temperature": 0.3,
+      "top_p": 0.9,
+      "top_k": 40,
+      "min_p": 0.05
+    }
+  ],
+  "current_model": "lfm25-26b",
+  "selected_model": "lfm25-26b",
+  "selected_quant": "Q5_K_M",
+  "selected_source": "catalog",
+  "current_ctx": 8192,
+  "server_port": 8080,
+  "container_name": "llm",
+  "service_name": "bc250-llm.service",
+  "models_dir": "/var/home/user/.bc250-llm-mode/models",
+  "logs_dir": "/var/home/user/.bc250-llm-mode/logs",
+  "llama_cpp_path": "/root/llama.cpp",
+  "optimizations": {
+    "runtime_enabled": true,
+    "flash_attention": "auto",
+    "batch_size": 1024,
+    "ubatch_size": 256,
+    "kv_cache_type": "q8_0",
+    "parallel_slots": 4,
+    "gpu_tuning_enabled": false,
+    "memory_enabled": false,
+    "safeguards_enabled": false
+  },
+  "openwebui_installed": true,
+  "openwebui_container": "bc250-open-webui"
+}

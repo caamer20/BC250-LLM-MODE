@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 APP_NAME = "BC250 LLM MODE"
@@ -8,6 +9,10 @@ GTT_SPILL_GIB = 2.5
 OVERHEAD_GIB = 1.0
 DEFAULT_CONTAINER = "llm"
 DEFAULT_SERVICE = "bc250-llm.service"
+# Known-good llama.cpp tag vetted for BC-250/GFX1013 Vulkan. Refreshed with
+# each application release; updates are always explicit, never automatic.
+KNOWN_GOOD_LLAMACPP = "b7598"
+TAG_PATTERN = re.compile(r"^[A-Za-z0-9._-]+$")
 DEFAULT_PORT = 8080
 DEFAULT_CTX = 8192
 DEFAULT_APP_DIR = Path.home() / ".bc250-llm-mode"

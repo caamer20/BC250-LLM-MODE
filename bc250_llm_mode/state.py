@@ -29,7 +29,7 @@ def _current_boot_id() -> str | None:
         return None
 
 DEFAULT_STATE: dict[str, Any] = {
-    "schema_version": 4,
+    "schema_version": 5,
     "disclaimer_ack": False,
     "ack_timestamp": None,
     "setup_phase": 0,
@@ -64,12 +64,50 @@ DEFAULT_STATE: dict[str, Any] = {
     "llama_cpp_path": "/root/llama.cpp",
     "venv_path": "/root/.venvs/hf",
     "optimizations": deepcopy(DEFAULT_OPTIMIZATIONS),
+    "bench_history": [],
+    "autotune_history": [],
+    "thermal_watchdog_state": "nominal",
+    "llamacpp_build": None,
+    "llamacpp_history": [],
+    "revision": 0,
 }
 
 
 class StateStore:
     def __init__(self, path: str | Path = DEFAULT_STATE_PATH) -> None:
         self.path = Path(path).expanduser()
+        self.lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+
+    def _locked_write(self, mutator) -> dict[str, Any]:
+        """Serialized read-modify-write under an advisory file lock.
+
+        Prevents lost updates when the GUI poller, thermal watchdog, benchmark
+        recorder, and CLI processes save concurrently. The mutator receives a
+        freshly loaded state and returns either the new state mapping or
+        ``None`` to cancel. The revision counter increments on every write.
+        """
+        import fcntl
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.lock_path, "w", encoding="utf-8") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                state = self.load()
+                result = mutator(state)
+                if result is None:
+                    return state
+                if not isinstance(result, dict):
+                    raise TypeError("transaction mutator must return a dict or None")
+                state = result
+                state["revision"] = int(state.get("revision", 0)) + 1
+                self.save(state)
+                return state
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+    def transaction(self, mutator):
+        """Public transactional entry point (see ``_locked_write``)."""
+        return self._locked_write(mutator)
 
     def load(self) -> dict[str, Any]:
         state = deepcopy(DEFAULT_STATE)
@@ -101,6 +139,22 @@ class StateStore:
                 if "gpu_tuning_enabled" not in settings:
                     settings["gpu_tuning_enabled"] = bool(settings.pop("gpu_enabled", False))
                 state.update(schema_version=4, optimizations=settings)
+            if old_schema < 5:
+                # v5 declares the runtime-telemetry and llama.cpp build keys.
+                state.update(
+                    schema_version=5,
+                    bench_history=[
+                        item for item in (state.get("bench_history") or []) if isinstance(item, dict)
+                    ],
+                    autotune_history=[
+                        item for item in (state.get("autotune_history") or []) if isinstance(item, dict)
+                    ],
+                    thermal_watchdog_state=state.get("thermal_watchdog_state") or "nominal",
+                    llamacpp_build=state.get("llamacpp_build") or None,
+                    llamacpp_history=[
+                        item for item in (state.get("llamacpp_history") or []) if isinstance(item, dict)
+                    ],
+                )
         session_boot = state.get("llm_session_boot_id")
         current_boot = _current_boot_id()
         if (
