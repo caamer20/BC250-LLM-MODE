@@ -168,6 +168,65 @@ def test_compat_transaction_is_lost_update_safe(tmp_path):
     assert final["optimizations"]["threads"] == 20
 
 
+def test_stale_draft_detected_after_same_store_refresh(tmp_path):
+    """P0-2: the revision carried by the saved state is what matters.
+
+    A background reload on the same store must not let an older draft
+    overwrite newer data.
+    """
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    draft = store.load()  # revision R
+
+    other = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    other.save(other.load())  # database moves to R+1
+
+    # Same store refreshes its view for a status read — the draft is still R.
+    store.load()
+    draft["server_port"] = 1234
+    with pytest.raises(StaleStateError):
+        store.save(draft)
+
+    # Reloading produces a current draft; saving then works and writes the
+    # new revision back into the mapping (long-lived GUI drafts stay usable).
+    fresh = store.load()
+    fresh["server_port"] = 1234
+    store.save(fresh)
+    assert fresh["revision"] == store.load()["revision"]
+    assert store.load()["server_port"] == 1234
+
+
+def test_transaction_accepts_replacement_mapping(tmp_path):
+    """P1-5: pure mutators returning a new mapping must be persisted."""
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+
+    def pure(state):
+        replacement = dict(state)
+        replacement["server_port"] = 8181
+        return replacement
+
+    result = store.transaction(pure)
+    assert result["server_port"] == 8181
+    assert store.load()["server_port"] == 8181
+
+
+def test_transaction_none_cancels_the_write(tmp_path):
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    before = store.settings.revision()
+
+    def cancel(_state):
+        return None
+
+    result = store.transaction(cancel)
+    assert result is not None
+    assert store.settings.revision() == before
+
+
+def test_transaction_rejects_non_dict_return(tmp_path):
+    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    with pytest.raises(TypeError):
+        store.transaction(lambda _state: "not-a-mapping")
+
+
 def test_handoff_rendered_on_save_and_consumed_by_launcher(tmp_path):
     paths = AppPaths.temporary(tmp_path / "root")
     store = CompatStateStore(paths)

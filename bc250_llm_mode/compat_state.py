@@ -60,7 +60,6 @@ class CompatStateStore:
         self.thermal = ThermalStateRepository(self.conn)
         self.provenance = ComponentProvenanceRepository(self.conn)
         self.extras = ExtrasRepository(self.conn)
-        self._known_revision = self.settings.revision()
 
     @property
     def path(self) -> Path:
@@ -125,7 +124,6 @@ class CompatStateStore:
 
         state["schema_version"] = 5
         state["revision"] = revision
-        self._known_revision = revision
         self._reconcile_boot_observation(state)
         return state
 
@@ -149,16 +147,24 @@ class CompatStateStore:
             )
 
     def save(self, state: dict[str, Any]) -> None:
-        """Optimistic whole-state write into typed storage + handoff refresh."""
+        """Optimistic whole-state write validated against the state's revision.
+
+        The revision carried by ``state`` — not any store-level cache — is
+        compared to the current database revision, so a stale draft cannot
+        overwrite newer data even if this store reloaded in between. On
+        success the new revision is written back into ``state`` (transitional
+        convenience for long-lived GUI drafts; immutable drafts replace this
+        when the facade is removed).
+        """
         current = self.settings.revision()
-        known = getattr(self, "_known_revision", current)
-        if known != current:
+        carried = state.get("revision")
+        if carried is None or int(carried) != current:
             raise StaleStateError(
-                f"State changed externally; reload before saving "
-                f"(known revision {known}, current {current})."
+                f"State revision {carried!r} does not match database revision "
+                f"{current}; reload before saving."
             )
         self._write_state(state)
-        self._known_revision = current + 1
+        state["revision"] = current + 1
 
     def _write_state(self, state: dict[str, Any]) -> None:
         managed: dict[str, Any] = {}
@@ -194,12 +200,15 @@ class CompatStateStore:
             )
         new_revision = self.settings.revision() + 1
         self.settings.set_revision(new_revision)
-        self._known_revision = new_revision
         self.conn.commit()
         self._write_runtime_handoff(state)
 
     def transaction(self, mutator):
-        """Locked read-modify-write (lost-update safe) with revision bump."""
+        """Locked read-modify-write, mirroring ``StateStore._locked_write``.
+
+        The mutator receives a freshly loaded state and returns either the
+        new state mapping (in-place or a replacement) or ``None`` to cancel.
+        """
         import fcntl
 
         lock = self.lock_path
@@ -211,7 +220,11 @@ class CompatStateStore:
                 result = mutator(state)
                 if result is None:
                     return state
-                self.save(state)
+                if not isinstance(result, dict):
+                    raise TypeError(
+                        "transaction mutator must return a dict or None"
+                    )
+                self.save(result)
                 return self.load()
             finally:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
