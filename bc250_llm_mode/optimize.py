@@ -19,6 +19,13 @@ CYAN_SERVICE = "cyan-skillfish-governor-smu.service"
 SYSCTL_CONFIG = Path("/etc/sysctl.d/99-bc250-llm-mode.conf")
 LOGROTATE_CONFIG = Path("/etc/logrotate.d/bc250-llm-mode")
 
+GOVERNOR_PROFILES: dict[str, dict[str, int]] = {
+    "custom": {},
+    "cool-quiet": {"gpu_min_mhz": 500, "gpu_max_mhz": 1400},
+    "balanced": {"gpu_min_mhz": 500, "gpu_max_mhz": 1850},
+    "maximum": {"gpu_min_mhz": 800, "gpu_max_mhz": 2000},
+}
+
 TRIMMABLE_SERVICES: dict[str, str] = {
     "input-remapper.service": "Input Remapper (about 85 MiB on the audited system)",
     "ds-inhibit.service": "DualShock/DualSense mouse inhibitor",
@@ -48,6 +55,11 @@ DEFAULT_OPTIMIZATIONS: dict[str, Any] = {
     "log_max_mib": 100,
     "trim_services_enabled": False,
     "trim_services": {unit: False for unit in TRIMMABLE_SERVICES},
+    "governor_profile": "balanced",
+    "thermal_watchdog_enabled": False,
+    "thermal_stop_c": 95,
+    "threads": 0,
+    "fast_sync": False,
 }
 
 
@@ -100,13 +112,24 @@ def validate_settings(settings: dict[str, Any]) -> dict[str, Any]:
     if ubatch > batch:
         raise ValueError("ubatch_size cannot exceed batch_size")
     minimum = _bounded_int(result, "gpu_min_mhz", 500, 1200)
-    maximum = _bounded_int(result, "gpu_max_mhz", 1500, 2000)
+    maximum = _bounded_int(result, "gpu_max_mhz", 1000, 2000)
     if minimum >= maximum:
         raise ValueError("GPU minimum frequency must be lower than maximum frequency")
+    profile = result.get("governor_profile", "balanced")
+    if profile not in GOVERNOR_PROFILES:
+        raise ValueError(f"governor_profile must be one of {sorted(GOVERNOR_PROFILES)}")
+    if profile != "custom":
+        result.update(GOVERNOR_PROFILES[profile])
+    _bounded_int(result, "threads", 0, 64)
+    result["fast_sync"] = bool(result.get("fast_sync"))
     throttle = _bounded_int(result, "thermal_throttle_c", 75, 90)
     recovery = _bounded_int(result, "thermal_recovery_c", 60, 85)
     if recovery > throttle - 5:
         raise ValueError("Thermal recovery must be at least 5°C below the throttle point")
+    stop_c = _bounded_int(result, "thermal_stop_c", 80, 110)
+    if stop_c <= throttle:
+        raise ValueError("Thermal stop point must be above the throttle point")
+    result["thermal_watchdog_enabled"] = bool(result.get("thermal_watchdog_enabled"))
     _bounded_int(result, "swappiness", 10, 200)
     _bounded_int(result, "restart_window_sec", 60, 900)
     _bounded_int(result, "restart_burst", 1, 10)
@@ -284,4 +307,29 @@ def revert_optimizations(state: dict[str, Any], runner: CommandRunner) -> dict[s
     _apply_memory(settings, state, runner)
     _apply_log_rotation(settings, state, runner)
     state["optimizations_applied"] = False
+    return state
+
+
+def apply_gpu_clock_limit(state: dict[str, Any], max_mhz: int, runner: CommandRunner) -> dict[str, Any]:
+    """Watchdog entry point: temporarily cap the GPU ceiling through the governor."""
+    settings = normalized_settings(state.get("optimizations"))
+    settings.update(
+        gpu_tuning_enabled=True,
+        governor_profile="custom",
+        gpu_max_mhz=int(max_mhz),
+    )
+    return apply_optimizations(state, settings, runner)
+
+
+def restore_gpu_profile(
+    state: dict[str, Any], settings: dict[str, Any], runner: CommandRunner
+) -> dict[str, Any]:
+    """Watchdog recovery: restore a saved GPU profile without touching other
+    host optimizations (sysctl, service trims, logrotate stay untouched)."""
+    require_acknowledgment(state)
+    checked = validate_settings(settings)
+    checked["gpu_tuning_enabled"] = True
+    _apply_gpu(checked, state, runner)
+    state["optimizations"] = checked
+    state["optimizations_applied"] = True
     return state
