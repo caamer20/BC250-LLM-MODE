@@ -28,11 +28,15 @@ drives the count to zero), then remove the facade before the R2 exit gate.
 
 ## Immediate next tasks
 
-1. **Whole-state save sweep**: convert GUI/chat/thermals/tune call sites to
-   typed repository methods; each removal shrinks the guard allowlist.
-2. **Facade removal** once the guard reaches zero; then **R2 exit gate**.
-3. **R1.1 closeout sweep**: finish path injection in download, prepare,
-   environment, Open WebUI, chat conversation paths, bootstrap.
+1. ~~Whole-state save sweep: safety + histories~~ **DONE** — thermal latch
+   via `ThermalStateService`, bench/autotune via repository appends; guard
+   is now exact-count (thermals 0, chat 4, tune 2).
+2. **Next sweep slice**: setup stages (`SetupService`), runtime/profile
+   records with preview/apply, and `ModelActivationService` — removes
+   bootstrap (3), tune remainder (2), model_manager (3) saves.
+3. Then frontends (GUI/CLI/chat fallbacks), path closure, facade removal,
+   and the R2 exit gate; afterwards Phase B operations per
+   ROAD_TO_1_0_IMPLEMENTATION_PLAN.md.
 
 ## Layout highlights
 

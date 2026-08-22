@@ -5,6 +5,19 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Changed (Road to 1.0 — Phase A progress)
+
+- **Thermal latch is service-persisted** (A1): `ThermalStateService` is the
+  sole writer of the safety-authoritative thermal state; whole-state saves
+  can no longer clear or downgrade a latched stop; stop intent is durable
+  *before* the server stops; a missing sensor refuses latch reset; failed
+  GPU-profile restoration keeps durable recovery evidence.
+- **Narrow history appends** (A2): benchmark and autotune records go through
+  capped repository appends with transactional retention — no prompts or
+  generated content are stored (canary-tested).
+- Whole-state-save guard moved to **exact expected counts**: thermals 2→0,
+  chat 5→4, tune 3→2.
+
 ### Fixed (R2 hardening)
 
 - **Failed legacy import no longer publishes an empty database**: compose
