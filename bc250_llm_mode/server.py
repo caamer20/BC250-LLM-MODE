@@ -813,6 +813,9 @@ WantedBy=multi-user.target
 def install_service(
     state: dict[str, Any], runner: CommandRunner, *, enable_and_start: bool = True
 ) -> Path:
+    from .runtime_handoff import regenerate_for_app_state
+
+    regenerate_for_app_state(state)
     launcher = generate_launcher(state)
     service_name = str(state.get("service_name", "bc250-llm.service"))
     destination = Path("/etc/systemd/system") / service_name
@@ -842,8 +845,12 @@ def install_service(
 
 
 def restart_service(state: dict[str, Any], runner: CommandRunner) -> None:
-    # Refresh state-aware launch behavior on every controlled restart so newly
-    # added per-model profiles take effect without reinstalling the unit.
+    # Refresh the launcher and regenerate a missing/stale runtime handoff on
+    # every controlled restart so newly added per-model profiles and any
+    # committed-but-unrendered changes take effect without reinstalling.
+    from .runtime_handoff import regenerate_for_app_state
+
+    regenerate_for_app_state(state)
     generate_launcher(state)
     runner.run(elevated(["systemctl", "restart", str(state["service_name"])]))
 

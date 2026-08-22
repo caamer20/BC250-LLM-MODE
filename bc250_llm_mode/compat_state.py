@@ -11,14 +11,18 @@ whole-state saves (guard test drives the count toward zero).
 
 from __future__ import annotations
 
-import json
-import os
 import threading
 from copy import deepcopy
 from typing import Any
 
 from .db import connect, initialize
-from .legacy_import import utcnow
+from .legacy_import import utcnow  # noqa: F401  (re-exported for repositories)
+from .runtime_handoff import (
+    HandoffPublicationError,
+    RuntimeConfigurationService,
+    RuntimeHandoffRenderer,
+    runtime_fingerprint,
+)
 from .paths import AppPaths
 from .repositories import (
     AutotuneHistoryRepository,
@@ -48,7 +52,7 @@ class StaleStateError(RuntimeError):
 class CompatStateStore:
     """SQLite-backed drop-in replacement for StateStore during migration."""
 
-    def __init__(self, paths: AppPaths) -> None:
+    def __init__(self, paths: AppPaths, *, renderer: RuntimeHandoffRenderer | None = None) -> None:
         self.paths = paths
         self.paths.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = connect(paths.database_path)
@@ -68,6 +72,12 @@ class CompatStateStore:
         # Cross-process writers are serialized by the flock in transaction()
         # and by the importer's migration lock.
         self._io_lock = threading.RLock()
+        # The handoff renderer is the only writer of runtime-handoff.json;
+        # publication failures are reported separately from db commits via
+        # handoff_publication_error (the commit itself has already landed).
+        self.renderer = renderer or RuntimeHandoffRenderer(paths.app_dir)
+        self.handoff_service = RuntimeConfigurationService(self.renderer)
+        self.handoff_publication_error: str | None = None
 
     @property
     def path(self) -> Path:
@@ -217,7 +227,16 @@ class CompatStateStore:
         new_revision = self.settings.revision() + 1
         self.settings.set_revision(new_revision)
         self.conn.commit()
-        self._write_runtime_handoff(state)
+        # The commit has landed. Re-render the handoff only when committed
+        # runtime/model/profile content changed (or the artifact is missing);
+        # a publication failure is reported separately, never rolled back.
+        try:
+            if self.handoff_service.on_committed(
+                state, config_revision=new_revision
+            ):
+                self.handoff_publication_error = None
+        except HandoffPublicationError as exc:
+            self.handoff_publication_error = str(exc)
 
     def transaction(self, mutator):
         """Locked read-modify-write, mirroring ``StateStore._locked_write``.
@@ -245,49 +264,3 @@ class CompatStateStore:
                     return self.load()
                 finally:
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-
-    def _write_runtime_handoff(self, state: dict[str, Any]) -> None:
-        """Render the launcher-consumption snapshot (regenerated every save).
-
-        This is a rendered artifact of committed state — the server reads it
-        at daemon start — not authoritative dual-write state.
-        """
-        opts = state.get("optimizations") or {}
-        effective = opts if opts.get("runtime_enabled", True) else {}
-        current_id = state.get("current_model")
-        model_path = ""
-        alias = str(current_id or "local")
-        sampling = {}
-        for record in state.get("installed_models") or []:
-            if record.get("id") == current_id:
-                model_path = str(record.get("path", ""))
-                alias = str(
-                    record.get("display_name") or alias
-                ).replace("\n", " ").strip()
-                sampling = {
-                    k: record[k]
-                    for k in ("temperature", "top_p", "top_k", "min_p")
-                    if k in record
-                }
-                break
-        slots = int(effective.get("parallel_slots", 4))
-        payload = {
-            "llama_cpp_path": str(state.get("llama_cpp_path", "/root/llama.cpp")),
-            "model_path": model_path,
-            "alias": alias,
-            "ctx_total": int(state.get("current_ctx", 8192)) * slots,
-            "port": int(state.get("server_port", 8080)),
-            "flash_attention": effective.get("flash_attention", "auto"),
-            "batch_size": int(effective.get("batch_size", 2048)),
-            "ubatch_size": int(effective.get("ubatch_size", 512)),
-            "kv_cache_type": effective.get("kv_cache_type", "q8_0"),
-            "parallel_slots": slots,
-            "threads": effective.get("threads"),
-            "fast_sync": bool(effective.get("fast_sync")),
-        }
-        payload.update(sampling)
-        handoff = self.paths.app_dir / "runtime-handoff.json"
-        tmp = handoff.with_suffix(".tmp")
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        os.replace(tmp, handoff)
-        os.chmod(handoff, 0o600)
