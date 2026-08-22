@@ -6,8 +6,6 @@ from .app import GuiBase, STEP_TITLES
 from .dashboard import DashboardMixin
 from .forms import FormsMixin
 from .steps import StepsMixin
-from ..paths import AppPaths
-from ..state import StateStore
 
 
 class Wizard(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
@@ -17,13 +15,9 @@ class Wizard(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
     """
 
 
-def run_gui(
-    store: StateStore | None = None,
-    management: bool = False,
-    paths: AppPaths | None = None,
-) -> None:
+def run_gui(application, management: bool = False) -> None:
     try:
-        Wizard(store, management=management, paths=paths).mainloop()
+        Wizard(application, management=management).mainloop()
     except tk.TclError as exc:
         raise RuntimeError("A local graphical display is required for the native setup wizard.") from exc
 

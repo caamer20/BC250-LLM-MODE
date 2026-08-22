@@ -151,8 +151,13 @@ class StepsMixin:
 
     def _repair(self) -> None:
         self.optimization_return_to_complete = False
-        self.state_data.update(setup_complete=False, setup_phase=0)
-        self.save()
+        if self.application.setup is not None:
+            reset = self.application.setup.reset_for_repair("wizard repair")
+            self.state_data.update(
+                setup_complete=False, setup_phase=reset["phase"]
+            )
+        else:
+            self.state_data.update(setup_complete=False, setup_phase=0)
         self.show_step(0)
 
     def continue_step(self) -> None:
@@ -167,12 +172,22 @@ class StepsMixin:
             if not acknowledgment_valid(*(v.get() for v in self.ack_vars), self.accept_var.get()):
                 return
             acknowledge(self.state_data)
+            # Safety acknowledgement is a SetupService command: it advances
+            # the canonical stage and never participates in repair rewinds.
+            if self.application.setup is not None:
+                self.application.setup.acknowledge_safety()
+                self._synced.update(
+                    disclaimer_ack=True,
+                    setup_stage=self.application.setup.current_workflow()["stage"],
+                )
+            else:
+                self.commit_narrow()
             self._advance()
         elif step == 2:
             mask_desktop = self.mask_desktop.get()
-            self._work(lambda: (apply_llm_mode(self.state_data, self.runner(), mask_desktop_services=mask_desktop), self.save()), self._after_llm_mode)
+            self._work(lambda: (apply_llm_mode(self.state_data, self.runner(), mask_desktop_services=mask_desktop), self.commit_narrow()), self._after_llm_mode)
         elif step == 3:
-            self._work(lambda: (setup_environment(self.state_data, self.runner()), self.save()), self._advance)
+            self._work(lambda: (setup_environment(self.state_data, self.runner()), self.commit_narrow()), self._advance)
         elif step == 4:
             selected_iid = self.model_tree.selection()[0]
             source, selected = self.model_choices[selected_iid]
@@ -205,7 +220,7 @@ class StepsMixin:
                         restart_service(self.state_data, runner)
                         health_check(self.state_data, runner)
                 finally:
-                    self.save()
+                    self.commit_narrow()
             done = self._finish_optimization_management if self.optimization_return_to_complete else self._advance
             self._work(action, done)
         elif step == 6:
@@ -223,7 +238,7 @@ class StepsMixin:
                         self.state_data, model, self.state_data["selected_quant"], runner
                     )
                 self.state_data["downloaded_path"] = str(self.downloaded_path)
-                self.save()
+                self.commit_narrow()
             self._work(action, self._advance)
         elif step == 7:
             def action() -> None:
@@ -237,7 +252,7 @@ class StepsMixin:
                     prepare_model(
                         self.state_data, model, self.state_data["selected_quant"], downloaded, runner
                     )
-                self.save()
+                self.commit_narrow()
             self._work(action, self._advance)
         elif step == 8:
             def action() -> None:
@@ -258,7 +273,7 @@ class StepsMixin:
                     cleanup_conversion_intermediates(
                         self.state_data, model_by_id(self.state_data["selected_model"]), runner
                     )
-                self.save()
+                self.commit_narrow()
             self._work(action, self._advance)
         elif step == 9:
             install_webui = self.webui_var.get()
@@ -266,7 +281,7 @@ class StepsMixin:
                 if install_webui:
                     install_open_webui(self.state_data, self.runner())
                 self.state_data["setup_phase"] = 10
-                self.save()
+                self.commit_narrow()
             self._work(action, self._finish_setup)
         else:
             self._launch_chat_terminal()
@@ -280,11 +295,18 @@ class StepsMixin:
 
     def _finish_setup(self) -> None:
         self.state_data.update(setup_complete=True, setup_phase=11)
-        self.save()
+        if self.application.setup is not None:
+            self.application.setup.mark_setup_complete()
+            self._synced.update(
+                setup_complete=True,
+                setup_stage=self.application.setup.current_workflow()["stage"],
+            )
+        else:
+            self.commit_narrow()
         self.show_step(10)
 
     def _finish_optimization_management(self) -> None:
         self.optimization_return_to_complete = False
         self.state_data.update(setup_complete=True, setup_phase=11)
-        self.save()
+        self.commit_narrow()
         self.show_step(10)

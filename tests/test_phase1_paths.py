@@ -53,7 +53,7 @@ def test_composition_never_writes_outside_the_injected_root(tmp_path):
         store.save(state)
 
         application = Application.compose(paths)
-        wizard = Wizard(store, management=True, paths=paths)
+        wizard = Wizard(application, management=True)
         handler_target = str(wizard.runner().logger.handlers[0].baseFilename)
     finally:
         if real_home is not None:

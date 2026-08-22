@@ -175,7 +175,7 @@ class FormsMixin:
         if resolved not in paths:
             paths.append(resolved)
             self.state_data["model_search_paths"] = paths
-            self.save()
+            self.commit_narrow()
         self.show_step(4)
 
     def _model_changed(self, _event=None) -> None:

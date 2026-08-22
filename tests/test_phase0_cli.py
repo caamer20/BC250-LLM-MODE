@@ -84,17 +84,16 @@ def test_run_gui_reaches_mainloop_of_the_composed_wizard(monkeypatch):
     loops = []
 
     class FakeWizard:
-        def __init__(self, store=None, management=False, paths=None):
-            self.store = store
+        def __init__(self, application=None, management=False):
+            self.application = application
             self.management = management
-            self.paths = paths
 
         def mainloop(self):
-            loops.append((self.store, self.management, self.paths))
+            loops.append((self.application, self.management))
 
     monkeypatch.setattr(gui, "Wizard", FakeWizard)
-    gui.run_gui(management=True)
-    assert loops and loops[-1][1] is True and loops[-1][2] is None
+    gui.run_gui("application-sentinel", management=True)
+    assert loops and loops[-1][1] is True
 
 
 def test_run_gui_translates_missing_display(monkeypatch):
@@ -108,7 +107,7 @@ def test_run_gui_translates_missing_display(monkeypatch):
 
     monkeypatch.setattr(gui, "Wizard", BrokenWizard)
     with pytest.raises(RuntimeError, match="graphical display"):
-        gui.run_gui()
+        gui.run_gui("application-sentinel")
 
 
 def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
@@ -117,6 +116,7 @@ def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
 
     import bc250_llm_mode.gui.dashboard as dashboard
     import bc250_llm_mode.thermals as thermals_module
+    from bc250_llm_mode.app import Application
     from bc250_llm_mode.gui import Wizard
     from bc250_llm_mode.paths import AppPaths
 
@@ -126,7 +126,7 @@ def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
     state = store.load()
     state["setup_complete"] = True
     store.save(state)
-    wizard = Wizard(store, management=True, paths=paths)
+    wizard = Wizard(Application.wrap(store), management=True)
 
     monkeypatch.setattr(dashboard, "service_status", lambda st, rn: {"active": False, "enabled": False})
     monkeypatch.setattr(dashboard, "open_webui_status", lambda st, rn: {"installed": False, "running": False})

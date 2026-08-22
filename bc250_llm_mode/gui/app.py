@@ -58,7 +58,6 @@ from ..server import (
     start_service,
     stop_service,
 )
-from ..state import StateStore
 from ..tailscale import (
     connect_tailscale,
     disconnect_tailscale,
@@ -69,20 +68,33 @@ from ..tailscale import (
 )
 
 
+from ..state import StateStore  # noqa: F401  (transitional read-only typing)
+
+
+def store_load_fallback(application):
+    """Legacy-store draft source when no query layer exists."""
+    return application.store.load()
+
+
 class GuiBase(tk.Tk):
 
     def __init__(
         self,
-        store: StateStore | None = None,
+        application,
         management: bool = False,
-        paths: AppPaths | None = None,
     ) -> None:
         super().__init__()
-        # Path authority: injected profile wins; otherwise the tilde default
-        # (expanded by StateStore, never evaluated at import time).
-        self.store = store or StateStore()
-        self._paths = paths
-        self.state_data = self.store.load()
+        # Composition authority: the window receives the composed
+        # Application (paths, query layer, services). It never constructs a
+        # store and never persists a whole-state dictionary.
+        self.application = application
+        self.store = application.store  # transitional read-only access
+        self._paths = application.paths
+        if application.query is not None:
+            self.state_data = application.query.snapshot().data
+        else:
+            self.state_data = store_load_fallback(application)
+        self._synced = dict(self.state_data)
         self.management = management
         self.title("BC250 LLM MODE")
         self.geometry("920x760")
@@ -101,7 +113,7 @@ class GuiBase(tk.Tk):
             change_is_active = (pending == "enable" and active) or (pending == "disable" and not active)
             if change_is_active:
                 self.state_data.update(reboot_required=False, pending_karg_mode=None)
-                self.save()
+                self.commit_narrow()
             elif pending == "enable":
                 self.current_step = 2
         self.busy = False
@@ -166,13 +178,28 @@ class GuiBase(tk.Tk):
         self.after(100, self._drain_events)
 
     def runner(self) -> CommandRunner:
-        # Path authority: prefer the injected profile; the state string is a
-        # legacy fallback for wizards constructed without composition.
-        logs_dir = self._paths.logs_dir if self._paths else self.state_data["logs_dir"]
-        return CommandRunner(configure_logging(logs_dir), self.emit)
+        return CommandRunner(configure_logging(self._paths.logs_dir), self.emit)
 
-    def save(self) -> None:
-        self.store.save(self.state_data)
+    def refresh_snapshot(self) -> None:
+        """Discard the draft and pull a fresh repository-native snapshot."""
+        if self.application.query is not None:
+            self.state_data = self.application.query.snapshot().data
+        else:
+            self.state_data = self.store.load()
+        self._synced = dict(self.state_data)
+
+    def commit_narrow(self) -> int:
+        """Persist ONLY the keys this window changed since its last sync.
+
+        This is the GUI's sole persistence primitive: a settings-scoped
+        diff in one unit of work with a revision bump, so stale windows
+        surface conflicts instead of overwriting newer state.
+        """
+        changed = self.application.persist_state_changes(
+            self._synced, self.state_data
+        )
+        self._synced = dict(self.state_data)
+        return changed
 
     def _clear(self) -> None:
         for widget in self.content.winfo_children():
@@ -220,7 +247,7 @@ class GuiBase(tk.Tk):
         threading.Thread(target=target, daemon=True).start()
 
     def _advance(self) -> None:
-        self.save()
+        self.commit_narrow()
         self.show_step(self.current_step + 1)
 
 

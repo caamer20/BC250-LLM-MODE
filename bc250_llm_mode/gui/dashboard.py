@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import shutil
-import subprocess
 import sys
 
 import tkinter as tk
@@ -259,7 +258,7 @@ class DashboardMixin:
         ).pack(side="left", padx=5)
         ttk.Button(management, text="Return to Bazzite desktop mode", command=self._dashboard_desktop_mode).pack(side="right")
 
-        command = f"{sys.executable} -m bc250_llm_mode chat"
+        command = "python -m bc250_llm_mode chat"
         entry = ttk.Entry(inner)
         entry.insert(0, command)
         entry.configure(state="readonly")
@@ -327,7 +326,7 @@ class DashboardMixin:
     def _dashboard_action(self, action: Callable[[CommandRunner], Any]) -> None:
         def work() -> None:
             action(self.runner())
-            self.save()
+            self.commit_narrow()
         self._work(work, self._refresh_dashboard)
 
     def _refresh_dashboard(self) -> None:
@@ -335,7 +334,8 @@ class DashboardMixin:
             return
         snapshot: dict[str, Any] = {}
         def work() -> None:
-            state_before = json.dumps(self.state_data, sort_keys=True, default=str)
+            # Status refresh is a pure query: probes may annotate the local
+            # draft but NEVER persist anything (no revision bump).
             runner = self.runner()
             snapshot["llm"] = service_status(self.state_data, runner)
             if snapshot["llm"]["active"]:
@@ -355,8 +355,6 @@ class DashboardMixin:
                 snapshot["gpu_temp_c"] = read_gpu_temperature()
             except (OSError, RuntimeError, ValueError):
                 snapshot["gpu_temp_c"] = None
-            if json.dumps(self.state_data, sort_keys=True, default=str) != state_before:
-                self.save()
         def done() -> None:
             llm = snapshot["llm"]
             if snapshot.get("health"):
@@ -495,7 +493,7 @@ class DashboardMixin:
                     self.store, self.state_data, runner, previous,
                     f"Activating {model.display_name}",
                 )
-            self.save()
+            self.commit_narrow()
 
         self._work(action, self._populate_dashboard_models)
 
@@ -551,10 +549,9 @@ class DashboardMixin:
             return
 
         def action() -> None:
-            from ..env import update_llamacpp
-
-            update_llamacpp(self.state_data, self.runner())
-            self.save()
+            application = self.application
+            application.component.update_llamacpp(self.state_data, application.runner())
+            self.commit_narrow()
 
         self._work(action, self._refresh_llamacpp_card)
 
@@ -566,10 +563,9 @@ class DashboardMixin:
             return
 
         def action() -> None:
-            from ..env import rollback_llamacpp
-
-            rollback_llamacpp(self.state_data, self.runner())
-            self.save()
+            application = self.application
+            application.component.rollback_llamacpp(self.state_data, application.runner())
+            self.commit_narrow()
 
         self._work(action, self._refresh_llamacpp_card)
 
@@ -596,8 +592,7 @@ class DashboardMixin:
         ):
             return
         def action(runner: CommandRunner) -> None:
-            switch_to_desktop_mode(self.state_data, runner)
-            self.save()
+            self.application.host_mode.return_to_desktop(self.state_data, runner)
         def done() -> None:
             self._refresh_dashboard()
             messagebox.showinfo("Desktop mode", "Desktop mode is configured. Reboot if the log reports a pending kernel change.")
@@ -605,20 +600,12 @@ class DashboardMixin:
 
     def _dashboard_enter_llm_mode(self) -> None:
         def action(runner: CommandRunner) -> None:
-            apply_llm_mode(self.state_data, runner)
-            install_service(self.state_data, runner)
-            self.save()
+            from ..server import install_service
+
+            self.application.host_mode.enter_llm_mode(
+                self.state_data, runner, install_service_fn=install_service, install=True
+            )
         self._dashboard_action(action)
 
     def _launch_chat_terminal(self) -> None:
-        command = [sys.executable, "-m", "bc250_llm_mode", "chat"]
-        terminals = (
-            ("konsole", ["konsole", "-e", *command]),
-            ("gnome-terminal", ["gnome-terminal", "--", *command]),
-            ("x-terminal-emulator", ["x-terminal-emulator", "-e", *command]),
-        )
-        for executable, argv in terminals:
-            if shutil.which(executable):
-                subprocess.Popen(argv)
-                return
-        messagebox.showinfo("Launch chat", "No supported terminal launcher was found. Run:\n" + " ".join(command))
+        self.application.open_chat_terminal()

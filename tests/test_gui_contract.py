@@ -23,7 +23,8 @@ from bc250_llm_mode.state import StateStore  # noqa: E402
 
 
 WIZARD_METHODS = frozenset({
-    "__init__", "_build_shell", "emit", "_drain_events", "runner", "save",
+    "__init__", "_build_shell", "emit", "_drain_events", "runner",
+    "commit_narrow", "refresh_snapshot",
     "_clear", "show_step", "_body_label", "_hardware", "_disclaimer",
     "_update_ack", "_llm_mode", "_environment", "_catalog", "_add_model_folder",
     "_model_changed", "_fit", "_labeled_spin", "_optimize",
@@ -52,6 +53,7 @@ DASHBOARD_TREE_ATTRIBUTES = (
 @pytest.fixture
 def wizard(tmp_path):
     """Fully isolated wizard: every writable path lives under tmp_path."""
+    from bc250_llm_mode.app import Application
     from bc250_llm_mode.paths import AppPaths
     from bc250_llm_mode.state import StateStore
 
@@ -65,7 +67,7 @@ def wizard(tmp_path):
     state["app_dir"] = str(paths.app_dir)
     state["disclaimer_ack"] = True
     store.save(state)
-    return Wizard(store, management=True)
+    return Wizard(Application.wrap(store), management=True)
 
 
 def test_wizard_preserves_the_full_monolith_surface():

@@ -44,6 +44,7 @@ def test_gui_contract_fixture_never_writes_home(tmp_path, monkeypatch):
     home_probe.mkdir()
     monkeypatch.setenv("HOME", str(home_probe))
 
+    from bc250_llm_mode.app import Application
     from bc250_llm_mode.gui import Wizard
 
     paths = AppPaths.temporary(tmp_path / "isolated")
@@ -53,7 +54,7 @@ def test_gui_contract_fixture_never_writes_home(tmp_path, monkeypatch):
     state.update(setup_complete=True, logs_dir=str(paths.logs_dir),
                  models_dir=str(paths.models_dir), app_dir=str(paths.app_dir))
     store.save(state)
-    wizard = Wizard(store, management=True)
+    wizard = Wizard(Application.wrap(store), management=True)
 
     assert str(home_probe) not in str(wizard.state_data["logs_dir"])
     assert str(tmp_path) in str(wizard.state_data["logs_dir"])
