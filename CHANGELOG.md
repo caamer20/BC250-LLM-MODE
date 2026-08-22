@@ -5,6 +5,33 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Changed (Road to 1.0 — Phase A: A3–A5)
+
+- **Per-command unit of work**: services no longer share the facade
+  connection; `UnitOfWorkFactory.begin()` gives every command its own
+  connection with `BEGIN IMMEDIATE`, commit-on-success, rollback-on-error.
+  Histories became append-only (the facade can no longer clobber narrowly
+  appended records), proven by a four-worker concurrency test.
+- **Named setup workflow** (A3): `SetupService` owns canonical stages
+  (WELCOME…COMPLETE) with expected-stage transitions — stale/skipped
+  transitions raise `SetupConflict`, repeats are idempotent, evidence is
+  recorded, and repair never rewinds the safety acknowledgement. Bootstrap
+  persistence now goes through the service (3 saves removed).
+- **Typed runtime preview/apply** (A5): migration 002 adds the
+  `known_good_runtime` row; `RuntimeConfigurationService.preview()` is a
+  pure projection sharing apply's exact validation; `apply()` commits in
+  one unit with revision checks and publishes the handoff from the
+  committed revision. Autotune trials/winners route through it.
+- **Model activation service** (A4): thermal-latch gate, fit/artifact
+  policy, candidate commit → handoff → restart → health → bounded
+  inference probe → known-good promotion, with verified rollback and
+  durable `RECOVERY_REQUIRED` when rollback itself fails. All
+  `model_manager` mutations route through it (3 saves removed).
+- Whole-state-save guard exact counts: **model_manager 3→0, tune 2→0**
+  (plus bootstrap 3→0 earlier in the phase). Remaining inventory is
+  frontend-only: `__main__` 10, gui/steps 10, dashboard 7, gui/app 3,
+  chat 4, forms 1.
+
 ### Changed (Road to 1.0 — Phase A progress)
 
 - **Thermal latch is service-persisted** (A1): `ThermalStateService` is the

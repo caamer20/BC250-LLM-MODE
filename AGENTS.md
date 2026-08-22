@@ -28,15 +28,18 @@ drives the count to zero), then remove the facade before the R2 exit gate.
 
 ## Immediate next tasks
 
-1. ~~Whole-state save sweep: safety + histories~~ **DONE** — thermal latch
-   via `ThermalStateService`, bench/autotune via repository appends; guard
-   is now exact-count (thermals 0, chat 4, tune 2).
-2. **Next sweep slice**: setup stages (`SetupService`), runtime/profile
-   records with preview/apply, and `ModelActivationService` — removes
-   bootstrap (3), tune remainder (2), model_manager (3) saves.
-3. Then frontends (GUI/CLI/chat fallbacks), path closure, facade removal,
-   and the R2 exit gate; afterwards Phase B operations per
-   ROAD_TO_1_0_IMPLEMENTATION_PLAN.md.
+1. ~~Session 1: safety + histories~~ and ~~Session 2: setup/runtime/model
+   services~~ **DONE** — ThermalStateService, narrow history appends,
+   SetupService (named stages), RuntimeConfigurationService
+   (preview/apply/known-good), ModelActivationService; UnitOfWork boundary
+   added. Guard exact counts now: bootstrap 0, model_manager 0, tune 0,
+   thermals 0.
+2. **Session 3 — frontend sweep**: convert `__main__` mutation branches,
+   gui/steps, gui/dashboard, gui/forms, gui/app, and remaining chat saves
+   to the services; remove constructor fallback stores.
+3. **Session 4**: facade removal (`compat_state` deleted), `--state`
+   import-only, R1/R2 exit gates per ROAD_TO_1_0_IMPLEMENTATION_PLAN.md;
+   then Phase B operations engine.
 
 ## Layout highlights
 
