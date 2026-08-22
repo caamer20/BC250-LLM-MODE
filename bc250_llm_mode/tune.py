@@ -53,16 +53,54 @@ def autotune(
     *,
     repeat: int = 2,
     max_tokens: int = 96,
+    runtime_service=None,
 ) -> dict[str, Any]:
     require_acknowledgment(state)
     from .chat import benchmark_repeat
     from .server import restart_and_wait
 
+    def _default_runtime_service():
+        database_path = getattr(getattr(store, "paths", None), "database_path", None)
+        if database_path is None:
+            return None
+        from .services import RuntimeConfigurationService
+        from .unit_of_work import UnitOfWorkFactory
+
+        paths = store.paths
+        return RuntimeConfigurationService(
+            UnitOfWorkFactory(database_path),
+            app_dir=paths.app_dir,
+            state_supplier=store.load,
+        )
+
+    runtime = runtime_service if runtime_service is not None else _default_runtime_service()
     base = normalized_settings(state.get("optimizations"))
     original = deepcopy(base)
     previous_settings = deepcopy(base)
     results: list[dict[str, Any]] = []
     best: dict[str, Any] | None = None
+    revision = runtime.current()["revision"] if runtime is not None else None
+
+    def _apply_candidate(candidate: dict[str, Any]) -> None:
+        """Commit a trial configuration (typed service or in-memory only)."""
+        nonlocal revision
+        if runtime is not None:
+            applied = runtime.apply(
+                {"optimizations_patch": candidate}, expected_revision=revision
+            )
+            revision = applied.revision
+            state["optimizations"] = applied.resolved["optimizations"]
+        else:
+            state["optimizations"] = candidate
+
+    def _restore_original() -> None:
+        nonlocal revision
+        if runtime is not None:
+            restored = runtime.restore(original, expected_revision=revision)
+            revision = restored.revision
+            state["optimizations"] = restored.resolved["optimizations"]
+        else:
+            state["optimizations"] = deepcopy(original)
 
     for ubatch in CANDIDATE_UBATCH:
         for kv in CANDIDATE_KV:
@@ -78,8 +116,7 @@ def autotune(
                 except RuntimeError:
                     raise
                 runner.emit(f"autotune: testing {label}")
-                state["optimizations"] = candidate
-                store.save(state)
+                _apply_candidate(candidate)
                 try:
                     restart_and_wait(state, runner)
                     speed_result = benchmark_repeat(
@@ -87,8 +124,7 @@ def autotune(
                     )
                 except Exception as combo_error:  # noqa: BLE001 - every failure must roll back
                     runner.emit(f"autotune: {label} failed ({combo_error}); reverting to last working combo")
-                    state["optimizations"] = previous_settings
-                    store.save(state)
+                    _restore_original()
                     restart_and_wait(state, runner)
                     continue
                 speed = speed_result.get("predicted_per_second_median") or 0.0
@@ -109,7 +145,7 @@ def autotune(
                 previous_settings = deepcopy(candidate)
 
     if best is not None:
-        state["optimizations"] = validate_settings(
+        winner_candidate = validate_settings(
             dict(
                 base,
                 ubatch_size=int(best["ubatch_size"]),
@@ -121,7 +157,24 @@ def autotune(
             f"autotune: winner {best['ubatch_size']}/{best['kv_cache_type']}/{best['flash_attention']} "
             f"at {float(best['predicted_per_second_median']):.1f} tok/s; applying and restarting"
         )
-        state["optimizations_applied"] = True
+        try:
+            _apply_candidate(winner_candidate)
+            state["optimizations_applied"] = True
+            restart_and_wait(state, runner)
+            # A winner becomes known-good only after health verification.
+            if runtime is not None:
+                from .runtime_handoff import runtime_fingerprint
+
+                runtime.promote_known_good(
+                    component_identity=(state.get("llamacpp_build") or {}).get("describe")
+                    if isinstance(state.get("llamacpp_build"), dict)
+                    else None
+                )
+        except Exception:
+            runner.emit("autotune: winner verification failed; restoring original configuration")
+            _restore_original()
+            restart_and_wait(state, runner)
+            raise
     else:
         state["optimizations"] = original
         runner.emit("autotune: no candidate completed successfully; original settings restored")

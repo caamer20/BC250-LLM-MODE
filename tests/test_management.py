@@ -190,7 +190,9 @@ def test_model_switch_rolls_back_after_health_failure(monkeypatch):
     assert state["current_model"] == "qwen3-8b"
     assert restarts == ["qwen38-9b", "qwen3-8b"]
     assert health_calls == ["qwen38-9b", "qwen3-8b"]
-    assert store.saved_models == ["qwen38-9b", "qwen3-8b"]
+    # Durable persistence is now the ModelActivationService's job (covered
+    # by tests/test_runtime_service.py); this legacy dry path only proves
+    # host-call ordering and in-memory rollback.
 
 
 def test_context_change_rolls_back_after_health_failure(monkeypatch):

@@ -438,11 +438,12 @@ def test_guard_whole_state_saves_are_frozen():
     the same commit; zero across the board is the only R2 exit value.
     Reduced so far: thermals (2 -> 0 via ThermalStateService), chat
     benchmark history (narrow repository append), tune autotune history,
-    bootstrap (3 -> 0 via SetupService).
-
-    state.py/compat_state.py are the persistence implementations themselves,
-    legacy_import.py's staging canonicalize is importer-specific legacy
-    usage — all three are exempt until Session 4 removes the facade.
+    bootstrap (3 -> 0 via SetupService), tune trial/winner persistence
+    (2 -> 0 via RuntimeConfigurationService), model_manager activations
+    (3 -> 0 via ModelActivationService).
+    Remaining before the R2 exit gate: __main__ (10), gui/steps (10),
+    gui/dashboard (7), gui/app (3), chat (4), gui/forms (1) - the
+    Session-3 frontend sweep.
     """
     import re
 
@@ -450,14 +451,14 @@ def test_guard_whole_state_saves_are_frozen():
     allowed_saves = {
         "__main__.py": 10,
         "chat.py": 4,
-        "model_manager.py": 3,
-        "tune.py": 2,
         "gui/app.py": 3,
         "gui/dashboard.py": 7,
         "gui/forms.py": 1,
         "gui/steps.py": 10,
     }
-    allowed_transactions = {"bootstrap.py": 1, "chat.py": 1, "thermals.py": 3, "tune.py": 1}
+    allowed_transactions = {
+        "bootstrap.py": 1, "chat.py": 1, "thermals.py": 3, "tune.py": 1,
+    }
     exempt = {"state.py", "compat_state.py", "legacy_import.py"}
 
     for py in sorted(package.rglob("*.py")):
