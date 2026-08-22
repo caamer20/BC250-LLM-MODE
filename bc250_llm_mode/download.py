@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import tempfile
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
@@ -93,15 +94,53 @@ def download_model(
     destination.mkdir(parents=True, exist_ok=True)
     venv = str(state.get("venv_path", "/root/.venvs/hf"))
     container = str(state.get("container_name", "llm"))
-    command = [
-        "podman", "exec", "--user", "root", container, f"{venv}/bin/hf", "download", model.repo,
-        "--include", pattern, "--local-dir", str(destination),
-    ]
+    # The token travels through a private env-file, never as a command-line
+    # argument: argv is world-readable in /proc/<pid>/cmdline while hf runs,
+    # and CommandRunner logs every argv to setup.log.
+    token_file = None
     if os.environ.get("HF_TOKEN"):
-        command.extend(["--token", os.environ["HF_TOKEN"]])
-    else:
-        runner.emit("HF_TOKEN is not set; continuing anonymously (Hugging Face may apply rate limits).")
-    runner.run(command)
+        handle = tempfile.NamedTemporaryFile(
+            "w", prefix="bc250-hf-", suffix=".env", delete=False
+        )
+        handle.write(f"HF_TOKEN={os.environ['HF_TOKEN']}\n")
+        handle.close()
+        os.chmod(handle.name, 0o600)
+        token_file = handle.name
+    try:
+        auth = ["--env-file", token_file] if token_file else []
+        command = [
+            "podman", "exec", "--user", "root", *auth,
+            container, f"{venv}/bin/hf", "download", model.repo,
+            "--include", pattern, "--local-dir", str(destination),
+        ]
+        if not token_file:
+            runner.emit("HF_TOKEN is not set; continuing anonymously (Hugging Face may apply rate limits).")
+        runner.run(command)
+        if not model.checksum_manifest:
+            return _select_artifact(state, model, quant, pattern, destination)
+        manifest_command = [
+            "podman", "exec", "--user", "root", *auth,
+            container, f"{venv}/bin/hf", "download",
+            model.repo, model.checksum_manifest, "--local-dir", str(destination),
+        ]
+        runner.run(manifest_command)
+        manifest = destination / model.checksum_manifest
+        if not manifest.is_file():
+            raise RuntimeError(f"Checksum manifest was not downloaded: {manifest}")
+        selected = _select_artifact(state, model, quant, pattern, destination)
+        runner.emit(f"Verifying SHA-256 for {selected.name} without loading it into host RAM")
+        verify_sha256_manifest(selected, destination / model.checksum_manifest)
+        runner.emit("SHA-256 verification passed")
+        return selected
+    finally:
+        if token_file:
+            try:
+                os.unlink(token_file)
+            except OSError:
+                pass
+
+
+def _select_artifact(state, model, quant, pattern, destination):
     candidates = [
         path
         for path in destination.rglob("*")
@@ -115,20 +154,6 @@ def download_model(
     for candidate in candidates:
         validate_artifact(model.repo, candidate.name)
     selected = max(candidates, key=lambda item: item.stat().st_size)
-    if model.checksum_manifest:
-        manifest_command = [
-            "podman", "exec", "--user", "root", container, f"{venv}/bin/hf", "download",
-            model.repo, model.checksum_manifest, "--local-dir", str(destination),
-        ]
-        if os.environ.get("HF_TOKEN"):
-            manifest_command.extend(["--token", os.environ["HF_TOKEN"]])
-        runner.run(manifest_command)
-        manifest = destination / model.checksum_manifest
-        if not manifest.is_file():
-            raise RuntimeError(f"Checksum manifest was not downloaded: {manifest}")
-        runner.emit(f"Verifying SHA-256 for {selected.name} without loading it into host RAM")
-        verify_sha256_manifest(selected, manifest)
-        runner.emit("SHA-256 verification passed")
     state["selected_model"] = model.id
     state["selected_quant"] = quant
     state["download_dir"] = str(destination)

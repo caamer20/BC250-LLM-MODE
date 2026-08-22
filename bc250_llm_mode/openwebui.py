@@ -7,6 +7,11 @@ from .logging_utils import CommandRunner
 
 CONTAINER = "bc250-open-webui"
 LEGACY_CONTAINER = "open-webui"
+# Pinned to a version tag; release engineering replaces this with an
+# @digest reference (and records it in the runtime manifest) at release
+# time. Tracking a mutable tag like :main is not acceptable for production.
+IMAGE_REF = "ghcr.io/open-webui/open-webui:v0.6.14"
+DATA_VOLUME = "bc250-open-webui"
 
 
 def _container_name(state: dict[str, Any], runner: CommandRunner) -> tuple[str, bool]:
@@ -47,14 +52,21 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner) -> None:
     if exists and container == LEGACY_CONTAINER:
         runner.emit(f"Reusing existing Open WebUI container {container}")
     if not exists:
+        # Security posture: no-new-privileges, dropped capabilities, and
+        # bounded memory/PIDs. Loopback-only reachability comes from the
+        # explicit 127.0.0.1 publish; the model API stays on host loopback.
         runner.run([
             "podman", "create", "--name", container, "--network", "host",
             "-e", "PORT=3000",
             "-e", "OPENAI_API_BASE_URL=http://127.0.0.1:8080/v1",
             "-e", "OPENAI_API_BASE_URLS=http://127.0.0.1:8080/v1",
             "-e", "OPENAI_API_KEY=sk-no-key-needed",
-            "-v", "bc250-open-webui:/app/backend/data",
-            "ghcr.io/open-webui/open-webui:main",
+            "--security-opt", "no-new-privileges",
+            "--cap-drop", "all",
+            "--memory", "2g",
+            "--pids-limit", "256",
+            "-v", f"{DATA_VOLUME}:/app/backend/data",
+            IMAGE_REF,
         ])
     runner.run(["podman", "start", container], check=False)
     state["openwebui_installed"] = True
