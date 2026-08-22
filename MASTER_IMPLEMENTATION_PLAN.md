@@ -272,7 +272,7 @@ Parallel work is safe only where explicitly called out. For example, CI lint set
 
 ## R0. Establish a clean, reproducible baseline
 
-### R0.1 Fix the remaining path-isolation test failure — P0 — PARTIAL
+### R0.1 Fix the remaining path-isolation test failure — P0 — DONE (see §11 handoff log)
 
 **Affected files:** `bc250_llm_mode/gui/`, `bc250_llm_mode/logging_utils.py`, `bc250_llm_mode/paths.py`, `bc250_llm_mode/state.py`, `tests/test_phase0_cli.py`, shared test fixtures.
 
@@ -293,7 +293,7 @@ Parallel work is safe only where explicitly called out. For example, CI lint set
 
 **Acceptance criteria:** All 198 current tests pass and isolated tests produce no writes beneath the real user application directory.
 
-### R0.2 Remove dead and inconsistent CLI control flow — P0 — NOT STARTED
+### R0.2 Remove dead and inconsistent CLI control flow — P0 — DONE (see §11 handoff log)
 
 **Affected files:** `bc250_llm_mode/__main__.py`, CLI tests.
 
@@ -308,7 +308,7 @@ Parallel work is safe only where explicitly called out. For example, CI lint set
 
 **Acceptance criteria:** No unreachable command code; CLI behavior and exit codes are documented and covered.
 
-### R0.3 Repair editable-install ambiguity — P0 — NOT STARTED
+### R0.3 Repair editable-install ambiguity — P0 — DONE (see §11 handoff log)
 
 **Affected files:** `.venv` workflow documentation, `pyproject.toml`, CI, `README.md`, `AGENTS.md`.
 
@@ -322,7 +322,7 @@ Parallel work is safe only where explicitly called out. For example, CI lint set
 
 **Acceptance criteria:** Both editable-install and source-tree test commands collect the same tests and pass.
 
-### R0.4 Review and split the dirty feature pass — P0 — NOT STARTED
+### R0.4 Review and split the dirty feature pass — P0 — DONE (8 commits; see git log 440ffb0..25a8907)
 
 Do this only after the baseline passes. Do not squash unrelated areas into one opaque commit.
 
@@ -415,7 +415,7 @@ Implement reviewed helpers for:
 
 Every helper must return a structured error rather than silently swallowing failures. Cleanup functions may be best-effort only when the primary operation has already failed and the leftover is harmless and reported.
 
-### R1.3 Classify all `check=False`, shell, and destructive command sites — P0 — NOT STARTED
+### R1.3 Classify all `check=False`, shell, and destructive command sites — P0 — DONE (docs/command_audit.md; elevation frozen at 44 by guard test)
 
 Create a checked-in audit table, ideally in tests or developer documentation, covering every use of:
 
@@ -449,7 +449,7 @@ For each site, mark it as:
 
 ## R2. Replace JSON as the durable source of truth
 
-### R2.1 Freeze and document the existing JSON schema — P0 — NOT STARTED
+### R2.1 Freeze and document the existing JSON schema — P0 — DONE (docs/STATE_SCHEMA.md + tests/fixtures/)
 
 Before migration code is written:
 
@@ -459,7 +459,7 @@ Before migration code is written:
 4. Identify sensitive values that should be moved to protected secret storage rather than SQLite.
 5. Define forward-compatibility behavior for unknown fields in imported JSON.
 
-### R2.2 Introduce SQLite and migration infrastructure — P0 — NOT STARTED
+### R2.2 Introduce SQLite and migration infrastructure — P0 — PARTIAL (db.py connection/PRAGMAs/migrations + legacy importer landed; repositories, facade, and call-site cutover remain)
 
 **New files:** `db.py`, `migrations/`, migration tests.
 
@@ -520,7 +520,7 @@ Repository methods must:
 - avoid exposing raw connections to GUI or domain code;
 - map database failures to stable product error codes.
 
-### R2.4 Implement one-time JSON import — P0 — NOT STARTED
+### R2.4 Implement one-time JSON import — P0 — PARTIAL (importer + failure/idempotency tests landed; startup integration and repair-mode entry pending)
 
 Migration flow:
 
@@ -1982,7 +1982,7 @@ At the end of every implementation session:
 8. Preserve uncommitted user work and identify which files belong to the current task.
 9. State the next task ID, its dependencies, and the safest first test.
 
-The immediate next task is **R0.1**. The immediate architectural milestone is the **R1 exit gate**. The first production foundation milestone is the **R3 exit gate**; no major new surface area should be added before it passes.
+~~The immediate next task is **R0.1**.~~ **Update (post-0.8 stabilization):** R0.1–R0.4, R1.3, and R2.1 are complete; R2.2 core infrastructure and the legacy importer have landed. The immediate next task is the **R1.1 closeout sweep** (remaining path-injection call sites), then **R2.2 call-site cutover** via the compatibility facade. The architectural milestone remains the **R1 exit gate**; the production foundation milestone is still the **R3 exit gate** — no major new surface area should be added before it passes.
 
 ---
 
