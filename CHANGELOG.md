@@ -3,6 +3,34 @@
 All notable changes to BC250 LLM MODE. Format follows Keep a Changelog;
 versions are tagged in git.
 
+## [Unreleased] — R2.2 cutover
+
+### Added
+
+- **SQLite is the source of truth** (ADR 001 cutover): the composition root
+  opens/initializes `state.db`, auto-imports a legacy `state.json` once on
+  first run, and serves every surface through the compatibility facade
+  (`compat_state.CompatStateStore` — same `load/save/transaction` contract).
+  JSON remains a read-only backup; explicit `--state <json>` opts into
+  transitional legacy mode.
+- Typed repositories (`repositories.py`) over all migration-001 tables; raw
+  SQL no longer appears outside them.
+- Runtime handoff artifact: every committed save renders
+  `<app_dir>/runtime-handoff.json` (0600); launcher v2 execs argv built from
+  it (legacy `state.json` fallback retained for pre-cutover installs).
+- Optimistic revision checks on whole-state saves (`StaleStateError`);
+  transactions remain flock-serialized and lost-update safe across threads
+  and processes (`check_same_thread=False` + busy timeout).
+- Cutover guard test freezing direct `StateStore(` construction in
+  production at its four transitional call sites.
+
+### Changed
+
+- Generated launchers no longer use positional `CFG[…]` arrays; both handoff
+  and legacy paths emit one argument per line into a single `exec`.
+- `--state <file>` semantics narrowed to transitional legacy mode (no
+  database is created or imported in that invocation).
+
 ## [0.8.0.dev0] — unreleased development line
 
 The 0.8 line targets the production-readiness plan: stabilized beta

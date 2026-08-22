@@ -13,26 +13,29 @@ schema v5 + transactional store, production hardening, and the `gui/` package.
 
 ## Where we are in the master plan
 
-Executing `MASTER_IMPLEMENTATION_PLAN.md`. **R0.x, R1.3, R2.1 are DONE**;
-**R2.2 core is landed** (`db.py` PRAGMA contract/migrations/integrity +
-`legacy_import.py` one-time JSON importer per ADR 001). Remaining for 0.9:
-repositories/facade, compatibility-facade call-site cutover, startup repair
-mode. Full status table lives in the plan's §11 handoff log — consult it
-before continuing; do not duplicate it here.
+Executing `MASTER_IMPLEMENTATION_PLAN.md`. **R0.x, R1.3, R2.1, and the R2.2
+cutover core are DONE**: SQLite is the source of truth — `Application.compose`
+opens/imports/initializes `state.db` and serves everything through the
+compatibility facade (`compat_state.CompatStateStore`, same
+`load/save/transaction` contract as the legacy store). JSON is a read-only
+backup; launcher v2 consumes the rendered `runtime-handoff.json`. Remaining
+for 0.9: migrate whole-state saves to narrow repository methods (guard test
+drives the count to zero), then remove the facade before the R2 exit gate.
 
 ## Immediate next tasks
 
-1. **R1.1 closeout sweep**: finish path injection in download, prepare,
+1. **Whole-state save sweep**: convert GUI/chat/thermals/tune call sites to
+   typed repository methods; each removal shrinks the guard allowlist.
+2. **Facade removal** once the guard reaches zero; then **R2 exit gate**.
+3. **R1.1 closeout sweep**: finish path injection in download, prepare,
    environment, Open WebUI, chat conversation paths, bootstrap.
-2. **R2.2 cutover**: repositories/facade → switch composition root to SQLite
-   in one commit → drive compatibility-save call sites to zero.
 
 ## Layout highlights
 
 | Area | Files |
 | --- | --- |
 | GUI package | `gui/app.py`, `gui/steps.py`, `gui/dashboard.py`, `gui/forms.py`; `Wizard`/`run_gui` composed in `gui/__init__.py`; surface frozen by headless contract test |
-| State | `state.py` (legacy JSON, schema v5, transaction()), `paths.py` (AppPaths incl. database/legacy/migration paths), `db.py` (SQLite PRAGMA contract + migrations), `legacy_import.py` (one-time importer) |
+| State | `state.py` (legacy JSON, schema v5, transaction()), `compat_state.py` (SQLite compatibility facade), `repositories.py` (typed SQL access), `paths.py` (AppPaths incl. database/legacy/migration paths), `db.py` (SQLite PRAGMA contract + migrations), `legacy_import.py` (one-time importer) |
 | Safety runtime | `thermals.py` (hysteresis/latch/baseline/reset_latch), `optimize.py` (`apply_gpu_clock_limit`, `restore_gpu_profile`) |
 | llama.cpp lifecycle | `env.py` (`llamacpp_status/update/rollback`; staged source clone, atomic swap) |
 | Composition | `app.py` (`Application.compose`, `load_state_with_paths`) |

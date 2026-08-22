@@ -61,3 +61,22 @@ per class below.
 The temporary whole-state compatibility view is removed when no production
 module outside repositories writes durable state, verified by a guard test
 driving compatibility-save call sites to zero.
+
+## Cutover record (executed)
+
+- **Composition switched.** `Application.compose` initializes/opens the
+  database and returns `CompatStateStore`; a legacy `state.json` present on
+  first run is imported automatically (repair mode keeps JSON serving when
+  import fails). Explicit `--state <json>` opts into transitional legacy
+  mode for one invocation.
+- **Repositories** (`repositories.py`) own all raw SQL; the facade composes
+  them. Saves use optimistic revision checks (`StaleStateError`);
+  `transaction()` remains flock-serialized with revision bumps.
+- **Launcher v2 (handoff-first).** Every committed save renders
+  `runtime-handoff.json` (0600) — a *rendered artifact* of committed state,
+  not dual-write state. The generated launcher execs argv built from the
+  handoff; pre-cutover installs keep the legacy `state.json` fallback.
+  Positional `CFG[…]` arrays are gone entirely.
+- **Guard test** freezes direct `StateStore(` construction in production at
+  its current four transitional call sites (`__main__.py --state`, chat/GUI
+  fallbacks, importer staging); new call sites fail CI.

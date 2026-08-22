@@ -459,7 +459,7 @@ Before migration code is written:
 4. Identify sensitive values that should be moved to protected secret storage rather than SQLite.
 5. Define forward-compatibility behavior for unknown fields in imported JSON.
 
-### R2.2 Introduce SQLite and migration infrastructure — P0 — PARTIAL (db.py connection/PRAGMAs/migrations + legacy importer landed; repositories, facade, and call-site cutover remain)
+### R2.2 Introduce SQLite and migration infrastructure — P0 — DONE for the cutover core (db.py + importer + repositories + compatibility facade + composition cutover landed; remaining: migrate whole-state save call sites to narrow repository methods, driving the guard count to zero, then remove the facade before the R2 exit gate)
 
 **New files:** `db.py`, `migrations/`, migration tests.
 
@@ -1982,7 +1982,7 @@ At the end of every implementation session:
 8. Preserve uncommitted user work and identify which files belong to the current task.
 9. State the next task ID, its dependencies, and the safest first test.
 
-~~The immediate next task is **R0.1**.~~ **Update (post-0.8 stabilization):** R0.1–R0.4, R1.3, and R2.1 are complete; R2.2 core infrastructure and the legacy importer have landed. The immediate next task is the **R1.1 closeout sweep** (remaining path-injection call sites), then **R2.2 call-site cutover** via the compatibility facade. The architectural milestone remains the **R1 exit gate**; the production foundation milestone is still the **R3 exit gate** — no major new surface area should be added before it passes.
+~~The immediate next task is **R0.1**.~~ **Update (post-0.8 stabilization):** R0.1–R0.4, R1.3, R2.1, and the R2.2 cutover core are complete — SQLite is the source of truth behind the compatibility facade (`compat_state`), with launcher v2 consuming the rendered runtime handoff. The immediate next tasks are: (1) migrate whole-state `save()` call sites to narrow repository methods, driving the guard test's count to zero, and (2) remove the compatibility facade before declaring the R2 exit gate complete. The architectural milestone remains the **R1 exit gate**; the production foundation milestone is still the **R3 exit gate** — no major new surface area should be added before it passes.
 
 ---
 
@@ -2001,7 +2001,7 @@ At the end of every implementation session:
 | R1.1 AppPaths integration | **PARTIAL** | Composition root + CLI/GUI/logging/state done; download/prepare/openwebui/env still read state strings (safe: values derive from the profile via `load_state_with_paths`) |
 | R1.3 command audit | **DONE** | `docs/command_audit.md`: 109 sites classified (PROBE/CLEANUP/ELEVATED-MUTATION/SHELL-STAGING/FS-MUTATION); `elevated(` count frozen at 44 by guard test |
 | R2.1 schema freeze | **DONE** | `docs/STATE_SCHEMA.md` field-ownership table; fixtures `tests/fixtures/state_v4.json`, `state_v5.json` with migration and round-trip tests |
-| R2.2+ SQLite | NOT STARTED | Next milestone (0.9) |
+| R2.2+ SQLite | CUTOVER LANDED | Facade live; drive whole-state saves to zero |
 | R3 operation engine | NOT STARTED | Blocked on R2 by design |
 
 ### Tests run this session
