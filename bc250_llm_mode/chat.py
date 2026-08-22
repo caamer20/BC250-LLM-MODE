@@ -29,6 +29,7 @@ from .server import (
     system_metrics,
 )
 from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
+from .paths import AppPaths
 from .state import StateStore
 from .tailscale import (
     connect_tailscale,
@@ -329,9 +330,13 @@ def _print_help(console) -> None:
     )
 
 
-def run_chat(store: StateStore | None = None) -> None:
+def run_chat(store: StateStore | None = None, paths: AppPaths | None = None) -> None:
     httpx, PromptSession, FileHistory, Console = _dependencies()
-    store = store or StateStore()
+    # Path authority: an injected profile wins; otherwise derive from the
+    # loaded state's own state_path (never a fresh home evaluation).
+    if store is None:
+        derived = (paths.state_path if paths else None) or probe.get("state_path")
+        store = StateStore(derived) if derived else StateStore()
     state = store.load()
     console = Console()
     log = configure_logging(state["logs_dir"])

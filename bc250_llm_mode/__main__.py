@@ -158,10 +158,6 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _store(path: str | None) -> StateStore:
-    return StateStore(path) if path else StateStore()
-
-
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     # Composition root: one validated path profile drives every surface.
