@@ -13,8 +13,7 @@ import json
 import pytest
 
 from bc250_llm_mode import thermals
-from bc250_llm_mode.compat_state import CompatStateStore
-from bc250_llm_mode.paths import AppPaths
+from _native import NativeApp
 from bc250_llm_mode.services import (
     ThermalLatchProtected,
     ThermalStateService,
@@ -30,7 +29,7 @@ class FakeRunner:
 
 
 def _store(tmp_path):
-    return CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    return NativeApp(tmp_path)
 
 
 def _latch_stopped(store) -> ThermalStateService:
@@ -42,23 +41,24 @@ def _latch_stopped(store) -> ThermalStateService:
     return service
 
 
-def test_stale_whole_state_save_cannot_clear_or_downgrade_latch(tmp_path):
+def test_stale_settings_commit_cannot_clear_or_downgrade_latch(tmp_path):
     """The plan's safest-first test, end to end."""
     store = _store(tmp_path)
     _latch_stopped(store)
 
-    # A stale GUI/CLI draft loads, claims nominal, and saves whole-state.
-    draft = store.load()
-    assert draft["thermal_watchdog_state"] == "stopped"
-    draft["thermal_watchdog_state"] = "nominal"
-    draft["thermal_watchdog_baseline"] = None
-    draft["server_port"] = 1234  # unrelated change must still persist
-    store.save(draft)
+    # A frontend commits settings through the only permitted narrow path;
+    # thermal-authority keys are not part of that contract, so even a stale
+    # draft claiming "nominal" cannot clear or downgrade the latch.
+    state = store.load()
+    assert state["thermal_watchdog_state"] == "stopped"
+    changed = dict(state)
+    changed["optimizations"] = dict(state["optimizations"], threads=6)
+    store.application.commit_settings_changes(state, changed)
 
     reloaded = store.load()
     assert reloaded["thermal_watchdog_state"] == "stopped"
     assert reloaded["thermal_watchdog_baseline"] is not None
-    assert reloaded["server_port"] == 1234
+    assert reloaded["optimizations"]["threads"] == 6
 
     # Direct service downgrade attempts are refused at the persistence layer.
     service = ThermalStateService.for_database(store.paths.database_path)
@@ -113,7 +113,7 @@ def test_reset_after_safe_probe_clears_latch_and_baseline(
     result = thermals.reset_latch(store, state, FakeRunner())
     assert result["state"] == "nominal"
 
-    fresh = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    fresh = NativeApp(tmp_path)
     assert fresh.load()["thermal_watchdog_state"] == "nominal"
     assert ThermalStateService.for_database(fresh.paths.database_path).current()["baseline"] is None
 
@@ -155,7 +155,7 @@ def test_latch_survives_new_service_and_store_instances(tmp_path):
     store = _store(tmp_path)
     _latch_stopped(store)
 
-    fresh_store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    fresh_store = NativeApp(tmp_path)
     assert fresh_store.load()["thermal_watchdog_state"] == "stopped"
     assert (
         ThermalStateService.for_database(fresh_store.paths.database_path).current()["latch_state"]
@@ -199,8 +199,7 @@ def test_stop_intent_persisted_before_server_stop(tmp_path, monkeypatch):
     assert result["action"] == "stop"
     assert observed_at_stop == ["stopped"]
 
-    fresh = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
-    assert fresh.load()["thermal_watchdog_state"] == "stopped"
+    assert NativeApp(tmp_path).load()["thermal_watchdog_state"] == "stopped"
 
 
 def test_benchmark_recording_is_narrow_capped_and_enriched(tmp_path):
@@ -208,12 +207,10 @@ def test_benchmark_recording_is_narrow_capped_and_enriched(tmp_path):
     from bc250_llm_mode import chat
 
     store = _store(tmp_path)
-    state = store.load()
-    state.update(current_model="lfm25-26b", current_ctx=16384)
-    state["optimizations"] = {**state["optimizations"], "parallel_slots": 3}
-    store.save(state)
-
     loaded = store.load()
+    loaded.update(current_model="lfm25-26b", current_ctx=16384)
+    loaded["optimizations"] = {**loaded["optimizations"], "parallel_slots": 3}
+
     for i in range(25):
         chat.record_benchmark(
             store,
@@ -221,9 +218,7 @@ def test_benchmark_recording_is_narrow_capped_and_enriched(tmp_path):
             {"predicted_per_second": float(i), "max_tokens": 64},
         )
 
-    history = CompatStateStore(AppPaths.temporary(tmp_path / "root")).load()[
-        "bench_history"
-    ]
+    history = store.load()["bench_history"]
     assert len(history) == 20, "retention cap enforced by the repository"
     newest = history[-1]
     assert newest["model"] == "lfm25-26b"
@@ -241,7 +236,7 @@ def test_benchmark_recording_is_narrow_capped_and_enriched(tmp_path):
             "generated": "SECRET-GENERATION-CANARY",
         },
     )
-    dump = json.dumps(CompatStateStore(AppPaths.temporary(tmp_path / "root")).load()["bench_history"])
+    dump = json.dumps(store.load()["bench_history"])
     assert "SECRET-PROMPT-CANARY" not in dump
     assert "SECRET-GENERATION-CANARY" not in dump
 
@@ -249,7 +244,7 @@ def test_benchmark_recording_is_narrow_capped_and_enriched(tmp_path):
 def test_autotune_repository_append_caps_with_stable_order(tmp_path):
     store = _store(tmp_path)
     for i in range(45):
-        store.autotune.append({"ctx": 8192, "median": float(i)})
-    rows = store.autotune.list()
+        store.append_autotune({"ctx": 8192, "median": float(i)})
+    rows = store.load()["autotune_history"]
     assert len(rows) == 40
     assert [r["median"] for r in rows] == [float(i) for i in range(5, 45)]

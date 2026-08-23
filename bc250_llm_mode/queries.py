@@ -1,7 +1,7 @@
 """Repository-native application snapshots for the frontends.
 
 ``ApplicationQueryService`` assembles a complete view from repositories and
-the injected ``AppPaths`` — it never wraps ``CompatStateStore.load()`` so
+the injected ``AppPaths`` — it never wraps a whole-state loader so
 that deleting the facade in Session 4 is mechanical.
 
 Contract of :class:`ApplicationSnapshot`:
@@ -119,6 +119,13 @@ class ApplicationQueryService:
             state["llamacpp_history"] = llamacpp_history
         if models_custom:
             state["models_dir"] = models_custom
+        elif (
+            not state.get("models_dir")
+            or str(state["models_dir"]) == str(DEFAULT_STATE.get("models_dir"))
+        ):
+            # An untouched default follows the composed profile; only an
+            # explicitly customized location is preserved verbatim.
+            state["models_dir"] = str(self.paths.models_dir)
 
         boot_id = _current_boot_id()
         session_boot = state.get("llm_session_boot_id")

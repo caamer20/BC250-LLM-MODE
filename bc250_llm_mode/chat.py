@@ -274,9 +274,10 @@ def export_conversation(
 def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) -> None:
     """Keep the last 20 benchmark results so tuning changes can be compared.
 
-    SQLite-backed stores record through the capped repository (narrow
-    append; no prompts or generated content stored). Legacy JSON stores use
-    a locked transaction touching only the history key.
+    Durable records go through the capped repository on a dedicated
+    per-command connection (no prompts or generated content stored).
+    Handles without a database (in-memory test doubles) mutate only the
+    passed draft; nothing durable is ever written wholesale.
     """
     entry = {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -290,8 +291,6 @@ def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) 
 
     paths = getattr(store, "paths", None)
     if paths is not None:
-        # SQLite store: dedicated per-command connection via the unit of
-        # work (insert + retention trim commit atomically).
         from .repositories import BenchHistoryRepository
         from .unit_of_work import UnitOfWorkFactory
 
@@ -299,12 +298,8 @@ def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) 
             BenchHistoryRepository(conn).append(entry, commit=False)
         return
 
-    def mutate(current: dict[str, Any]) -> dict[str, Any]:
-        history = [item for item in (current.get("bench_history") or []) if isinstance(item, dict)]
-        current["bench_history"] = ([*history, entry])[-20:]
-        return current
-
-    store.transaction(mutate)
+    history = [item for item in (state.get("bench_history") or []) if isinstance(item, dict)]
+    state["bench_history"] = ([*history, entry])[-20:]
 
 
 def _print_help(console) -> None:
@@ -341,16 +336,11 @@ def _print_help(console) -> None:
 
 def run_chat(application) -> None:
     httpx, PromptSession, FileHistory, Console = _dependencies()
-    store = application.store
-    snapshot = (
-        application.query.snapshot()
-        if application.query is not None else None
-    )
-    state = snapshot.data if snapshot is not None else store.load()
+    state = application.read_model()
     console = Console()
     log = configure_logging(state["logs_dir"])
     runner = CommandRunner(log, lambda line: console.print(f"[dim]{line}[/dim]"))
-    history_path = str(store.path.parent / "chat_history")
+    history_path = str(application.paths.app_dir / "chat_history")
     session = PromptSession(history=FileHistory(history_path))
     conversation: list[dict[str, str]] = []
     overrides: dict[str, Any] = {}
@@ -475,7 +465,7 @@ def run_chat(application) -> None:
             try:
                 before_llm = dict(state)
                 console.print_json(data=actions[action]())
-                application.persist_state_changes(before_llm, state)
+                application.commit_settings_changes(before_llm, state)
             except KeyError:
                 console.print("[red]Usage: /llm start|stop|restart|status|ensure[/red]")
             except (OSError, RuntimeError, TimeoutError, ValueError) as exc:
@@ -514,7 +504,7 @@ def run_chat(application) -> None:
             try:
                 before_webui = dict(state)
                 console.print_json(data=actions[action]())
-                application.persist_state_changes(before_webui, state)
+                application.commit_settings_changes(before_webui, state)
             except KeyError:
                 console.print("[red]Usage: /webui start|stop|restart|status[/red]")
             except (OSError, RuntimeError, ValueError) as exc:
@@ -550,7 +540,7 @@ def run_chat(application) -> None:
             try:
                 before_serve = dict(state)
                 console.print_json(data=actions[action]())
-                application.persist_state_changes(before_serve, state)
+                application.commit_settings_changes(before_serve, state)
             except KeyError:
                 console.print("[red]Usage: /serve start|stop|restart|status[/red]")
             except (OSError, RuntimeError, ValueError) as exc:
@@ -581,7 +571,7 @@ def run_chat(application) -> None:
                 before_boot = dict(state)
                 if action == "desktop":
                     stage_desktop_boot(state, runner)
-                    application.persist_state_changes(before_boot, state)
+                    application.commit_settings_changes(before_boot, state)
                 elif action != "status":
                     raise ValueError("action must be status or desktop")
                 target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()
@@ -602,7 +592,7 @@ def run_chat(application) -> None:
                 max_tokens = int(parts[1]) if len(parts) > 1 else 128
                 result = benchmark(state, max_tokens=max_tokens)
                 console.print_json(data=result)
-                record_benchmark(store, state, result)
+                record_benchmark(application, state, result)
             except (IndexError, ValueError) as exc:
                 console.print(f"[red]Usage: /bench [tokens 1-2048] — {exc}[/red]")
             except (httpx.HTTPError, OSError, RuntimeError, KeyError) as exc:

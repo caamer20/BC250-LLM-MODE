@@ -8,8 +8,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from bc250_llm_mode.compat_state import CompatStateStore
-from bc250_llm_mode.paths import AppPaths
+from _native import NativeApp
 from bc250_llm_mode.runtime_handoff import HANDOFF_FILENAME
 from bc250_llm_mode.services import (
     ActivationRequest,
@@ -29,11 +28,22 @@ MODEL = {
 }
 
 
+def _install(store, models, current=None):
+    """Seed installations/current model through typed repositories."""
+    from bc250_llm_mode.repositories import ModelInstallationsRepository
+
+    with store.units.begin() as conn:
+        ModelInstallationsRepository(conn).replace_all(
+            [dict(m) for m in models]
+        )
+    if current is not None:
+        store.set_settings({"current_model": current})
+
+
 def _runtime(tmp_path):
-    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
-    units = UnitOfWorkFactory(store.paths.database_path)
+    store = NativeApp(tmp_path)
     service = RuntimeConfigurationService(
-        units,
+        UnitOfWorkFactory(store.paths.database_path),
         app_dir=store.paths.app_dir,
         state_supplier=store.load,
     )
@@ -41,13 +51,14 @@ def _runtime(tmp_path):
 
 
 def _seed_model(store, runtime):
-    state = store.load()
-    state["installed_models"] = [dict(MODEL)]
-    state["optimizations"] = {
-        **state["optimizations"], "parallel_slots": 1,
-    }
-    state["current_model"] = MODEL["id"]
-    store.save(state)
+    from bc250_llm_mode.optimize import normalized_settings, validate_settings
+
+    _install(store, [MODEL])
+    # Mirror the facade-era baseline: one slot and fully normalized settings.
+    store.set_settings({
+        "current_model": MODEL["id"],
+        "optimizations": validate_settings(normalized_settings({"parallel_slots": 1})),
+    })
     return runtime.current()
 
 
@@ -59,14 +70,14 @@ def test_preview_performs_no_writes(tmp_path):
     _seed_model(store, runtime)
     (store.paths.app_dir / HANDOFF_FILENAME).unlink(missing_ok=True)
     before = runtime.capture()
-    seed_before = store.settings.revision()
+    seed_before = store.revision()
 
     preview = runtime.preview({"context": 4096})
 
     assert preview["context_per_slot"] == 4096
     assert preview["total_context"] == 4096
     assert runtime.capture() == before
-    assert store.settings.revision() == seed_before
+    assert store.revision() == seed_before
     assert not (store.paths.app_dir / HANDOFF_FILENAME).exists()
 
 
@@ -86,12 +97,11 @@ def test_preview_and_apply_resolve_identical_settings(tmp_path):
 
 def test_fit_gate_rejects_before_mutation(tmp_path):
     store, runtime = _runtime(tmp_path)
-    state = store.load()
-    state["installed_models"] = [
-        {"id": "qwen25-coder-14b", "path": "/models/coder14b.gguf", "quant": "Q4_K_M"}
-    ]
-    state["current_model"] = "qwen25-coder-14b"
-    store.save(state)
+    _install(
+        store,
+        [{"id": "qwen25-coder-14b", "path": "/models/coder14b.gguf", "quant": "Q4_K_M"}],
+        current="qwen25-coder-14b",
+    )
     rev = runtime.current()["revision"]
 
     # 8192 x 2 slots on coder-14b Q4_K_M is a documented NO-FIT.
@@ -202,7 +212,7 @@ class FakeController:
 
 
 def _activation(tmp_path):
-    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    store = NativeApp(tmp_path)
     units = UnitOfWorkFactory(store.paths.database_path)
     service = RuntimeConfigurationService(
         units,
@@ -268,11 +278,14 @@ def test_missing_model_follows_policy(tmp_path):
 
 def test_health_failure_restores_previous_model(tmp_path):
     store, runtime, controller, activation = _activation(tmp_path)
-    state = store.load()
-    state["installed_models"].append(
-        dict(MODEL, id="qwen38-2b-distill", display_name="Qwen 3.8 2B Distill")
+    _install(
+        store,
+        [
+            MODEL,
+            dict(MODEL, id="qwen38-2b-distill", display_name="Qwen 3.8 2B Distill"),
+        ],
+        current=MODEL["id"],
     )
-    store.save(state)
 
     controller.fail_health_model = "qwen38-2b-distill"
     result = activation.activate(ActivationRequest(model_id="qwen38-2b-distill"))

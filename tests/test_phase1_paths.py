@@ -3,7 +3,6 @@
 import json
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -15,11 +14,9 @@ from _gui_stubs import install  # noqa: E402
 
 install()
 
-from bc250_llm_mode import __main__ as cli_module  # noqa: E402
-from bc250_llm_mode.__main__ import cli, main  # noqa: E402
-from bc250_llm_mode.app import Application, load_state_with_paths  # noqa: E402
+from bc250_llm_mode.__main__ import main  # noqa: E402
+from bc250_llm_mode.app import Application  # noqa: E402
 from bc250_llm_mode.paths import AppPaths  # noqa: E402
-from bc250_llm_mode.state import StateStore  # noqa: E402
 
 
 def test_composition_never_writes_outside_the_injected_root(tmp_path):
@@ -40,18 +37,6 @@ def test_composition_never_writes_outside_the_injected_root(tmp_path):
         from bc250_llm_mode.gui import Wizard
 
         paths = AppPaths.temporary(tmp_path / "approot")
-        paths.ensure_directories()
-        store = StateStore(paths.state_path)
-        state = store.load()
-        state.update(
-            setup_complete=True,
-            logs_dir=str(paths.logs_dir),
-            models_dir=str(paths.models_dir),
-            app_dir=str(paths.app_dir),
-            disclaimer_ack=True,
-        )
-        store.save(state)
-
         application = Application.compose(paths)
         wizard = Wizard(application, management=True)
         handler_target = str(wizard.runner().logger.handlers[0].baseFilename)
@@ -74,15 +59,16 @@ def test_composition_never_writes_outside_the_injected_root(tmp_path):
     )
 
 
-def test_load_state_keeps_custom_models_dir_but_follows_profile_identity(tmp_path):
-    persisted_default = str(Path("~/bc250-llm-mode-placeholder").expanduser())
-    store = StateStore(tmp_path / "state.json")
-    state = store.load()
-    state["models_dir"] = "/mnt/custom/models"
-    store.save(state)
+def test_import_keeps_custom_models_dir_but_query_follows_profile_identity(tmp_path):
+    """A customized models_dir survives import; derived paths are never
+    persisted and are reconstructed by the query layer from AppPaths."""
+    from _native import NativeApp
 
-    profile = AppPaths.temporary(tmp_path / "profile")
-    loaded = load_state_with_paths(store, profile)
+    store = NativeApp(tmp_path)
+    store.set_settings({"models_dir_custom": "/mnt/custom/models"})
+
+    profile = store.paths
+    loaded = store.load()
 
     # Installation identity always follows the composed profile.
     assert loaded["app_dir"] == str(profile.app_dir)
@@ -91,32 +77,30 @@ def test_load_state_keeps_custom_models_dir_but_follows_profile_identity(tmp_pat
     assert loaded["models_dir"] == "/mnt/custom/models"
 
 
-def test_load_state_redirects_untouched_default_models_dir(tmp_path):
-    store = StateStore(tmp_path / "state.json")
-    store.load()  # defaults only; models_dir untouched
+def test_untouched_default_models_dir_redirects_to_the_profile(tmp_path):
+    from _native import NativeApp
 
-    profile = AppPaths.temporary(tmp_path / "profile")
-    loaded = load_state_with_paths(store, profile)
+    store = NativeApp(tmp_path)
+    profile = store.paths
+    loaded = store.load()
     assert loaded["models_dir"] == str(profile.models_dir)
 
 
-def test_cli_state_flag_uses_legacy_json_mode(tmp_path, monkeypatch, capsys):
-    """Explicit --state opts into transitional legacy mode: JSON only, no
-    database is created or imported."""
-    monkeypatch.setattr(cli_module, "configure_logging", lambda *_a: None)
-    runner = SimpleNamespace(
-        run=lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""),
-        emit=lambda *_l: None,
-    )
-    monkeypatch.setattr(cli_module, "CommandRunner", lambda *_a, **_k: runner)
-    monkeypatch.setattr(cli_module, "service_status", lambda st, rn: {"active": False})
+def test_cli_state_flag_is_rejected_before_any_file_changes(
+    tmp_path, monkeypatch, capsys
+):
+    """--state is a deprecated repair-retry alias, never a runtime mode."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
 
     custom_root = tmp_path / "custom-root"
+    custom_root.mkdir()
     state_file = custom_root / "state.json"
-    StateStore(state_file).save({"disclaimer_ack": True})
+    state_file.write_text(json.dumps({"disclaimer_ack": True}), encoding="utf-8")
 
-    assert main(["--state", str(state_file), "llm", "status"]) == 0
-    json.loads(capsys.readouterr().out)
-    assert not (custom_root / "state.db").exists(), (
-        "--state is legacy JSON mode; it must not create a database"
-    )
+    assert main(["--state", str(state_file), "llm", "status"]) == 2
+    assert "--state" in capsys.readouterr().err
+    # Rejection happens before composition: nothing was created anywhere.
+    assert not (custom_root / "state.db").exists()
+    assert not (home / ".bc250-llm-mode" / "state.db").exists()

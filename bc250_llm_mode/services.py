@@ -852,17 +852,22 @@ _NON_DURABLE_KEYS = {"revision", "schema_version", "app_dir", "logs_dir",
                      "state_path"}
 
 
-def persist_state_diff(units, before: dict, after: dict) -> int:
+def persist_state_diff(
+    units, before: dict, after: dict, *, allowed_keys=None
+) -> int:
     """Persist ONLY the keys an operation changed, in one unit of work.
 
     A whole-state dictionary is never written: the diff between the
     pre-command and post-command views is committed with a single revision
-    bump so stale frontends surface conflicts.
+    bump so stale frontends surface conflicts. When ``allowed_keys`` is
+    provided (frontend transition path), only those keys are eligible.
     """
     changes = {
         key: value
         for key, value in after.items()
-        if key not in _NON_DURABLE_KEYS and before.get(key) != value
+        if key not in _NON_DURABLE_KEYS
+        and (allowed_keys is None or key in allowed_keys)
+        and before.get(key) != value
     }
     if not changes:
         return 0

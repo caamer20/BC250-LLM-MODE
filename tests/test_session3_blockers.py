@@ -6,8 +6,7 @@ from __future__ import annotations
 import pytest
 
 from bc250_llm_mode.__main__ import _parser
-from bc250_llm_mode.compat_state import CompatStateStore
-from bc250_llm_mode.paths import AppPaths
+from _native import NativeApp
 from bc250_llm_mode.services import ThermalStateService
 
 
@@ -17,7 +16,7 @@ def test_parser_has_no_force_reset_flag():
 
 
 def test_reset_without_sensor_denied_and_latch_unchanged(tmp_path, monkeypatch):
-    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    store = NativeApp(tmp_path)
     service = ThermalStateService.for_database(store.paths.database_path)
     service.ensure_throttle({"gpu_max_mhz": 1850})
     service.mark_stopped()

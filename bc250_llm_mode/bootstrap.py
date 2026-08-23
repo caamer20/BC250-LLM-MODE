@@ -14,7 +14,6 @@ from .disclaimer import DISCLAIMER_TEXT, acknowledge
 from .hardware import detect_hardware
 from .logging_utils import CommandRunner, configure_logging
 from .privilege import elevated
-from .state import StateStore
 
 ACKS = (
     "I understand the BC-250 may run very hot and I will monitor it.",
@@ -124,11 +123,16 @@ def _terminal_bootstrap(store: StateStore, state: dict[str, Any]) -> bool:
     return False
 
 
-def bootstrap_tkinter(store: StateStore) -> bool:
-    """Return True only when tkinter is already importable; otherwise stage it safely."""
+def bootstrap_tkinter(application: Any) -> bool:
+    """Return True only when tkinter is already importable; otherwise stage it safely.
+
+    Accepts the composed ``Application``; helpers below duck-type on
+    ``paths``/``transaction`` so in-memory test doubles keep working.
+    """
     if tkinter_available():
         return True
-    state = store.load()
+    read = getattr(application, "read_model", None)
+    state = read() if read is not None else application.load()
     report = detect_hardware(state["models_dir"])
     if report.errors:
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):

@@ -22,11 +22,10 @@ from .optimize import (
 )
 from .prepare import prepare_local_model
 from .server import health_check, restart_service, stop_service
-from .state import StateStore
 
 
 def restart_with_rollback(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     runner: CommandRunner,
     previous: dict[str, Any],
@@ -39,6 +38,13 @@ def restart_with_rollback(
     restart + health verification with in-memory rollback.
     """
     _apply_legacy_or_raise(state, {}, previous, runner, description)
+
+
+def _read_supplier(store: Any):
+    """Read supplier for the composition (``read_model``) or a test double
+    exposing the legacy ``load`` seam. Never a whole-state writer."""
+    read = getattr(store, "read_model", None)
+    return read if read is not None else store.load
 
 
 def _activation_service(store: Any, runner: CommandRunner) -> Any:
@@ -71,12 +77,13 @@ def _activation_service(store: Any, runner: CommandRunner) -> Any:
             return minimal_inference_probe(view)
 
     paths = store.paths
+    read = _read_supplier(store)
     units = UnitOfWorkFactory(database_path)
     runtime = RuntimeConfigurationService(
-        units, app_dir=paths.app_dir, state_supplier=store.load
+        units, app_dir=paths.app_dir, state_supplier=read
     )
     return ModelActivationService(
-        units, runtime, _ModuleController(runner), state_supplier=store.load
+        units, runtime, _ModuleController(runner), state_supplier=read
     )
 
 
@@ -149,7 +156,7 @@ def _service_activation(
 
 
 def switch_model(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     model_id: str,
     runner: CommandRunner,
@@ -187,7 +194,7 @@ def switch_model(
 
 
 def register_and_switch_local(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     local_id: str,
     runner: CommandRunner,
@@ -215,7 +222,7 @@ def register_and_switch_local(
 
 
 def change_context(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     ctx: int,
     runner: CommandRunner,
@@ -247,7 +254,7 @@ def change_context(
 
 
 def change_parallel_slots(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     slots: int,
     runner: CommandRunner,

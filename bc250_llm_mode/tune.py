@@ -13,7 +13,6 @@ from typing import Any
 from .disclaimer import require_acknowledgment
 from .logging_utils import CommandRunner
 from .optimize import kv_scale_for_settings, normalized_settings, validate_settings
-from .state import StateStore
 
 CANDIDATE_UBATCH = (256, 512)
 CANDIDATE_KV = ("q8_0", "q4_0")
@@ -47,7 +46,7 @@ def _combo_fits(state: dict[str, Any], settings: dict[str, Any]) -> bool:
 
 
 def autotune(
-    store: StateStore,
+    store: Any,
     state: dict[str, Any],
     runner: CommandRunner,
     *,
@@ -67,10 +66,11 @@ def autotune(
         from .unit_of_work import UnitOfWorkFactory
 
         paths = store.paths
+        read = getattr(store, "read_model", None) or store.load
         return RuntimeConfigurationService(
             UnitOfWorkFactory(database_path),
             app_dir=paths.app_dir,
-            state_supplier=store.load,
+            state_supplier=read,
         )
 
     runtime = runtime_service if runtime_service is not None else _default_runtime_service()
@@ -179,8 +179,8 @@ def autotune(
         state["optimizations"] = original
         runner.emit("autotune: no candidate completed successfully; original settings restored")
     # Narrow history persistence: capped repository appends on a dedicated
-    # per-command connection (SQLite), a history-only transaction (legacy
-    # JSON), or direct dict mutation (in-memory doubles). Never a save.
+    # per-command connection (SQLite); handles without a database (in-memory
+    # doubles) mutate only the draft. Never a whole-state write.
     paths = getattr(store, "paths", None)
     if paths is not None:
         from .repositories import AutotuneHistoryRepository
@@ -193,19 +193,7 @@ def autotune(
                 entry.setdefault("model", state.get("current_model"))
                 entry.setdefault("context", state.get("current_ctx"))
                 repo.append(entry, commit=False)
-    elif hasattr(store, "transaction"):
-        def mutate(current: dict[str, Any]) -> dict[str, Any]:
-            history = [
-                item for item in (current.get("autotune_history") or [])
-                if isinstance(item, dict)
-            ]
-            stamped = [dict(entry, timestamp=time.strftime("%Y-%m-%dT%H:%M:%S")) for entry in results]
-            current["autotune_history"] = ([*history, *stamped])[-40:]
-            return current
-
-        store.transaction(mutate)
     else:
-        # In-memory stores (test doubles): mutate the dict directly.
         history = [
             item for item in (state.get("autotune_history") or [])
             if isinstance(item, dict)

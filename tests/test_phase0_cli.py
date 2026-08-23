@@ -17,7 +17,6 @@ install()
 
 from bc250_llm_mode import __main__ as cli_module  # noqa: E402
 from bc250_llm_mode.__main__ import _parser, cli, main  # noqa: E402
-from bc250_llm_mode.state import StateStore  # noqa: E402
 
 
 def _patch_cli(monkeypatch):
@@ -30,20 +29,31 @@ def _patch_cli(monkeypatch):
     return runner
 
 
+def _isolated_home(tmp_path, monkeypatch):
+    """Compose against a temporary HOME; legacy JSON is never involved."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    return home
+
+
 def test_llm_status_needs_no_ack_and_prints_json(tmp_path, monkeypatch, capsys):
     _patch_cli(monkeypatch)
     monkeypatch.setattr(cli_module, "service_status", lambda st, rn: {"active": False})
-    state_file = tmp_path / "state.json"
-    assert main(["--state", str(state_file), "llm", "status"]) == 0
+    _isolated_home(tmp_path, monkeypatch)
+    assert main(["llm", "status"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report == {"active": False}
     # A read-only command must not write an acknowledgment to disk.
-    saved = json.loads(state_file.read_text(encoding="utf-8")) if state_file.exists() else {}
-    assert not saved.get("disclaimer_ack")
+    from bc250_llm_mode.app import Application
+
+    state = Application.compose().read_model()
+    assert not state.get("disclaimer_ack")
 
 
-def test_llm_start_requires_acknowledgment(tmp_path):
-    assert cli(["--state", str(tmp_path / "state.json"), "llm", "start"]) == 1
+def test_llm_start_requires_acknowledgment(tmp_path, monkeypatch):
+    _isolated_home(tmp_path, monkeypatch)
+    assert cli(["llm", "start"]) == 1
 
 
 def test_llm_stop_with_ack_runs_and_prints_result(tmp_path, monkeypatch, capsys):
@@ -52,12 +62,13 @@ def test_llm_stop_with_ack_runs_and_prints_result(tmp_path, monkeypatch, capsys)
     monkeypatch.setattr(
         cli_module, "stop_service", lambda st, rn: stops.append(True) or {"active": False}
     )
-    state_file = tmp_path / "state.json"
-    store = StateStore(state_file)
-    state = store.load()
-    state["disclaimer_ack"] = True
-    store.save(state)
-    assert main(["--state", str(state_file), "llm", "stop"]) == 0
+    _isolated_home(tmp_path, monkeypatch)
+    from bc250_llm_mode.app import Application
+
+    app = Application.compose()
+    state = app.read_model()
+    app.commit_settings_changes(state, {**state, "disclaimer_ack": True})
+    assert main(["llm", "stop"]) == 0
     assert stops == [True]
     assert json.loads(capsys.readouterr().out) == {"active": False}
 
@@ -69,12 +80,13 @@ def test_llm_handler_failures_exit_nonzero_with_message(tmp_path, monkeypatch, c
         raise RuntimeError("systemctl exploded")
 
     monkeypatch.setattr(cli_module, "restart_and_wait", broken)
-    state_file = tmp_path / "state.json"
-    store = StateStore(state_file)
-    state = store.load()
-    state["disclaimer_ack"] = True
-    store.save(state)
-    assert cli(["--state", str(state_file), "llm", "restart"]) == 1
+    _isolated_home(tmp_path, monkeypatch)
+    from bc250_llm_mode.app import Application
+
+    app = Application.compose()
+    state = app.read_model()
+    app.commit_settings_changes(state, {**state, "disclaimer_ack": True})
+    assert cli(["llm", "restart"]) == 1
     assert "systemctl exploded" in capsys.readouterr().err
 
 
@@ -121,12 +133,12 @@ def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
     from bc250_llm_mode.paths import AppPaths
 
     paths = AppPaths.temporary(tmp_path)
-    paths.ensure_directories()
-    store = StateStore(paths.state_path)
-    state = store.load()
-    state["setup_complete"] = True
-    store.save(state)
-    wizard = Wizard(Application.wrap(store), management=True)
+    application = Application.compose(paths)
+    state = application.read_model()
+    application.commit_settings_changes(
+        state, {**state, "setup_complete": True, "disclaimer_ack": True}
+    )
+    wizard = Wizard(application, management=True)
 
     monkeypatch.setattr(dashboard, "service_status", lambda st, rn: {"active": False, "enabled": False})
     monkeypatch.setattr(dashboard, "open_webui_status", lambda st, rn: {"installed": False, "running": False})

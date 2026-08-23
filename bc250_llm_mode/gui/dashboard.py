@@ -420,9 +420,9 @@ class DashboardMixin:
             return
         source, item = self.dashboard_models[selection[0]]
         if source == "installed":
-            self._dashboard_action(lambda r: switch_model(self.store, self.state_data, str(item["id"]), r))
+            self._dashboard_action(lambda r: switch_model(self.application, self.state_data, str(item["id"]), r))
         else:
-            self._dashboard_action(lambda r: register_and_switch_local(self.store, self.state_data, item.id, r))
+            self._dashboard_action(lambda r: register_and_switch_local(self.application, self.state_data, item.id, r))
 
     def _refresh_catalog_browser(self) -> None:
         if not hasattr(self, "dashboard_catalog_tree"):
@@ -490,7 +490,7 @@ class DashboardMixin:
             prepare_model(self.state_data, model, quant, downloaded, runner)
             if self.state_data.get("setup_complete"):
                 restart_with_rollback(
-                    self.store, self.state_data, runner, previous,
+                    self.application, self.state_data, runner, previous,
                     f"Activating {model.display_name}",
                 )
             self.commit_narrow()
@@ -575,7 +575,7 @@ class DashboardMixin:
         except (ValueError, tk.TclError):
             messagebox.showerror("Context", "Enter a valid context size.")
             return
-        self._dashboard_action(lambda r: change_context(self.store, self.state_data, ctx, r))
+        self._dashboard_action(lambda r: change_context(self.application, self.state_data, ctx, r))
 
     def _dashboard_tail(self, kind: str) -> None:
         path = (

@@ -136,7 +136,10 @@ def _patch_cli_services(monkeypatch):
 
 def test_cli_models_search_lists_matches_with_recommendations(tmp_path, monkeypatch, capsys):
     _patch_cli_services(monkeypatch)
-    assert cli.main(["--state", str(tmp_path / "state.json"), "models", "search", "reasoning"]) == 0
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    assert cli.main(["models", "search", "reasoning"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["count"] >= 5
     top = report["results"][0]
@@ -145,7 +148,10 @@ def test_cli_models_search_lists_matches_with_recommendations(tmp_path, monkeypa
 
 def test_cli_doctor_prints_json_report(tmp_path, monkeypatch, capsys):
     _patch_cli_services(monkeypatch)
-    assert cli.main(["--state", str(tmp_path / "state.json"), "doctor"]) == 0
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    assert cli.main(["doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["state_readable"] is True
     assert "models_dir_free_gib" in report
@@ -160,9 +166,10 @@ def test_cli_bench_uses_chat_benchmark(tmp_path, monkeypatch, capsys):
         return {"predicted_per_second": 20.0}
 
     monkeypatch.setattr(cli, "benchmark", fake_benchmark)
-    assert cli.main([
-        "--state", str(tmp_path / "state.json"), "bench", "--max-tokens", "32", "--repeat", "1",
-    ]) == 0
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    assert cli.main(["bench", "--max-tokens", "32", "--repeat", "1"]) == 0
     assert json.loads(capsys.readouterr().out)["predicted_per_second"] == 20.0
     assert sent["max_tokens"] == 32
 
@@ -238,8 +245,10 @@ def test_benchmark_repeat_rejects_bad_repeat(fake_httpx):
 
 def test_cli_models_recommend(tmp_path, monkeypatch, capsys):
     _patch_cli_services(monkeypatch)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     assert cli.main([
-        "--state", str(tmp_path / "state.json"),
         "models", "recommend", "--ctx", "32768", "--slots", "4", "--limit", "3",
     ]) == 0
     report = json.loads(capsys.readouterr().out)

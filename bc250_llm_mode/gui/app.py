@@ -68,14 +68,6 @@ from ..tailscale import (
 )
 
 
-from ..state import StateStore  # noqa: F401  (transitional read-only typing)
-
-
-def store_load_fallback(application):
-    """Legacy-store draft source when no query layer exists."""
-    return application.store.load()
-
-
 class GuiBase(tk.Tk):
 
     def __init__(
@@ -88,12 +80,8 @@ class GuiBase(tk.Tk):
         # Application (paths, query layer, services). It never constructs a
         # store and never persists a whole-state dictionary.
         self.application = application
-        self.store = application.store  # transitional read-only access
         self._paths = application.paths
-        if application.query is not None:
-            self.state_data = application.query.snapshot().data
-        else:
-            self.state_data = store_load_fallback(application)
+        self.state_data = application.query.snapshot().data
         self._synced = dict(self.state_data)
         self.management = management
         self.title("BC250 LLM MODE")
@@ -182,10 +170,7 @@ class GuiBase(tk.Tk):
 
     def refresh_snapshot(self) -> None:
         """Discard the draft and pull a fresh repository-native snapshot."""
-        if self.application.query is not None:
-            self.state_data = self.application.query.snapshot().data
-        else:
-            self.state_data = self.store.load()
+        self.state_data = self.application.query.snapshot().data
         self._synced = dict(self.state_data)
 
     def commit_narrow(self) -> int:
@@ -195,7 +180,7 @@ class GuiBase(tk.Tk):
         diff in one unit of work with a revision bump, so stale windows
         surface conflicts instead of overwriting newer state.
         """
-        changed = self.application.persist_state_changes(
+        changed = self.application.commit_settings_changes(
             self._synced, self.state_data
         )
         self._synced = dict(self.state_data)

@@ -48,13 +48,13 @@ def test_gui_contract_fixture_never_writes_home(tmp_path, monkeypatch):
     from bc250_llm_mode.gui import Wizard
 
     paths = AppPaths.temporary(tmp_path / "isolated")
-    paths.ensure_directories()
-    store = StateStore(paths.state_path)
-    state = store.load()
-    state.update(setup_complete=True, logs_dir=str(paths.logs_dir),
-                 models_dir=str(paths.models_dir), app_dir=str(paths.app_dir))
-    store.save(state)
-    wizard = Wizard(Application.wrap(store), management=True)
+    application = Application.compose(paths)
+    state = application.read_model()
+    application.commit_settings_changes(
+        state,
+        {**state, "setup_complete": True, "disclaimer_ack": True},
+    )
+    wizard = Wizard(application, management=True)
 
     assert str(home_probe) not in str(wizard.state_data["logs_dir"])
     assert str(tmp_path) in str(wizard.state_data["logs_dir"])

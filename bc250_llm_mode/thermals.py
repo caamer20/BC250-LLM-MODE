@@ -65,9 +65,8 @@ def _service_for(store: Any) -> Any:
     """ThermalStateService when the store is SQLite-backed, else None.
 
     The service runs on its own per-command connections (unit of work), so
-    concurrent watchdog polls serialize with facade writers through SQLite.
-    Legacy JSON stores fall back to bounded transactions below; neither
-    path uses a whole-state save.
+    concurrent watchdog polls serialize through SQLite. Handles without a
+    database profile (in-memory test doubles) mutate only the passed draft.
     """
     paths = getattr(store, "paths", None)
     database_path = getattr(paths, "database_path", None)
@@ -83,14 +82,8 @@ def _persist_stopped(store: Any, state: dict[str, Any]) -> None:
     service = _service_for(store)
     if service is not None:
         service.mark_stopped()
-        state["thermal_watchdog_state"] = STOPPED
-        return
-
-    def mark(current: dict[str, Any]) -> dict[str, Any]:
-        current["thermal_watchdog_state"] = STOPPED
-        return current
-
-    store.transaction(mark)
+    # Without a database behind this handle, the draft carries the latch so
+    # in-memory doubles still observe it; there is nothing durable to write.
     state["thermal_watchdog_state"] = STOPPED
 
 
@@ -175,14 +168,6 @@ def run_watchdog_once(
             raise
         if service is not None:
             service.mark_nominal(clear_baseline=True)
-        else:
-
-            def clear(current: dict[str, Any]) -> dict[str, Any]:
-                current["thermal_watchdog_state"] = NOMINAL
-                current.pop("thermal_watchdog_baseline", None)
-                return current
-
-            store.transaction(clear)
         state.pop("thermal_watchdog_baseline", None)
         new_state = NOMINAL
     elif action == "stop":
@@ -251,14 +236,6 @@ def reset_latch(
             raise
     if service is not None:
         service.reset_to_nominal()
-    else:
-
-        def clear(current: dict[str, Any]) -> dict[str, Any]:
-            current.pop("thermal_watchdog_baseline", None)
-            current["thermal_watchdog_state"] = NOMINAL
-            return current
-
-        store.transaction(clear)
     state.pop("thermal_watchdog_baseline", None)
     state["thermal_watchdog_state"] = NOMINAL
     runner.emit("Thermal latch cleared by explicit reset; model server may be started manually.")

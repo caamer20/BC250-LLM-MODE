@@ -2,34 +2,53 @@
 
 Production rule: ``AppPaths`` is constructed once (from the installation
 profile or a test temporary directory), validated here, and injected into
-every store/service/frontend. No module may fall back to ``Path.home()``
-after composition.
+every service/frontend. No module may fall back to ``Path.home()`` after
+composition.
+
+There is intentionally NO generic store/load/save/transaction on the
+composition. The SQLite database is reached only through the unit-of-work
+factory, repositories, the query layer, and the typed domain services.
+Frontends read disposable snapshots and mutate only through services.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
+from .db import initialize_file
 from .logging_utils import CommandRunner, configure_logging
-from .services import RuntimeController
 from .paths import AppPaths
-from .state import StateStore
+
+
+class RepairRequired(RuntimeError):
+    """Composition needs repair (failed legacy import); services are absent."""
+
+
+# Settings keys a frontend may narrow-commit during the transition to typed
+# view models (dies in Phase C). Anything else requires an owning service,
+# which keeps commit_settings_changes from being a whole-state escape hatch.
+FRONTEND_COMMIT_KEYS = frozenset({
+    "disclaimer_ack", "ack_timestamp", "setup_complete",
+    "current_model", "current_ctx", "optimizations",
+    "openwebui_installed", "https_sharing_enabled", "boot_policy",
+    "model_search_paths", "selected_model", "selected_quant",
+    "selected_source", "selected_local_model", "download_dir", "models_dir",
+})
 
 
 @dataclass
 class Application:
-    """Composition root: paths, query layer, and every domain service.
+    """Composition root: paths, unit-of-work, query layer, domain services.
 
-    Frontends (GUI/CLI/chat) receive THIS object — never the compatibility
-    store. The store stays private during Session 3 and disappears in
-    Session 4.
+    ``operational`` is False only in repair mode; every frontend entry
+    point calls :meth:`require_operational` so half-wired services cannot
+    be dereferenced.
     """
 
     paths: AppPaths
-    store: Any
-    logger: Any
+    logger: logging.Logger
     units: Any = None
     query: Any = None
     setup: Any = None
@@ -42,21 +61,32 @@ class Application:
     sharing: Any = None
     model_install: Any = None
     maintenance: Any = None
+    operational: bool = False
     repair_reason: str | None = None
 
-    @property
-    def operational(self) -> bool:
-        return self.store is not None
+    def require_operational(self) -> "Application":
+        if not self.operational:
+            raise RepairRequired(
+                self.repair_reason or "application requires repair"
+            )
+        return self
 
-    def runner(self):
-        from .logging_utils import CommandRunner
+    def runner(self, callback=None) -> CommandRunner:
+        return CommandRunner(self.logger, callback)
 
-        return CommandRunner(self.logger)
+    def read_model(self) -> dict[str, Any]:
+        """Assembled frontend read model (disposable draft, never persisted
+        wholesale)."""
+        return self.query.snapshot().data
 
-    def persist_state_changes(self, before: dict, after: dict) -> int:
+    def commit_settings_changes(self, before: dict, after: dict) -> int:
+        """Transitional narrow settings commit, restricted to
+        ``FRONTEND_COMMIT_KEYS``. One unit of work, one revision bump."""
         from .services import persist_state_diff
 
-        return persist_state_diff(self.units, before, after)
+        return persist_state_diff(
+            self.units, before, after, allowed_keys=FRONTEND_COMMIT_KEYS
+        )
 
     def open_chat_terminal(self) -> None:
         """Host adapter: launch a terminal running the chat REPL."""
@@ -74,64 +104,22 @@ class Application:
             if shutil.which(executable):
                 subprocess.Popen(argv)
                 return
-
-    @classmethod
-    def wrap(cls, store) -> "Application":
-        """Transitional helper for legacy stores (tests / --state mode)."""
-        database_path = getattr(store, "path", None)
-        app_dir = database_path.parent if database_path else Path.cwd()
-        paths = AppPaths.from_app_dir(app_dir)
-        application = cls.__new__(cls)
-        application.paths = paths
-        application.store = store
-        application.logger = logging.getLogger("bc250.wrap")
-        application.repair_reason = None
-        cls._wire_services(application)
-        return application
-
-    @staticmethod
-    def _wire_services(application) -> None:
-        from .queries import ApplicationQueryService
-        from .services import (
-            HostModeService,
-            MaintenanceService,
-            ModelInstallationService,
-            OpenWebUIService,
-            SetupService,
-            SharingService,
-        )
-        from .unit_of_work import UnitOfWorkFactory
-
-        database_path = getattr(
-            getattr(application, "paths", None), "database_path", None
-        )
-        sqlite_backed = (
-            database_path is not None and Path(database_path).exists()
-        )
-        application.units = UnitOfWorkFactory(database_path) if sqlite_backed else None
-        units = application.units
-
-        application.query = (
-            ApplicationQueryService(units, application.paths)
-            if units is not None else None
-        )
-        application.setup = SetupService(units) if units is not None else None
+        print("No supported terminal launcher was found. Run:\\n" + " ".join(command))
 
     @classmethod
     def compose(cls, paths: AppPaths | None = None) -> "Application":
-        """Compose with SQLite as the source of truth (ADR 001 cutover).
+        """Compose an operational application (or a repair result).
 
-        One-time migration: if no database exists and a legacy ``state.json``
-        is present, it is imported into a staged database and published
-        atomically before anything else runs. The JSON is retained as a
-        read-only backup.
+        Flow (R2 exit plan 5.3): validate paths -> enforce directory
+        permissions -> configure logging -> one-time legacy import -> open
+        and run ordered migrations -> build unit-of-work/query/services ->
+        return. No compatibility facade is ever instantiated.
         """
         resolved = paths or AppPaths.for_home()
         resolved.validate()
         resolved.ensure_directories()
         logger = configure_logging(resolved.logs_dir)
 
-        from .compat_state import CompatStateStore
         from .legacy_import import LegacyImportError, LegacyImporter
 
         if not resolved.database_path.exists() and resolved.legacy_state_path.exists():
@@ -144,22 +132,25 @@ class Application:
                 logger.error("Legacy state import failed: %s", exc)
                 return cls(
                     paths=resolved,
-                    store=None,
                     logger=logger,
+                    operational=False,
                     repair_reason=(
                         f"Legacy state migration failed and was not published: {exc}"
                     ),
                 )
 
-        store = CompatStateStore(resolved)
-        application = cls.__new__(cls)
-        application.paths = resolved
-        application.store = store
-        application.logger = logger
-        application.repair_reason = None
-        cls._wire_services(application)
+        # Create/open the database with the production permission and
+        # integrity contract, then close: services use short-lived
+        # per-command connections through the unit-of-work factory.
+        initialize_file(resolved.database_path)
 
-        from .queries import ApplicationQueryService  # noqa: F401
+        application = cls(paths=resolved, logger=logger, operational=True)
+        cls._wire_services(application)
+        return application
+
+    @staticmethod
+    def _wire_services(application: "Application") -> None:
+        from .queries import ApplicationQueryService
         from .services import (
             ComponentLifecycleService,
             HostModeService,
@@ -168,14 +159,23 @@ class Application:
             ModelInstallationService,
             OpenWebUIService,
             RuntimeConfigurationService,
+            RuntimeController,
+            SetupService,
             SharingService,
             ThermalStateService,
         )
         from .unit_of_work import UnitOfWorkFactory
 
-        units = UnitOfWorkFactory(resolved.database_path)
+        units = UnitOfWorkFactory(application.paths.database_path)
         application.units = units
-        application.query = ApplicationQueryService(units, resolved)
+        application.query = ApplicationQueryService(units, application.paths)
+        application.setup = SetupService(units)
+        application.safety = ThermalStateService(units)
+        application.runtime_config = RuntimeConfigurationService(
+            units,
+            app_dir=application.paths.app_dir,
+            state_supplier=lambda: application.read_model(),
+        )
 
         class _AppController(RuntimeController):
             def restart(self, view):
@@ -193,10 +193,9 @@ class Application:
 
                 return minimal_inference_probe(view)
 
-        controller = _AppController()
         application.activation = ModelActivationService(
-            units, application.runtime_config, controller,
-            state_supplier=lambda: application.store.load(),
+            units, application.runtime_config, _AppController(),
+            state_supplier=lambda: application.read_model(),
         )
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)
@@ -204,40 +203,3 @@ class Application:
         application.sharing = SharingService(units)
         application.model_install = ModelInstallationService(units)
         application.maintenance = MaintenanceService(units)
-        return application
-
-    def runner(self, callback=None) -> CommandRunner:
-        return CommandRunner(self.logger, callback)
-
-    def apply_to_state(self, state: dict) -> dict:
-        """Derive every path field on a freshly loaded state from this profile."""
-        state["app_dir"] = str(self.paths.app_dir)
-        state["models_dir"] = str(self.paths.models_dir)
-        state["logs_dir"] = str(self.paths.logs_dir)
-        return state
-
-
-def load_state_with_paths(store: StateStore, paths: AppPaths) -> dict:
-    """Load state and normalize installation-identity paths onto the profile.
-
-    ``app_dir``/``logs_dir`` are installation identity and always follow the
-    composed profile, so a moved installation cannot keep pointing at a dead
-    home. ``models_dir`` preserves an explicitly customized location; only an
-    untouched default is redirected to the profile.
-    """
-    from .constants import DEFAULT_MODELS_DIR
-    from .state import DEFAULT_STATE
-
-    state = store.load()
-    state["app_dir"] = str(paths.app_dir)
-    state["logs_dir"] = str(paths.logs_dir)
-
-    persisted_models = state.get("models_dir")
-    untouched_default = not persisted_models or (
-        str(Path(str(persisted_models)).expanduser())
-        == str(Path(DEFAULT_STATE["models_dir"]).expanduser())
-        or str(persisted_models) == str(DEFAULT_MODELS_DIR)
-    )
-    if untouched_default:
-        state["models_dir"] = str(paths.models_dir)
-    return state

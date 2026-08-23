@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from bc250_llm_mode.compat_state import CompatStateStore
+from _native import NativeApp
 from bc250_llm_mode.paths import AppPaths
 from bc250_llm_mode.services import SETUP_STAGES, SetupConflict, SetupService
 from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
 
 
 def _service(tmp_path):
-    store = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
+    store = NativeApp(tmp_path)
     return store, SetupService(UnitOfWorkFactory(store.paths.database_path))
 
 
@@ -96,8 +96,7 @@ def test_acknowledgement_persists_independently_of_setup_reset(tmp_path):
     assert result["complete"] is False
 
     # Acknowledgement survives; models and known-good data untouched.
-    reloaded = CompatStateStore(AppPaths.temporary(tmp_path / "root"))
-    state = reloaded.load()
+    state = NativeApp(tmp_path).load()
     assert state["disclaimer_ack"] is True
     assert state["ack_timestamp"]
     assert state["installed_models"] == []  # service never mutates models
@@ -129,5 +128,5 @@ def test_legacy_numeric_phase_projects_correctly(tmp_path):
     assert setup.current_workflow()["phase"] == 2
     setup.mark_tkinter_staged()
     assert setup.current_workflow()["phase"] == 3
-    # The facade projection keeps GUI consumers working.
+    # The native query projection keeps GUI consumers working.
     assert store.load()["setup_phase"] == 3

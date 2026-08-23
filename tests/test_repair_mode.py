@@ -22,7 +22,7 @@ def _corrupt_legacy(root: Path) -> AppPaths:
 def test_failed_import_publishes_nothing(tmp_path):
     paths = _corrupt_legacy(tmp_path / "root")
     app = Application.compose(paths)
-    assert app.store is None, "repair mode must not construct a store"
+    assert app.operational is False, "repair mode must not serve half-wired services"
     assert app.repair_reason, "repair mode must carry an explicit reason"
     assert not paths.database_path.exists(), (
         "failed import must not create or publish a database"
@@ -62,5 +62,5 @@ def test_repair_mode_blocks_normal_commands_and_allows_retry(
 
     # Normal composition works again afterwards.
     fresh = Application.compose(AppPaths.for_home())
-    assert fresh.store is not None
+    assert fresh.operational is True
     assert fresh.repair_reason is None

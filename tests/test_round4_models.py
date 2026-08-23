@@ -98,9 +98,9 @@ def test_export_conversation_writes_markdown(tmp_path):
 
 
 def test_record_benchmark_caps_history(tmp_path):
-    from bc250_llm_mode.state import StateStore
+    from _native import NativeApp
 
-    store = StateStore(tmp_path / "state.json")
+    store = NativeApp(tmp_path)
     state = store.load()
     for i in range(25):
         chat.record_benchmark(store, state, {"model": "m", "predicted_per_second": float(i)})

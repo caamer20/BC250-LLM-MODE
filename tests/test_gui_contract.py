@@ -55,19 +55,15 @@ def wizard(tmp_path):
     """Fully isolated wizard: every writable path lives under tmp_path."""
     from bc250_llm_mode.app import Application
     from bc250_llm_mode.paths import AppPaths
-    from bc250_llm_mode.state import StateStore
 
     paths = AppPaths.temporary(tmp_path)
-    paths.ensure_directories()
-    store = StateStore(paths.state_path)
-    state = store.load()
-    state["setup_complete"] = True
-    state["logs_dir"] = str(paths.logs_dir)
-    state["models_dir"] = str(paths.models_dir)
-    state["app_dir"] = str(paths.app_dir)
-    state["disclaimer_ack"] = True
-    store.save(state)
-    return Wizard(Application.wrap(store), management=True)
+    application = Application.compose(paths)
+    state = application.read_model()
+    application.commit_settings_changes(
+        state,
+        {**state, "setup_complete": True, "disclaimer_ack": True},
+    )
+    return Wizard(application, management=True)
 
 
 def test_wizard_preserves_the_full_monolith_surface():

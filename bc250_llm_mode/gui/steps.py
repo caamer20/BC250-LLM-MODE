@@ -263,7 +263,7 @@ class StepsMixin:
                     {"current_model": None, "current_ctx": 8192},
                 )
                 restart_with_rollback(
-                    self.store,
+                    self.application,
                     self.state_data,
                     runner,
                     previous,

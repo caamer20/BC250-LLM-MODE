@@ -67,8 +67,11 @@ def _patch_cli(monkeypatch, outputs=None):
 
 def test_cli_llamacpp_status(tmp_path, monkeypatch, capsys):
     runner = _patch_cli(monkeypatch)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(env, "_container_exists", lambda rn, name: False)
-    assert cli.main(["--state", str(tmp_path / "state.json"), "llamacpp", "status"]) == 0
+    assert cli.main(["llamacpp", "status"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["pin"] == KNOWN_GOOD_LLAMACPP
     assert report["on_pin"] is False
@@ -76,6 +79,9 @@ def test_cli_llamacpp_status(tmp_path, monkeypatch, capsys):
 
 def test_cli_doctor_reports_llamacpp_pin(tmp_path, monkeypatch, capsys):
     _patch_cli(monkeypatch)
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(cli, "detect_hardware", lambda *_a, **_k: SimpleNamespace(
         to_dict=lambda: {"valid": True}, valid=True
     ))
@@ -84,7 +90,7 @@ def test_cli_doctor_reports_llamacpp_pin(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli, "open_webui_status", lambda *_a: {"running": False})
     monkeypatch.setattr(cli, "tailscale_status", lambda *_a: {"running": False})
     monkeypatch.setattr(cli, "https_sharing_status", lambda *_a: {"enabled": False})
-    assert cli.main(["--state", str(tmp_path / "state.json"), "doctor"]) == 0
+    assert cli.main(["doctor"]) == 0
     report = json.loads(capsys.readouterr().out)
     assert report["llamacpp"]["pin"] == KNOWN_GOOD_LLAMACPP
     assert report["llamacpp"]["on_pin"] is False

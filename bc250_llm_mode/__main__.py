@@ -48,6 +48,7 @@ from .openwebui import (
     stop_open_webui,
 )
 from .optimize import kv_scale_for_settings, parallel_slots_for_settings
+from .paths import AppPaths
 from .prepare import prepare_model
 from .server import (
     ensure_server,
@@ -60,7 +61,6 @@ from .server import (
     stop_service,
 )
 from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
-from .state import StateStore
 from .thermals import read_gpu_temperature, run_watchdog_once, watch_loop
 from .tune import autotune
 from .tailscale import (
@@ -81,7 +81,10 @@ def _parser() -> argparse.ArgumentParser:
         prog="bc250-llm-mode", description="BC250 local LLM setup and chat"
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--state", help="Override the state JSON path")
+    parser.add_argument(
+        "--state",
+        help="Deprecated: a legacy state.json source, accepted only with 'repair-retry'",
+    )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Open/resume the native setup wizard")
     sub.add_parser("repair", help="Open the native wizard at hardware validation")
@@ -92,6 +95,16 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "repair-retry",
         help="Retry legacy-state migration after fixing the JSON source",
+    )
+    import_state = sub.add_parser(
+        "import-state",
+        help=(
+            "Publish a legacy state.json file as the SQLite runtime state "
+            "(one-time; import-only — legacy JSON is never a live store)"
+        ),
+    )
+    import_state.add_argument(
+        "state_path", help="Path to the legacy state.json import source"
     )
     sub.add_parser("chat", help="Start terminal chat")
     sub.add_parser("status", help="Print hardware and server status")
@@ -188,41 +201,104 @@ def _repair_entry(args, application) -> int:
     return 78  # EX_CONFIG: the installation cannot operate until repaired
 
 
+def _import_state_entry(args) -> int:
+    """One-time publication of an explicit legacy JSON file as SQLite state.
+
+    The database is the sole runtime store afterwards; the JSON source is
+    left byte-identical on disk. An existing database is never overwritten.
+    """
+    from .app import Application
+    from .legacy_import import LegacyImportError, LegacyImporter
+
+    paths = AppPaths.for_home()
+    if paths.database_path.exists():
+        print(json.dumps({
+            "imported": False,
+            "reason": "a database is already published; it will not be overwritten",
+            "database": str(paths.database_path),
+        }, indent=2))
+        return 0
+    logger = configure_logging(paths.logs_dir)
+    runner = CommandRunner(logger)
+    try:
+        LegacyImporter(paths, runner).import_legacy(source=Path(args.state_path).expanduser())
+    except LegacyImportError as exc:
+        logger.error("Legacy state import failed: %s", exc)
+        print(json.dumps({"imported": False, "reason": str(exc)}, indent=2))
+        return 78
+    published = Application.compose(paths)
+    if not published.operational:
+        print(json.dumps({"imported": False, "reason": published.repair_reason}, indent=2))
+        return 78
+    print("Legacy state migration succeeded; database published.")
+    print("Run 'bc250-llm-mode setup' to continue.")
+    return 0
+
+
+def _retry_import_from(application, source: Path) -> int:
+    """repair-retry against an explicit --state source (deprecated alias)."""
+    from .app import Application
+    from .legacy_import import LegacyImportError, LegacyImporter
+
+    runner = CommandRunner(configure_logging(application.paths.logs_dir))
+    try:
+        LegacyImporter(application.paths, runner).import_legacy(source=source.expanduser())
+    except LegacyImportError as exc:
+        print(json.dumps({"repair_required": True, "reason": str(exc)}, indent=2))
+        return 78
+    retried = Application.compose(application.paths)
+    if not retried.operational:
+        print(json.dumps({"repair_required": True, "reason": retried.repair_reason}, indent=2))
+        return 78
+    print("Legacy state migration succeeded; database published.")
+    print("Run 'bc250-llm-mode setup' to continue.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     # Composition root: one validated path profile drives every surface.
-    # Composition root: SQLite is the source of truth by default; explicit
-    # --state opts into transitional legacy JSON mode (ADR 001, 0.9 window).
+    # SQLite is the sole runtime state; legacy JSON is import-only.
     from .app import Application
 
-    if args.state:
-        store = StateStore(args.state)
-        state = store.load()
-        application = Application.wrap(store)
-    else:
-        application = Application.compose()
-        if args.command == "repair-retry":
-            if application.store is None:
-                print(json.dumps({
-                    "repair_required": True,
-                    "reason": application.repair_reason,
-                }, indent=2))
-                return 78
-            print("Legacy state migration succeeded; database published.")
-            print("Run 'bc250-llm-mode setup' to continue.")
-            return 0
-        if application.store is None:
-            return _repair_entry(args, application)
-        store = application.store
-        state = store.load()
+    # --state is a deprecated alias accepted only for repair-retry
+    # (R1/R2 exit plan 6.2); every other use is rejected before any file
+    # is touched so no parallel JSON-backed runtime can be created.
+    if args.state and args.command != "repair-retry":
+        print(
+            "--state is no longer a runtime mode; legacy JSON is import-only.\n"
+            "Use 'import-state PATH' to publish a legacy state.json instead.",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.command == "import-state":
+        return _import_state_entry(args)
+
+    application = Application.compose()
+    if args.command == "repair-retry":
+        if not application.operational and args.state:
+            return _retry_import_from(application, Path(args.state))
+        if not application.operational:
+            print(json.dumps({
+                "repair_required": True,
+                "reason": application.repair_reason,
+            }, indent=2))
+            return 78
+        print("Legacy state migration succeeded; database published.")
+        print("Run 'bc250-llm-mode setup' to continue.")
+        return 0
+    if not application.operational:
+        return _repair_entry(args, application)
+    state = application.read_model()
     if args.command in (None, "setup"):
-        if not bootstrap_tkinter(store):
+        if not bootstrap_tkinter(application):
             return 0
         from .gui import run_gui
         run_gui(application, management=bool(state.get("setup_complete")))
         return 0
     if args.command == "repair":
-        if not bootstrap_tkinter(store):
+        if not bootstrap_tkinter(application):
             return 0
         from .gui import run_gui
         if application.setup is not None:
@@ -260,7 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         logger = configure_logging(state["logs_dir"])
         quiet_runner = CommandRunner(logger)
-        report: dict[str, Any] = {"state_path": str(store.path), "state_readable": True}
+        report: dict[str, Any] = {"state_path": str(application.paths.database_path), "state_readable": True}
         try:
             hardware = detect_hardware(state["models_dir"])
             report["hardware"] = hardware.to_dict()
@@ -337,7 +413,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         from .chat import record_benchmark
 
-        record_benchmark(store, state, result)
+        record_benchmark(application, state, result)
         return 0
     logger = configure_logging(state["logs_dir"])
     runner = CommandRunner(logger, print)
@@ -358,13 +434,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"error: {exc}", file=sys.stderr)
             return 1
         if args.action != "status":
-            application.persist_state_changes(before, state)
+            application.commit_settings_changes(before, state)
         print(json.dumps(result, indent=2, default=str))
         return 0
     if args.command == "autotune":
         require_acknowledgment(state)
         report = autotune(
-            store, state, runner,
+            application, state, runner,
+            runtime_service=application.runtime_config,
             repeat=max(1, min(3, args.repeat)), max_tokens=max(16, min(512, args.max_tokens)),
         )
         print(json.dumps(report, indent=2))
@@ -383,16 +460,16 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         require_acknowledgment(state)
         if args.action == "once":
-            print(json.dumps(run_watchdog_once(store, state, runner), indent=2))
+            print(json.dumps(run_watchdog_once(application, state, runner), indent=2))
         elif args.action == "reset":
             from .thermals import reset_latch
 
             print(json.dumps(
-                reset_latch(store, state, runner),
+                reset_latch(application, state, runner),
                 indent=2,
             ))
         else:
-            watch_loop(store, state, runner, interval_sec=max(1.0, args.interval))
+            watch_loop(application, state, runner, interval_sec=max(1.0, args.interval))
         return 0
     if args.command == "llamacpp":
         if args.action == "status":
@@ -407,10 +484,8 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             result = application.component.rollback_llamacpp(state, runner)
-        application.persist_state_changes(before, state)
+        application.commit_settings_changes(before, state)
         print(json.dumps(result, indent=2, default=str))
-        return 0
-        print(json.dumps(actions[args.action](), indent=2))
         return 0
     if args.command in {"webui", "openwebui"}:
         require_acknowledgment(state)
@@ -423,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         before = dict(state)
         result = actions[args.action]()
-        application.persist_state_changes(before, state)
+        application.commit_settings_changes(before, state)
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "tailscale":
@@ -449,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         before = dict(state)
         result = actions[args.action]()
-        application.persist_state_changes(before, state)
+        application.commit_settings_changes(before, state)
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "models":
@@ -514,17 +589,17 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("models use requires an installed or discovered model id")
         require_acknowledgment(state)
         if args.model_id in {item.get("id") for item in state.get("installed_models", [])}:
-            switch_model(store, state, args.model_id, runner)
+            switch_model(application, state, args.model_id, runner)
         else:
-            register_and_switch_local(store, state, args.model_id, runner)
+            register_and_switch_local(application, state, args.model_id, runner)
         return 0
     if args.command in {"ctx", "context"}:
         require_acknowledgment(state)
-        print(change_context(store, state, args.tokens, runner))
+        print(change_context(application, state, args.tokens, runner))
         return 0
     if args.command in {"slots", "users"}:
         require_acknowledgment(state)
-        print(change_parallel_slots(store, state, args.count, runner))
+        print(change_parallel_slots(application, state, args.count, runner))
         return 0
     if args.command == "boot-policy":
         if args.action == "desktop":
@@ -588,12 +663,12 @@ def main(argv: list[str] | None = None) -> int:
         application.model_install.register_context_change(state, args.ctx)
         if state.get("setup_complete"):
             restart_with_rollback(
-                store, state, runner, previous, f"Activating {model.display_name}"
+                application, state, runner, previous, f"Activating {model.display_name}"
             )
         return 0
     if args.command == "switch":
         require_acknowledgment(state)
-        switch_model(store, state, args.model_id, runner)
+        switch_model(application, state, args.model_id, runner)
         return 0
     if args.command in {"desktop-mode", "desktop"}:
         application.host_mode.return_to_desktop(
