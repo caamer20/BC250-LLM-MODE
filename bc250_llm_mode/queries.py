@@ -65,7 +65,6 @@ class ApplicationQueryService:
             revision = int(values.pop("__revision", 0))
             models_custom = values.pop("models_dir_custom", None)
             llamacpp_history = values.pop("llamacpp_history", None) or []
-            extras = ExtrasRepository(conn).all()
             models = ModelInstallationsRepository(conn).list()
             bench = BenchHistoryRepository(conn).list()
             autotune = AutotuneHistoryRepository(conn).list()
@@ -73,10 +72,27 @@ class ApplicationQueryService:
             known_good = KnownGoodRuntimeRepository(conn).get()
             runtime = RuntimeConfigRepository(conn).get()
             build = ComponentProvenanceRepository(conn).get_component("llamacpp")
+            # Quarantined unknown keys are support evidence, never projected
+            # to frontends as configuration (§5.5).
+            from .repositories import ObservationRepository
+
+            observations = ObservationRepository(conn).list()
 
         state = deepcopy(DEFAULT_STATE)
         state.update(values)
-        state.update(extras)
+
+        # Transient observations: values are surfaced, but each is labeled
+        # with its observation timestamp and stale marker so frontends and
+        # services know a re-probe is required before trusting them.
+        staleness: dict[str, dict[str, Any]] = {}
+        for key, record in observations.items():
+            state[key] = record["value"]
+            staleness[key] = {
+                "at": record["observed_at"],
+                "stale": record["stale"],
+            }
+        if staleness:
+            state["observation_staleness"] = staleness
 
         if runtime:
             if runtime.get("context"):

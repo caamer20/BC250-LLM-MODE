@@ -292,6 +292,27 @@ class ExtrasRepository:
         )
 
 
+class ObservationRepository:
+    """Stale-marked runtime observations from legacy import and probes."""
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def list(self) -> dict[str, dict]:
+        rows = self.conn.execute(
+            "SELECT key, payload_json, observed_at, stale "
+            "FROM runtime_observations ORDER BY key"
+        ).fetchall()
+        return {
+            r["key"]: {
+                "value": json.loads(r["payload_json"]),
+                "observed_at": r["observed_at"],
+                "stale": bool(r["stale"]),
+            }
+            for r in rows
+        }
+
+
 class KnownGoodRuntimeRepository:
     """Single-row last verified-working runtime configuration (migration 002)."""
 
