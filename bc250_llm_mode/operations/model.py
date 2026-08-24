@@ -190,6 +190,24 @@ def assert_step_transition(current: StepState | str, target: StepState | str) ->
         )
 
 
+def as_request_dict(decoded_request: Any) -> dict[str, Any]:
+    """Canonical plain-dict view of a decoded typed request.
+
+    Typed requests are frozen dataclasses; anything else is rejected so the
+    durable request JSON always mirrors a declared shape.
+    """
+    import dataclasses
+
+    if dataclasses.is_dataclass(decoded_request) and not isinstance(
+        decoded_request, type
+    ):
+        return dataclasses.asdict(decoded_request)
+    raise OperationValidationError(
+        "decoded requests must be frozen dataclasses;"
+        f" got {type(decoded_request).__name__}"
+    )
+
+
 # --- Typed records ----------------------------------------------------------
 
 
