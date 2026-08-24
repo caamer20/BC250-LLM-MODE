@@ -5,7 +5,7 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 490-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 505-test green baseline**, and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -29,11 +29,14 @@ fail-closed validation; legacy canonicalization is pure (`legacy_schema.py`)
 and the writable JSON store exists only as test support; duplicate
 post-service commits removed with owners recorded; docs truth pass complete.
 Next: ~~**Session 5A**~~ **DONE**; ~~**Session 5B**~~ **DONE**;
-~~**Session 5C**~~ **DONE**, then **Session 6A — convert model
+~~**Session 5C**~~ **DONE**; ~~**Phase U0** (appliance-plan closeout:
+identity/GGUF hardening tests, package topology + clean-wheel gate,
+loopback-only Open WebUI)~~ **DONE**, then **Session 6A — convert model
 acquisition/import to durable operations** (first red test: crash after
 final artifact publication but before checkpoint; the next executor must
 recognize the exact content digest without downloading, copying, or
-publishing twice). `SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`
+publishing twice). `ULTIMATE_BC250_APPLIANCE_IMPLEMENTATION_PLAN.md` is now
+the sequencing authority for U1+; `SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`
 is the completed R3.3 authority; `SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`
 remains the completed R3.2 authority and evidence handoff.
 
