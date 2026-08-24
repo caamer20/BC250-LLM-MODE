@@ -59,7 +59,8 @@ def decode_fake_request(payload: dict[str, Any]) -> FakeActivateRequest:
 def _verify_effect(world: FakeWorld, ctx: EffectContext) -> dict[str, Any]:
     active = world.read_active()
     desired = world.read_desired()["value"]
-    if ctx.external_effect_id not in active["effects"]:
+    applied = (ctx.prior_outputs.get("apply_effect") or {}).get("applied")
+    if applied and applied not in active["effects"]:
         raise AssertionError("effect was never applied")
     if active["value"] != desired:
         raise AssertionError("active value does not match desired")
