@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from bc250_llm_mode import artifact_storage as storage
@@ -58,13 +60,70 @@ def test_quarantine_moves_candidate_and_writes_receipt(tmp_path):
     candidate.parent.mkdir(parents=True)
     candidate.write_bytes(b"invalid-gguf")
     qroot = tmp_path / "quarantine"
+    digest, _ = storage.streaming_sha256(candidate)
     dest = storage.quarantine_candidate(
-        candidate, qroot, "op-1", "sha256:" + "aa" * 32, "GGUF_INVALID"
+        candidate, qroot, "op-1", digest, "GGUF_INVALID"
     )
-    assert not candidate.exists()
     assert dest.read_bytes() == b"invalid-gguf"
     receipt = storage.read_receipt(qroot / "op-1" / "quarantine.json")
     assert receipt["reason_code"] == "GGUF_INVALID"
+    # No-replace reuse: identical digest+reason reuses prior evidence.
+    again = storage.quarantine_candidate(
+        candidate, qroot, "op-1", digest, "GGUF_INVALID"
+    )
+    assert again == dest
+    # Mismatched reason at the same destination is a stable collision.
+    with pytest.raises(storage.QuarantineCollision):
+        storage.quarantine_candidate(
+            candidate, qroot, "op-1", digest, "GGUF_LAYOUT_FORBIDDEN"
+        )
+    # Content that does not match its claimed digest is refused outright.
+    with pytest.raises(storage.QuarantineCollision):
+        storage.quarantine_candidate(
+            candidate, qroot, "op-1",
+            "sha256:" + "bb" * 32, "GGUF_INVALID",
+        )
+    # Unsafe operation ids never reach the filesystem.
+    with pytest.raises(ValueError):
+        storage.quarantine_candidate(
+            candidate, qroot, "../escape", digest, "GGUF_INVALID"
+        )
+
+
+def test_publication_enforces_private_modes_and_temp_cleanup(tmp_path, monkeypatch):
+    src = tmp_path / "candidate.gguf"
+    src.write_bytes(b"payload")
+    root = tmp_path / "artifacts"
+    digest, _ = storage.streaming_sha256(src)
+
+    storage.publish_no_replace(src, root, digest)
+    hex_part = digest.split(":")[1]
+    published = root / hex_part[:2] / f"{digest}.gguf"
+    import stat
+
+    assert stat.S_IMODE(published.stat().st_mode) == 0o600
+    receipts_dir = tmp_path / "receipts"
+    receipts_dir.mkdir()
+    storage.write_receipt(receipts_dir / "pub.json", {"ok": True})
+    assert stat.S_IMODE((receipts_dir / "pub.json").stat().st_mode) == 0o600
+
+    # An injected hardlink failure leaves no incoming temporary behind.
+    src2 = tmp_path / "c2.gguf"
+    src2.write_bytes(b"other payload bytes")
+    d2, _ = storage.streaming_sha256(src2)
+    real_link = os.link
+
+    def boom(*a, **k):
+        raise OSError("injected link failure")
+
+    monkeypatch.setattr(os, "link", boom)
+    with pytest.raises(OSError):
+        storage.publish_no_replace(src2, root, d2)
+    monkeypatch.setattr(os, "link", real_link)
+    leftovers = [
+        p for p in (root / d2.split(":")[1][:2]).glob(".incoming-*")
+    ]
+    assert not leftovers
 
 
 def test_contained_refuses_escape_and_app_paths_derive_hidden_roots(tmp_path):

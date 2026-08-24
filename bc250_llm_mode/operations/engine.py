@@ -872,6 +872,11 @@ class ExecutionEngine:
             row = rows.get(step.step_key)
             if row is None or step.compensate is None:
                 continue
+            # U1.1 §3.2: forward-only effects are never reversed; recovery
+            # proceeds through probes instead. Compensation must never
+            # delete a valid published content-addressed artifact.
+            if step.effect_disposition == "FORWARD_ONLY":
+                continue
             if not step.externally_visible and not step.critical:
                 continue
             if row.state in (
@@ -921,6 +926,17 @@ class ExecutionEngine:
             not in (RecoveryClass.ABSENT, RecoveryClass.DISCARDABLE)
             or bool(durable_pairs)
         )
+        # U1.1 §3.2: a failed forward-only step never rolls anything back;
+        # its durable effects stay and recovery proceeds forward.
+        if step.effect_disposition == "FORWARD_ONLY":
+            mutation_happened = False
+        # Forward-only workflows never enter ROLLING_BACK: hidden staging
+        # stays for resume/discard and published bytes are never deleted.
+        forward_only_workflow = (
+            workflow is not None and workflow.cancel_finalizer is not None
+        )
+        if mutation_happened and forward_only_workflow:
+            mutation_happened = False
         if mutation_happened:
             with self.units.begin() as conn:
                 ops, _s, leases, events = self._repos(conn)
@@ -962,17 +978,23 @@ class ExecutionEngine:
             record = ops.require(operation_id)
             del record
             self._fence(leases, operation_id, held)
+            # U1.1 §3.1: preserve the stable sanitized code from typed
+            # StepFailure instead of collapsing to a generic class name.
+            stable_code = getattr(error, "code", None) or "STEP_FAILED_SAFE"
+            retryable = bool(getattr(error, "retryable", False))
             ops.record_terminal_result(
                 operation_id,
                 terminal_state=OperationState.FAILED_SAFE,
-                error_code="STEP_FAILED_SAFE",
+                error_code=stable_code if not retryable else f"{stable_code}",
                 error_detail={
                     "step": step_label,
+                    "code": stable_code,
+                    "retryable": retryable,
                     "exception_class": type(error).__name__,
                     "probe": "absent",
                 },
                 event_summary=(
-                    f"failed before any visible mutation ({type(error).__name__})"
+                    f"failed safely at {step_label} ({stable_code})"
                 ),
             )
             for key in sorted(held):
@@ -1166,6 +1188,38 @@ class ExecutionEngine:
         effected: list[StepDefinition],
     ) -> ExecutionOutcome:
         del effected
+        # U1.1 §3.4: forward-only workflows (acquisition/import) declare a
+        # cancellation finalizer instead of rolling back. It releases the
+        # logical reservation, records retained-partial evidence, and never
+        # touches published/quarantined artifacts; the operation terminates
+        # CANCELLED, never FAILED_ROLLED_BACK.
+        if workflow.cancel_finalizer is not None:
+            with self.units.begin() as conn:
+                ops, _s, leases, events = self._repos(conn)
+                record = ops.require(operation_id)
+                self._fence(leases, operation_id, held)
+                retained = workflow.cancel_finalizer(decoded) or {}
+                result_code = (
+                    "CANCELLED_PARTIAL_RETAINED"
+                    if retained.get("retained_bytes")
+                    else "CANCELLED_NO_EFFECT"
+                )
+                ops.record_terminal_result(
+                    operation_id,
+                    terminal_state=OperationState.CANCELLED,
+                    result_code=result_code,
+                    result_detail={"retained_bytes": int(retained.get("retained_bytes") or 0)}
+                    if retained.get("retained_bytes")
+                    else None,
+                    event_summary="cancelled at a safe point",
+                )
+                for key in sorted(held):
+                    leases.release(
+                        key, owner=self.worker_id, expected_revision=held[key]
+                    )
+            return ExecutionOutcome(
+                "COMPLETED", operation_id, reason_code=result_code
+            )
         # Mutation evidence comes from DURABLE step rows, never from this
         # worker's memory (§3.3): after process death the new worker still
         # sees what the previous worker effected.

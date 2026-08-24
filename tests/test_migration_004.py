@@ -113,13 +113,11 @@ def test_duplicate_digest_two_aliases_one_artifact(units):
             source_kind="local",
         )
         installs.install_alias(
-            alias="model-one", artifact_id=artifact_id,
-            path="/managed/ab/abcd.gguf", quant="Q4_K_M",
+            alias="model-one", artifact_id=artifact_id, quant="Q4_K_M",
             display_name="One",
         )
         installs.install_alias(
-            alias="model-two", artifact_id=artifact_id,
-            path="/managed/ab/abcd.gguf", quant="Q4_K_M",
+            alias="model-two", artifact_id=artifact_id, quant="Q4_K_M",
             display_name="Two",
         )
         found = artifacts.get_by_digest(digest)
@@ -143,7 +141,7 @@ def test_alias_conflict_refused_without_mutation(units):
             byte_size=2, canonical_path="/m/b.gguf", source_kind="local",
         )
         installs.install_alias(
-            alias="dup", artifact_id=art_a, path="/m/a.gguf",
+            alias="dup", artifact_id=art_a,
             quant="Q4_K_M", display_name="A",
         )
         before = conn.execute(
@@ -151,7 +149,7 @@ def test_alias_conflict_refused_without_mutation(units):
         ).fetchone()["artifact_id"]
         with pytest.raises(RepositoryConflict) as err:
             installs.install_alias(
-                alias="dup", artifact_id=art_b, path="/m/b.gguf",
+                alias="dup", artifact_id=art_b,
                 quant="Q4_K_M", display_name="B",
             )
         assert err.value.code == "INSTALLATION_ALIAS_CONFLICT"
@@ -174,8 +172,7 @@ def test_quarantined_artifact_cannot_receive_alias(units):
         )
         with pytest.raises(RepositoryConflict):
             installs.install_alias(
-                alias="bad", artifact_id=quarantined,
-                path="/quarantine/cc/cc.gguf", quant="Q4_K_M",
+                alias="bad", artifact_id=quarantined, quant="Q4_K_M",
                 display_name="Bad",
             )
         listed = artifacts.list_quarantined()

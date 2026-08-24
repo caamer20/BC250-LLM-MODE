@@ -93,15 +93,37 @@ def decode_import_request(payload: dict[str, Any]) -> ModelImportRequestV1:
     source_path = payload.get("source_path")
     if not isinstance(source_path, str) or not source_path.strip():
         raise OperationValidationError("source_path must be a non-empty string")
+    # U1.1 §3.1 (P1): local sources must be absolute user-selected paths;
+    # NUL bytes and oversized strings are refused outright.
+    import os as _os
+
+    if "\x00" in source_path or len(source_path) > 1024:
+        raise OperationValidationError("source_path is malformed")
+    if not _os.path.isabs(source_path):
+        raise OperationValidationError("source_path must be absolute")
     alias = payload.get("alias")
-    if alias is not None and (not isinstance(alias, str) or len(alias) > MAX_ALIAS_CHARS):
-        raise OperationValidationError("alias too long")
+    if alias is not None and (
+        not isinstance(alias, str)
+        or not alias.strip()
+        or len(alias) > MAX_ALIAS_CHARS
+    ):
+        raise OperationValidationError("alias must be a short non-empty string")
+    display_name = payload.get("display_name")
+    if display_name is not None and (
+        not isinstance(display_name, str) or len(display_name) > MAX_ALIAS_CHARS
+    ):
+        raise OperationValidationError("display_name too long")
+    quantization = payload.get("quantization")
+    if quantization is not None and (
+        not isinstance(quantization, str) or len(quantization) > MAX_ALIAS_CHARS
+    ):
+        raise OperationValidationError("quantization too long")
     return ModelImportRequestV1(
         source_path=source_path,
         alias=alias,
-        display_name=payload.get("display_name"),
-        quantization=payload.get("quantization"),
-        requested_by=str(payload.get("requested_by", "cli")),
+        display_name=display_name,
+        quantization=quantization,
+        requested_by=str(payload.get("requested_by", "cli"))[:64],
     )
 
 
@@ -234,6 +256,9 @@ class AcquisitionHost(Protocol):
     def probe_finalization(self, ctx: EffectContext) -> ProbeResult: ...
 
     def finalize_owned_staging(self, ctx: EffectContext) -> CleanupEvidence: ...
+
+    def release_on_cancellation(self, request: Any) -> dict[str, Any]:
+        """Release the logical reservation; report retained partial bytes."""
 
     def compensate_acquisition(self, ctx: EffectContext) -> dict[str, Any]: ...
 
@@ -472,11 +497,18 @@ def _build_steps(
             ),
         }
         compensating = extra.get("critical") and key != "finalize_staging"
+        if key in ("publish_artifact", "register_installation"):
+            disposition = "FORWARD_ONLY"
+        elif key != "resolve_source" and key != "reserve_storage":
+            disposition = "HIDDEN_DURABLE"
+        else:
+            disposition = "REVERSIBLE"
         return StepDefinition(
             step_key=key,
             phase=phase,
             sequence=seq,
             unit=extra.get("unit"),
+            effect_disposition=disposition,
             critical=bool(extra.get("critical")),
             compensate=(
                 callbacks["compensate_via_host"] if compensating else None
@@ -540,6 +572,7 @@ def build_acquire_workflow(host: AcquisitionHost) -> WorkflowDefinition:
         ),
         summary=lambda request: f"acquire catalog model {request.model_id}",
         terminal_decision=terminal,
+        cancel_finalizer=lambda request, h=host: h.release_on_cancellation(request),
         preflight=lambda request: None,
     )
 
@@ -600,10 +633,11 @@ def build_import_workflow(host: AcquisitionHost) -> WorkflowDefinition:
             resolve_verify=resolve_verify,
             transfer_execute=copy_execute,
         ),
-        summary=lambda request: (
-            f"import local model {request.source_path.rsplit('/', 1)[-1]}"
-        ),
+        # Redacted label only: the source basename never enters durable text
+        # (U1.1 §3.1 P1).
+        summary=lambda request: "import local GGUF into managed storage",
         terminal_decision=terminal,
+        cancel_finalizer=lambda request, h=host: h.release_on_cancellation(request),
         preflight=lambda request: None,
     )
 

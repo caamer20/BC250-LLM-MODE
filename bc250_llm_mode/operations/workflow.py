@@ -126,6 +126,9 @@ class StepDefinition:
     externally_visible: bool = False
     cancel_safe_before: bool = True
     critical: bool = False
+    # U1.1 §3.2 closed effect disposition. FORWARD_ONLY effects are never
+    # compensated: recovery proceeds forward through probes instead.
+    effect_disposition: str = "REVERSIBLE"
     compensate: Callable[[EffectContext], dict[str, Any]] | None = None
     verify_restoration: Callable[[EffectContext], dict[str, Any]] | None = None
     probe_restoration: Callable[[EffectContext], ProbeResult] | None = None
@@ -135,6 +138,12 @@ class StepDefinition:
         if int(self.implementation_version) < 1:
             raise WorkflowRegistryError(
                 f"step {self.step_key!r} implementation_version must be >= 1"
+            )
+        allowed = {"NONE", "HIDDEN_DURABLE", "FORWARD_ONLY", "REVERSIBLE"}
+        if self.effect_disposition not in allowed:
+            raise WorkflowRegistryError(
+                f"step {self.step_key!r} effect_disposition "
+                f"{self.effect_disposition!r} not in {sorted(allowed)}"
             )
 
 
@@ -150,6 +159,12 @@ class WorkflowDefinition:
         _default_terminal_decision
     )
     preflight: Callable[[Any], None] = lambda request: None
+    # U1.1 §3.4: cancellation finalizer for forward-only workflows. Called
+    # inside a fenced unit of work when cancellation is honored; releases
+    # reservations and records retained-partial evidence without touching
+    # published/quarantined artifacts. When absent, the engine keeps the
+    # activation rollback behavior unchanged.
+    cancel_finalizer: Callable[[Any], dict[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         seen_keys: set[str] = set()

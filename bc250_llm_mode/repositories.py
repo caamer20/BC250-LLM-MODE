@@ -160,12 +160,15 @@ class ModelInstallationsRepository:
         *,
         alias: str,
         artifact_id: str,
-        path: str,
         quant: str,
         display_name: str,
         sampling: dict | None = None,
     ) -> int:
-        """Idempotent exact alias registration (U1.1 §5.2).
+        """Idempotent exact alias registration (U1.1 §5.2/§3.6).
+
+        The canonical path always comes from the artifact row; no caller
+        path is accepted as authority. Only ``MANAGED + VERIFIED`` (or the
+        explicit legacy backfill pair) receives an alias.
 
         - same alias + same artifact -> no-op success;
         - same alias + different artifact -> conflict;
@@ -180,7 +183,8 @@ class ModelInstallationsRepository:
                 f"alias {alias!r} already points at a different artifact",
             )
         trust = self.conn.execute(
-            "SELECT storage_state, trust_state FROM model_artifacts WHERE id = ?",
+            "SELECT storage_state, trust_state, canonical_path "
+            "FROM model_artifacts WHERE id = ?",
             (artifact_id,),
         ).fetchone()
         if trust is None:
@@ -188,14 +192,16 @@ class ModelInstallationsRepository:
                 "ARTIFACT_RECORD_CONFLICT",
                 f"unknown artifact {artifact_id!r}",
             )
-        if trust["storage_state"] != "MANAGED" or trust["trust_state"] not in (
-            "VERIFIED",
-            "LEGACY_UNVERIFIED",
-        ):
+        allowed_pairs = {
+            ("MANAGED", "VERIFIED"),
+            ("LEGACY_EXTERNAL", "LEGACY_UNVERIFIED"),
+        }
+        if (trust["storage_state"], trust["trust_state"]) not in allowed_pairs:
             raise RepositoryConflict(
                 "INSTALLATION_ALIAS_CONFLICT",
                 "quarantined/unverified artifacts cannot receive an alias",
             )
+        path = trust["canonical_path"]
         self.conn.execute(
             "INSERT INTO model_installations(alias, path, quant, display_name, "
             "sampling_json, provenance, validation_status, imported_at, "
@@ -666,11 +672,39 @@ class ModelArtifactRepository:
 
 
 class StorageReservationRepository:
-    """Durable logical reservations (U1.1 §4.6/§5.4). Release marks."""
+    """Durable logical reservations (U1.1 §4.6/§5.4). Release marks.
+
+    U1.1 §3.1/§3.6: every mutation asserts the operation's current
+    ``model-storage`` lease owner/revision in the SAME connection; a stale
+    worker cannot reserve, grow, or release a newer owner's reservation.
+    """
 
     def __init__(self, conn, *, clock=None) -> None:
         self.conn = conn
         self._clock = clock or utcnow
+
+    def _assert_lease(
+        self, operation_id: str, *, lease_owner: str, lease_revision: int
+    ) -> None:
+        row = self.conn.execute(
+            """
+            SELECT owner, lease_revision, expires_at
+              FROM operation_leases
+             WHERE resource_key = 'model-storage' AND operation_id = ?
+            """,
+            (operation_id,),
+        ).fetchone()
+        now = self._clock()
+        if (
+            row is None
+            or row["owner"] != lease_owner
+            or int(row["lease_revision"]) != int(lease_revision)
+            or str(row["expires_at"]) <= now
+        ):
+            raise RepositoryConflict(
+                "LEASE_LOST",
+                f"model-storage lease fence failed for {operation_id!r}",
+            )
 
     def reserve(
         self,
@@ -682,11 +716,21 @@ class StorageReservationRepository:
         reserved_bytes: int,
         reclaimable_owned_bytes: int = 0,
         credited_partial_bytes: int = 0,
+        lease_owner: str | None = None,
+        lease_revision: int | None = None,
     ) -> dict:
         if min(required_bytes, available_bytes, reserved_bytes) < 0:
             raise ValueError("reservation bytes must be >= 0")
         if reserved_bytes > required_bytes:
             raise ValueError("reserved bytes cannot exceed required")
+        if credited_partial_bytes > reclaimable_owned_bytes:
+            raise ValueError("credited partials cannot exceed owned reclaimables")
+        if lease_owner is not None:
+            self._assert_lease(
+                operation_id,
+                lease_owner=lease_owner,
+                lease_revision=int(lease_revision or 0),
+            )
         now = self._clock()
         try:
             self.conn.execute(
@@ -718,7 +762,20 @@ class StorageReservationRepository:
         assert result is not None
         return result
 
-    def update_growth(self, operation_id: str, *, reserved_bytes: int) -> dict:
+    def update_growth(
+        self,
+        operation_id: str,
+        *,
+        reserved_bytes: int,
+        lease_owner: str | None = None,
+        lease_revision: int | None = None,
+    ) -> dict:
+        if lease_owner is not None:
+            self._assert_lease(
+                operation_id,
+                lease_owner=lease_owner,
+                lease_revision=int(lease_revision or 0),
+            )
         now = self._clock()
         cursor = self.conn.execute(
             """
@@ -737,7 +794,19 @@ class StorageReservationRepository:
         assert result is not None
         return result
 
-    def release(self, operation_id: str) -> None:
+    def release(
+        self,
+        operation_id: str,
+        *,
+        lease_owner: str | None = None,
+        lease_revision: int | None = None,
+    ) -> None:
+        if lease_owner is not None:
+            self._assert_lease(
+                operation_id,
+                lease_owner=lease_owner,
+                lease_revision=int(lease_revision or 0),
+            )
         now = self._clock()
         cursor = self.conn.execute(
             """

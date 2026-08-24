@@ -402,17 +402,24 @@ class FakeAcquisitionHost:
         return ProbeResult(RecoveryClass.REVERTIBLE, "CLEANUP_INCOMPLETE")
 
     def compensate_acquisition(self, ctx) -> dict[str, Any]:
+        # U1.1 §3.2: published content-addressed artifacts are FORWARD-ONLY
+        # safe effects. Compensation unregisters only this operation's
+        # registration row and never deletes valid managed bytes.
         self.counts["compensation"] += 1
-        record = self.registered.pop(ctx.operation_id, None)
-        publication = (ctx.prior_outputs.get("publish_artifact") or {}).get(
-            "publication"
-        ) or {}
-        if record and record["disposition"] != "quarantined":
-            final = self.final_path()
-            if final.exists() and publication.get("disposition") == "published":
-                final.unlink()
+        self.registered.pop(ctx.operation_id, None)
         self.compensated.add(ctx.operation_id)
         return {}
+
+    def release_on_cancellation(self, request) -> dict[str, Any]:
+        """§3.4: release the reservation; retain the resumable partial."""
+        for reservation in self.reservations.values():
+            reservation["released"] = True
+        partial = self.root / "staging"
+        retained = 0
+        if partial.exists():
+            for p in partial.rglob("source.partial"):
+                retained += p.stat().st_size
+        return {"retained_bytes": retained}
 
     def observe_compensation(self, ctx) -> ProbeResult:
         return ProbeResult(RecoveryClass.COMPLETE, "COMPENSATED")
