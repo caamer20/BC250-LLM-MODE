@@ -15,7 +15,7 @@ unchanged so no lease release or failure event is fabricated.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace as dc_replace
 from typing import Any, Callable
 
 from .model import (
@@ -60,6 +60,11 @@ def _row_inputs(row) -> dict[str, Any]:
     import json as _json
 
     return _json.loads(row.input_json) if row.input_json else {}
+
+
+def _with_output(ctx: EffectContext, step_key: str, output: dict) -> EffectContext:
+    """Verification sees every durable output INCLUDING its own step."""
+    return dc_replace(ctx, prior_outputs={**ctx.prior_outputs, step_key: output})
 
 
 _TERMINAL_SKIP_STATES = frozenset(
@@ -650,14 +655,16 @@ class ExecutionEngine:
             self._crash(step.step_key, "before_step_checkpoint")
             import json as _json
 
+            merged = _json.loads(sanitize_payload(output or {}))
             self._checkpoint_transaction(
                 operation_id,
                 step,
                 held,
                 ctx,
-                _json.loads(sanitize_payload(output or {})),
+                merged,
                 recovered=False,
             )
+            ctx = _with_output(ctx, step.step_key, merged)
             self._crash(step.step_key, "after_step_checkpoint")
             self._crash(step.step_key, "before_step_verification")
             step.verify(ctx)
@@ -694,6 +701,7 @@ class ExecutionEngine:
             self._checkpoint_transaction(
                 operation_id, step, held, ctx, recovered, recovered=True
             )
+            ctx = _with_output(ctx, step.step_key, recovered)
             step.verify(ctx)
             self._verify_transaction(operation_id, step, held)
             if step.externally_visible:
@@ -719,14 +727,16 @@ class ExecutionEngine:
                 output = step.execute(ctx)
                 import json as _json
 
+                merged = _json.loads(sanitize_payload(output or {}))
                 self._checkpoint_transaction(
                     operation_id,
                     step,
                     held,
                     ctx,
-                    _json.loads(sanitize_payload(output or {})),
+                    merged,
                     recovered=False,
                 )
+                ctx = _with_output(ctx, step.step_key, merged)
                 step.verify(ctx)
                 self._verify_transaction(operation_id, step, held)
                 if step.critical:
