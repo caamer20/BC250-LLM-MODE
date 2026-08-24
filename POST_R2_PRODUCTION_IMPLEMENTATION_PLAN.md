@@ -469,6 +469,14 @@ partially resumable, discardable, revertible, or uncertain/manual.
 
 ## 6. Session 5C — durable model activation
 
+**Implementation authority:**
+`SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`. That document expands
+this milestone into the entry corrections, typed request/evidence contracts,
+eight durable steps, aggregate restoration protocol, production adapter
+ownership, crash matrix, commit boundaries, and exit gate. It does not change
+the Session 5C product boundary: acquisition/update and the generic operation
+CLI/Activity surface remain Session 6 work.
+
 Convert the mature synchronous activation first, but remove rather than wrap
 the old duplicate paths.
 
@@ -492,9 +500,11 @@ failed rollback persists exact evidence and blocks conflicting operations.
 
 ### 6.2 Frontend behavior
 
-- CLI enqueues and waits by default; optional detach returns an operation ID.
-- GUI opens/focuses Activity and remains responsive.
-- Chat model/context/slot commands call the same operation command.
+- Existing CLI, chat, setup, and GUI model/context/slot actions enqueue and
+  drive the same operation in their current foreground/action host.
+- No frontend commits model/context/slot state or performs a second restart.
+- The generic operation CLI, optional detach, cancellation/history commands,
+  and Activity GUI are deliberately deferred to Session 6C.
 - Progress never reaches success before inference verification.
 - A restored failure says clearly that the old model is active.
 

@@ -29,10 +29,13 @@ post-service commits removed with owners recorded; docs truth pass complete.
 Next: ~~**Session 5A**~~ **DONE**; ~~**Session 5B**~~ **DONE**, then
 **Session 5C — convert model activation to durable steps** (remove the old
 synchronous activation path as it converts; never leave both callable).
-The implementation-ready sequencing, transaction boundaries, crash matrix,
-commit gates, and 5C handoff are frozen in
-`SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`; use it as the detailed Session
-5B authority beneath the post-R2 plan and ADR 002.
+The implementation-ready Session 5C sequencing, generic-engine entry
+corrections, typed request/evidence contract, eight activation steps,
+aggregate restoration protocol, production adapter ownership, crash matrix,
+commit gates, and stop boundary are frozen in
+`SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`. Use it beneath the
+post-R2 plan and ADR 002; `SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md` remains
+the completed R3.2 authority and evidence handoff.
 
 1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
 2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.
@@ -63,7 +66,13 @@ commit gates, and 5C handoff are frozen in
    synchronous activation behavior to a StepDefinition and name one typed
    adapter owner per effect (handoff publication, restart, health,
    inference probe, known-good promotion/restoration). Remove the old
-   synchronous path as it converts.
+   synchronous path as it converts. Follow
+   `SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`; its first code
+   boundary red-tests critical-state cancellation, durable compensation
+   takeover, durable effect reconstruction, intent reuse, and per-step
+   implementation versions before any real adapter lands. Existing
+   model/context/slot surfaces drive the operation in the foreground; the
+   generic operation CLI, detach, and Activity GUI remain deferred to 6C.
    Then Session 6 (acquisition, runtime update, Activity view), R4 typed
    adapters/timeouts, and the later phases of the post-R2 plan.
 
