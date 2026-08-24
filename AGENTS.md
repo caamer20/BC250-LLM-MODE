@@ -2,6 +2,44 @@
 
 ## Current state
 
+**SESSION 6A IN PROGRESS — STOPPED MID-PLAN (Commits 1–5a of 8).** Do NOT
+assume the U1.1 exit gate is closed. Landed so far, all green on a 528-test
+default suite:
+
+- Commit 1 (`ac2a675`): ADR 003 + ADR 002 §16 amendment + red policy tests
+  (`tests/test_session6a_policy.py`).
+- Commit 2 (`54c0ab9`): migration 004 (`model_artifacts`, linked
+  `model_installations.artifact_id` with deterministic `legacy:<id>`
+  backfill, `operation_storage_reservations`), SCHEMA_VERSION=4,
+  `ModelArtifactRepository`, `ModelInstallationsRepository.install_alias`,
+  `StorageReservationRepository` + `tests/test_migration_004.py`.
+- Commit 3+4 (`e9c367e`): engine §8.1 typed `TerminalDecision`
+  (closed to SUCCEEDED/FAILED_SAFE; activation outcome parity kept),
+  §8.2 `CancellationObserved` at cancellation-safe pulses (heartbeat
+  unconditional), §8.3 ProgressPolicy-throttled pulse writes;
+  `operations/acquisition.py` (requests/evidence/port/eight-step
+  MODEL_ACQUIRE v1 + MODEL_IMPORT v1 workflows, closed terminal resolver)
+  + fake world (`tests/operations/acquisition_world.py`) +
+  `tests/test_operation_acquisition.py` including the mandatory
+  publication-death/pre-checkpoint red test (transfer/conversion/
+  publication/registration each exactly one), quarantine terminal,
+  duplicate reuse, safe-chunk cancellation, partial resume.
+- Commit 5a (`a705cc4`): `artifact_storage.py` (bounded streaming hash,
+  no-replace O_EXCL publication with parent fsync, receipts, quarantine
+  move, containment check) + `AppPaths.model_staging_dir` /
+  `model_quarantine_dir` / `model_artifacts_dir` +
+  `tests/test_artifact_storage.py`.
+
+REMAINING for Session 6A: production `AcquisitionHostAdapter` +
+`hub_source.py` bounded HTTP/range transfer + acquisition-only process
+adapter (Commit 6); `acquisition_command.py`, composition wiring, and the
+CLI/GUI cutover deleting `download_model`/`prepare_model`/
+`prepare_local_model`/`ModelInstallationService.download_and_prepare` plus
+architecture guards (Commit 7); crash/adverse/stress matrices, security
+canaries, slow clean-wheel extension, README/ARCHITECTURE/CHANGELOG truth
+(Commit 8). The old synchronous download/prepare path still exists and is
+still the only production route until Commit 7 lands.
+
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
