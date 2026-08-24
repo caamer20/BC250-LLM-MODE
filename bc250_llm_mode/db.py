@@ -136,16 +136,34 @@ class DatabaseTooNew(RuntimeError):
     """The on-disk schema is newer than this application supports."""
 
 
-def connect(database_path: str | Path) -> sqlite3.Connection:
-    """Open a connection with the production PRAGMA contract applied.
+def open_database(
+    database_path: str | Path,
+    *,
+    mode: str = "write",
+    journal: str | None = None,
+) -> sqlite3.Connection:
+    """Open a connection under the single production PRAGMA contract.
+
+    This is the one connection factory for initialization, units of work,
+    import staging, queries, and tests. SQLite PRAGMAs are connection-local:
+    any connection that bypasses this factory silently loses foreign-key
+    enforcement and the busy-timeout discipline.
+
+    Modes:
+    - ``read``: the file must already exist; ``query_only=ON`` after setup so
+      read units can never write. No journal/synchronous changes.
+    - ``write``: published runtime policy — WAL journal + FULL synchronous.
+    - ``migration``: same as ``write``; staging may pass ``journal="delete"``
+      to build a self-contained rollback-journal file for atomic publication.
 
     Every PRAGMA result is fully consumed: an unconsumed statement keeps a
     read transaction open and would block WAL checkpoints later.
     """
-    # check_same_thread=False: the compatibility facade and watchdogs use
-    # worker threads. Safety comes from the file-lock + busy_timeout write
-    # discipline, not from sqlite's thread affinity.
+    if mode not in ("read", "write", "migration"):
+        raise ValueError(f"unknown database mode: {mode!r}")
     path = Path(database_path)
+    if mode == "read" and not path.exists():
+        raise FileNotFoundError(f"database does not exist: {path}")
     existed_before = path.exists()
     conn = sqlite3.connect(
         str(path),
@@ -160,13 +178,47 @@ def connect(database_path: str | Path) -> sqlite3.Connection:
         except OSError:
             pass
     conn.row_factory = sqlite3.Row
-    for pragma in (
+    pragmas = [
         "PRAGMA foreign_keys=ON",
         f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}",
-        "PRAGMA journal_mode=WAL",
-        "PRAGMA synchronous=FULL",
-    ):
+    ]
+    if mode in ("write", "migration"):
+        pragmas.append(f"PRAGMA journal_mode={journal or 'wal'}")
+        pragmas.append("PRAGMA synchronous=FULL")
+    for pragma in pragmas:
         conn.execute(pragma).fetchall()
+    if mode == "read":
+        conn.execute("PRAGMA query_only=ON").fetchall()
+    return conn
+
+
+# Backwards-compatible alias for the historical call sites; new code must
+# name the mode explicitly.
+connect = open_database
+
+
+def initialize_and_close(database_path: str | Path) -> None:
+    """Initialize a database file and deterministically close the connection.
+
+    Composition owns no long-lived connection: services use short-lived
+    per-command units of work, so the initialization connection must never
+    depend on garbage collection for closure.
+    """
+    conn = initialize_file(database_path)
+    conn.close()
+
+
+def initialize_file(database_path: str | Path) -> sqlite3.Connection:
+    """Create/initialize a database file with production permissions.
+
+    The caller owns the returned connection and MUST close it; prefer
+    :func:`initialize_and_close` at composition boundaries.
+    """
+    path = Path(database_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = open_database(path, mode="write")
+    initialize(conn)
+    Path(path).chmod(0o600)
     return conn
 
 
@@ -256,10 +308,14 @@ def initialize(conn: sqlite3.Connection) -> int:
 
 
 def initialize_file(database_path: str | Path) -> sqlite3.Connection:
-    """Create/initialize a database file with production permissions."""
+    """Create/initialize a database file with production permissions.
+
+    The caller owns the returned connection and MUST close it; prefer
+    :func:`initialize_and_close` at composition boundaries.
+    """
     path = Path(database_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = connect(path)
+    conn = open_database(path, mode="write")
     initialize(conn)
     Path(path).chmod(0o600)
     return conn

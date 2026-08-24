@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from .db import initialize_file
+from .db import initialize_and_close
 from .logging_utils import CommandRunner, configure_logging
 from .paths import AppPaths
 
@@ -139,10 +139,10 @@ class Application:
                     ),
                 )
 
-        # Create/open the database with the production permission and
-        # integrity contract, then close: services use short-lived
-        # per-command connections through the unit-of-work factory.
-        initialize_file(resolved.database_path)
+        # Create/open the database under the production permission and
+        # integrity contract, then close deterministically: composition owns
+        # no connection; services use short-lived per-command units of work.
+        initialize_and_close(resolved.database_path)
 
         application = cls(paths=resolved, logger=logger, operational=True)
         cls._wire_services(application)

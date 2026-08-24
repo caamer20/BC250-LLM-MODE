@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .db import SCHEMA_VERSION, connect, initialize, integrity_ok
+from .db import SCHEMA_VERSION, initialize, integrity_ok, open_database
 from .fsops import atomic_write_text, publish_staged
 from .paths import AppPaths
 
@@ -100,12 +100,11 @@ class LegacyImporter:
 
             if staging_db.exists():
                 staging_db.unlink()
-            conn = connect(staging_db)
+            conn = open_database(staging_db, mode="migration", journal="delete")
             # The staging file must be self-contained for atomic publication:
-            # build in rollback-journal mode so all rows live in the main
+            # built in rollback-journal mode so all rows live in the main
             # file (no WAL sidecar to lose during os.replace). The published
             # database returns to WAL on its next production connect.
-            conn.execute("PRAGMA journal_mode=DELETE").fetchall()
             try:
                 initialize(conn)
                 self._import_mapped(conn, migrated)

@@ -22,7 +22,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from .db import BUSY_TIMEOUT_MS
+from .db import open_database
 
 
 class UnitOfWorkFactory:
@@ -31,19 +31,15 @@ class UnitOfWorkFactory:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = Path(database_path)
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(
-            str(self.database_path),
-            timeout=BUSY_TIMEOUT_MS / 1000.0,
-        )
-        conn.row_factory = sqlite3.Row
-        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}").fetchall()
-        return conn
+    def _connect(self, *, mode: str = "write") -> sqlite3.Connection:
+        # One shared policy with initialization/staging: foreign keys ON,
+        # bounded busy timeout, WAL+FULL for writers, query_only for readers.
+        return open_database(self.database_path, mode=mode)
 
     @contextmanager
     def begin(self, *, write: bool = True):
         """Yield a connection inside one unit of work."""
-        conn = self._connect()
+        conn = self._connect(mode="write" if write else "read")
         try:
             if write:
                 conn.execute("BEGIN IMMEDIATE")
