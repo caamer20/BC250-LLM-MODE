@@ -59,6 +59,21 @@ class AppPaths:
         """Explicit alias: the read-only JSON import source."""
         return self.state_path
 
+    @property
+    def model_staging_dir(self) -> Path:
+        """Operation-owned hidden staging (U1.1/ADR 003); never installed."""
+        return self.models_dir / ".bc250-staging"
+
+    @property
+    def model_quarantine_dir(self) -> Path:
+        """Private quarantine for invalid complete candidates (ADR 003)."""
+        return self.models_dir / ".bc250-quarantine"
+
+    @property
+    def model_artifacts_dir(self) -> Path:
+        """Content-addressed managed artifact namespace (ADR 003)."""
+        return self.models_dir / ".bc250-artifacts" / "sha256"
+
     @classmethod
     def temporary(cls, tmp_path: str | Path) -> "AppPaths":
         """Isolated layout for tests — nothing touches the developer's home."""
