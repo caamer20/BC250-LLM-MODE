@@ -7,6 +7,7 @@ whole-state writer can violate them.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from .legacy_import import utcnow  # noqa: F401  (re-exported for repositories)
@@ -654,46 +655,54 @@ class RuntimeConfigurationService:
             return False, str(exc)
         return True, None
 
-    def apply(
+    def _commit_transaction(
+        self,
+        conn,
+        desired: dict[str, Any],
+        *,
+        expected_revision: int | None,
+    ) -> tuple[dict[str, Any], int]:
+        """One-UoW candidate commit: CAS revision, resolve, write, bump."""
+        settings = SettingsRepository(conn)
+        revision = settings.revision()
+        if expected_revision is not None and expected_revision != revision:
+            raise RevisionConflict(
+                f"Runtime revision conflict: expected {expected_revision}, "
+                f"current {revision}"
+            )
+        resolved = self._resolve(conn, desired)
+        updates = {
+            "optimizations": resolved["resolved_optimizations"],
+            "current_ctx": resolved["context_per_slot"],
+            "current_model": resolved["model_alias"],
+        }
+        settings.set_many(updates)
+        RuntimeConfigRepository(conn).update(
+            model_alias=resolved["model_alias"],
+            context=resolved["context_per_slot"],
+            slots=resolved["slots"],
+        )
+        settings.set_revision(revision + 1)
+        return resolved, revision + 1
+
+    def commit_candidate(
         self,
         desired: dict[str, Any] | None = None,
         *,
         expected_revision: int | None = None,
     ) -> ApplyResult:
-        desired = desired or {}
-        resolved = None
-        with self._units.begin() as conn:
-            settings = SettingsRepository(conn)
-            revision = settings.revision()
-            if expected_revision is not None and expected_revision != revision:
-                raise RevisionConflict(
-                    f"Runtime revision conflict: expected {expected_revision}, "
-                    f"current {revision}"
-                )
-            try:
-                resolved = self._resolve(conn, desired)
-            except BaseException:
-                raise  # rollback: nothing was written
-            updates = {
-                "optimizations": resolved["resolved_optimizations"],
-                "current_ctx": resolved["context_per_slot"],
-                "current_model": resolved["model_alias"],
-            }
-            settings.set_many(updates)
-            RuntimeConfigRepository(conn).update(
-                model_alias=resolved["model_alias"],
-                context=resolved["context_per_slot"],
-                slots=resolved["slots"],
-            )
-            settings.set_revision(revision + 1)
-        new_revision = revision + 1
+        """Exact-revision candidate commit WITHOUT handoff publication.
 
-        published, error = self._publish_handoff(revision=new_revision)
+        Session 5C §10.1: the handoff render is its own durable operation
+        step, so this primitive deliberately performs no filesystem effect.
+        """
+        desired = desired or {}
+        with self._units.begin() as conn:
+            resolved, new_revision = self._commit_transaction(
+                conn, desired, expected_revision=expected_revision
+            )
         return ApplyResult(
-            status=(
-                "committed" if published
-                else "committed_handoff_regeneration_required"
-            ),
+            status="committed_candidate",
             revision=new_revision,
             resolved={
                 "model_alias": resolved["model_alias"],
@@ -703,9 +712,57 @@ class RuntimeConfigurationService:
             },
             restart_required=resolved["restart_required"],
             host_tuning_changes=resolved["host_tuning_changes"],
+            handoff_published=False,
+            warnings=resolved["warnings"],
+        )
+
+    def restore_content(
+        self,
+        prior_config: dict[str, Any],
+        *,
+        expected_revision: int | None = None,
+    ) -> ApplyResult:
+        """Restore PRIOR CONTENT as a NEW committed revision (never rewind).
+
+        Records ``restored_content_of_revision`` lineage alongside the
+        configuration so probes compare content + lineage instead of
+        assuming numeric rollback (Session 5C plan §9).
+        """
+        content_of = prior_config.pop("restored_content_of_revision", None)
+        result = self.apply(prior_config, expected_revision=expected_revision)
+        if content_of is not None:
+            with self._units.begin() as conn:
+                SettingsRepository(conn).set_many(
+                    {"restored_content_of_revision": int(content_of)}
+                )
+        return result
+
+    def apply(
+        self,
+        desired: dict[str, Any] | None = None,
+        *,
+        expected_revision: int | None = None,
+    ) -> ApplyResult:
+        """Candidate commit PLUS handoff regeneration (non-activation paths).
+
+        The durable activation path uses :meth:`commit_candidate` instead;
+        this retained entry serves autotune-style callers that commit and
+        immediately restart within one host action.
+        """
+        result = self.commit_candidate(desired, expected_revision=expected_revision)
+        published, error = self._publish_handoff(revision=result.revision)
+        return ApplyResult(
+            status=(
+                "committed" if published
+                else "committed_handoff_regeneration_required"
+            ),
+            revision=result.revision,
+            resolved=result.resolved,
+            restart_required=result.restart_required,
+            host_tuning_changes=result.host_tuning_changes,
             handoff_published=published,
             handoff_error=error,
-            warnings=resolved["warnings"],
+            warnings=result.warnings,
         )
 
     def restore(self, snapshot: dict[str, Any], *, expected_revision: int) -> ApplyResult:
@@ -726,21 +783,87 @@ class RuntimeConfigurationService:
         """Snapshot the CURRENT committed configuration as last-known-good.
 
         Callers must only invoke this after health + inference verification.
+        Session 5C §10.1: all source data is read and written on the SAME
+        unit-of-work connection (no nested ``current()`` re-entry).
         """
         with self._units.begin() as conn:
-            current = self.current()
+            settings = SettingsRepository(conn)
+            runtime_row = RuntimeConfigRepository(conn).get()
+            model_alias = (
+                runtime_row.get("model_alias") or settings.get("current_model")
+            )
+            context = int(
+                runtime_row.get("context")
+                or settings.get("current_ctx", 8192)
+            )
+            slots = int(
+                runtime_row.get("slots")
+                or parallel_slots_for_settings(settings.get("optimizations") or {})
+            )
+            optimizations = settings.get("optimizations") or {}
+            verified_at = utcnow()
             KnownGoodRuntimeRepository(conn).set(
-                model_alias=current["model_alias"],
-                context=int(current["context"]),
-                slots=int(current["slots"]),
-                profile_id=current.get("profile_id"),
-                runtime=current["optimizations"],
+                model_alias=model_alias,
+                context=context,
+                slots=slots,
+                profile_id=None,
+                runtime=optimizations,
                 runtime_fingerprint=None,
+                runtime_component_identity=component_identity,
+                verified_at=verified_at,
+            )
+            return {
+                "model_alias": model_alias,
+                "context": context,
+                "slots": slots,
+                "runtime": dict(optimizations),
+                "component_identity": component_identity,
+                "verified_at": verified_at,
+            }
+
+    def restore_known_good(self, row: dict[str, Any] | None) -> None:
+        """Restore the prior known-good row EXACTLY, including absence."""
+        with self._units.begin() as conn:
+            repo = KnownGoodRuntimeRepository(conn)
+            if row is None:
+                repo.clear()
+                return
+            repo.set(
+                model_alias=row["model_alias"],
+                context=int(row["context"]),
+                slots=int(row["slots"]),
+                profile_id=row.get("profile_id"),
+                runtime=row.get("runtime") or {},
+                runtime_fingerprint=row.get("runtime_fingerprint"),
+                runtime_component_identity=row.get("runtime_component_identity"),
+                verified_at=row.get("verified_at") or utcnow(),
+            )
+
+    def promote_known_good_exact(
+        self,
+        *,
+        model_alias: str,
+        context: int,
+        slots: int,
+        runtime: dict[str, Any] | None = None,
+        fingerprint: str | None = None,
+        component_identity: str | None = None,
+    ) -> None:
+        """Write the EXACT verified candidate row (Session 5C §7 step 8).
+
+        One unit of work; no second-connection reads inside the write.
+        """
+        with self._units.begin() as conn:
+            KnownGoodRuntimeRepository(conn).set(
+                model_alias=model_alias,
+                context=int(context),
+                slots=int(slots),
+                profile_id=None,
+                runtime=runtime or {},
+                runtime_fingerprint=fingerprint,
                 runtime_component_identity=component_identity,
                 verified_at=utcnow(),
             )
-            current["verified_at"] = utcnow()
-            return current
 
 
 class ModelActivationService:

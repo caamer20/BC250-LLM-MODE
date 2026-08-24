@@ -163,7 +163,7 @@ def test_openwebui_image_is_pinned_not_mutable_main():
 def test_elevated_call_sites_frozen():
     """R1.3 guard: elevation is frozen at the audited count until the R5
     allowlisted helper replaces it (see docs/command_audit.md)."""
-    audited = 44
+    audited = 45
     total = 0
     for path in Path("bc250_llm_mode").rglob("*.py"):
         text = path.read_text(encoding="utf-8")

@@ -254,10 +254,21 @@ def install_service(
     return destination
 
 
+def service_observation(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Read-only systemd observation; never mutates or toggles enablement."""
+    service = str(state.get("service_name", "bc250-llm.service"))
+    result = runner.run(
+        elevated(["systemctl", "is-active", service]), check=False
+    )
+    active = result.returncode == 0 and result.stdout.strip() == "active"
+    return {"service": service, "active": active}
+
+
 def restart_service(state: dict[str, Any], runner: CommandRunner) -> None:
     # Refresh the launcher and regenerate a missing/stale runtime handoff on
     # every controlled restart so newly added per-model profiles and any
     # committed-but-unrendered changes take effect without reinstalling.
+    # Restart never changes enablement: desktop-next-boot is untouched.
     from .runtime_handoff import regenerate_for_app_state
 
     regenerate_for_app_state(state)
@@ -354,11 +365,21 @@ def minimal_inference_probe(state: dict[str, Any], timeout: float = 20.0) -> dic
     return {"ok": True, "sample": text[:64]}
 
 
-def health_check(state: dict[str, Any], runner: CommandRunner | None = None, timeout: int = 120) -> dict[str, Any]:
+def health_check(
+    state: dict[str, Any],
+    runner: CommandRunner | None = None,
+    timeout: int = 120,
+    *,
+    monotonic: Any = None,
+    sleep: Any = None,
+) -> dict[str, Any]:
+    """Bounded health polling with an injected clock (Session 5C §10.3)."""
+    monotonic = monotonic or time.monotonic
+    sleep = sleep or time.sleep
     port = int(state.get("server_port", 8080))
-    deadline = time.monotonic() + timeout
+    deadline = monotonic() + timeout
     last_error = "server did not respond"
-    while time.monotonic() < deadline:
+    while monotonic() < deadline:
         try:
             health = _json_get(f"http://127.0.0.1:{port}/health")
             models = _json_get(f"http://127.0.0.1:{port}/v1/models")
@@ -396,7 +417,7 @@ def health_check(state: dict[str, Any], runner: CommandRunner | None = None, tim
             return result
         except (OSError, urllib.error.URLError, ValueError) as exc:
             last_error = str(exc)
-            time.sleep(2)
+            sleep(2)
     if runner:
         show_server_failure(state, runner, last_error)
     raise TimeoutError(f"Model server was not healthy within {timeout}s: {last_error}")

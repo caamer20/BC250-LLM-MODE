@@ -107,6 +107,54 @@ class RuntimeHandoffRenderer:
             return None
         return payload.get("runtime_fingerprint")
 
+    def observe(self) -> dict | None:
+        """Strict read-only observation (Session 5C plan §10.2).
+
+        Returns the full payload ONLY when it is a valid, complete,
+        bounded handoff object; ``None`` when absent or malformed.
+        Partial/malformed content is the caller's UNCERTAIN signal unless
+        it is provably this operation's own replaceable candidate.
+        """
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        required = (
+            "schema_version", "config_revision", "runtime_fingerprint",
+            "model_id", "model_path", "alias", "llama_cpp_path",
+            "port", "ctx_total", "parallel_slots",
+            "flash_attention", "batch_size", "ubatch_size", "kv_cache_type",
+        )
+        if any(key not in payload for key in required):
+            return None
+        try:
+            if int(payload["schema_version"]) != 1:
+                return None
+            revision = int(payload["config_revision"])
+            port = int(payload["port"])
+            slots = int(payload["parallel_slots"])
+            ctx_total = int(payload["ctx_total"])
+            batch = int(payload["batch_size"])
+            ubatch = int(payload["ubatch_size"])
+        except (TypeError, ValueError):
+            return None
+        if revision < 1 or not 1024 <= port <= 65535:
+            return None
+        if not 1 <= slots <= 8:
+            return None
+        if not slots * 512 <= ctx_total <= slots * 262144:
+            return None
+        if not 16 <= batch <= 8192 or not 16 <= ubatch <= 8192:
+            return None
+        for key in ("runtime_fingerprint", "model_id", "model_path", "alias",
+                    "llama_cpp_path"):
+            value = payload[key]
+            if not isinstance(value, str) or not value.strip():
+                return None
+        return payload
+
     def needs_update(self, fingerprint: str) -> bool:
         return self.stored_fingerprint() != fingerprint
 

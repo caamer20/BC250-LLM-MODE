@@ -366,7 +366,11 @@ class FakeActivationHost:
             return False
         return True
 
-    def observe_config(self, request: ModelActivateRequestV1) -> ProbeResult:
+    def observe_config(
+        self,
+        request: ModelActivateRequestV1,
+        prior: PriorRuntimeSnapshotV1 | None = None,
+    ) -> ProbeResult:
         desired = self.desired()
         if self._config_matches_request(request, desired):
             config = desired.get("config") or {}
@@ -381,11 +385,15 @@ class FakeActivationHost:
                 "CANDIDATE_CONFIG_COMMITTED",
                 output=asdict(evidence),
             )
-        prior = self._read(self.prior_snapshot_path)
-        if prior and desired.get("config") == prior.get("config"):
+        snapshot = (
+            asdict(prior)
+            if prior is not None
+            else self._read(self.prior_snapshot_path)
+        )
+        if snapshot and desired.get("config") == (snapshot.get("config") or {}):
             # Exact prior content (lineage may have moved forward).
             return ProbeResult(RecoveryClass.ABSENT, "EXACT_PRIOR_CONFIG")
-        if prior is None:
+        if snapshot is None:
             return ProbeResult(RecoveryClass.ABSENT, "NO_PRIOR_EVIDENCE")
         return ProbeResult(
             RecoveryClass.UNCERTAIN_MANUAL, "UNRELATED_CONFIG_REVISION"
@@ -423,10 +431,18 @@ class FakeActivationHost:
             schema_version=payload["schema_version"],
         )
 
-    def observe_handoff(self, candidate: CandidateRuntimeV1) -> ProbeResult:
+    def observe_handoff(
+        self,
+        candidate: CandidateRuntimeV1,
+        prior: PriorRuntimeSnapshotV1 | None = None,
+    ) -> ProbeResult:
         handoff = self.handoff()
         expected = self._expected_handoff()
-        prior = self._read(self.prior_snapshot_path)
+        snapshot = (
+            asdict(prior)
+            if prior is not None
+            else self._read(self.prior_snapshot_path)
+        )
         if handoff == expected and expected is not None:
             evidence = HandoffEvidenceV1(
                 fingerprint=expected["runtime_fingerprint"],
@@ -441,7 +457,7 @@ class FakeActivationHost:
             )
         if expected is None or not isinstance(handoff, dict):
             return ProbeResult(RecoveryClass.ABSENT, "NO_HANDOFF")
-        if prior and handoff == prior.get("handoff_payload"):
+        if snapshot and handoff == snapshot.get("handoff_payload"):
             return ProbeResult(RecoveryClass.ABSENT, "EXACT_PRIOR_HANDOFF")
         if handoff.get("model_id") == candidate.model_alias and (
             handoff.get("config_revision") != expected["config_revision"]
@@ -560,7 +576,11 @@ class FakeActivationHost:
             self._write(self.known_good_path, row)
         return KnownGoodEvidenceV1(**row)
 
-    def observe_known_good(self, candidate: CandidateRuntimeV1) -> ProbeResult:
+    def observe_known_good(
+        self,
+        candidate: CandidateRuntimeV1,
+        prior: PriorRuntimeSnapshotV1 | None = None,
+    ) -> ProbeResult:
         row = self.known_good()
         expected = KnownGoodEvidenceV1(
             model_alias=candidate.model_alias,
@@ -575,8 +595,12 @@ class FakeActivationHost:
                 "KNOWN_GOOD_PROMOTED",
                 output=asdict(expected),
             )
-        prior = self._read(self.prior_snapshot_path)
-        if prior and row == (prior.get("known_good") or {}):
+        snapshot = (
+            asdict(prior)
+            if prior is not None
+            else self._read(self.prior_snapshot_path)
+        )
+        if snapshot and row == (snapshot.get("known_good") or {}):
             return ProbeResult(RecoveryClass.ABSENT, "EXACT_PRIOR_KNOWN_GOOD")
         if row is None:
             return ProbeResult(RecoveryClass.ABSENT, "NO_KNOWN_GOOD_ROW")
@@ -607,13 +631,16 @@ class FakeActivationHost:
         return True
 
     def restore_prior(
-        self, candidate: CandidateRuntimeV1, restoration_id: str
+        self,
+        prior: PriorRuntimeSnapshotV1,
+        candidate: CandidateRuntimeV1,
+        restoration_id: str,
     ) -> RestorationEvidenceV1:
-        prior = self._read(self.prior_snapshot_path)
-        if not prior:
+        snapshot = asdict(prior) if prior is not None else None
+        if not snapshot:
             raise RuntimeError("no durable prior snapshot for restoration")
-        service_state = prior.get("service_state", "STOPPED")
-        if self.restoration_proven(prior):
+        service_state = snapshot.get("service_state", "STOPPED")
+        if self.restoration_proven(snapshot):
             return RestorationEvidenceV1(
                 restored=True,
                 stage_codes=["ALREADY_PROVEN"],
@@ -621,7 +648,7 @@ class FakeActivationHost:
             )
         if not self._record_effect(restoration_id, "restoration"):
             return RestorationEvidenceV1(
-                restored=self.restoration_proven(prior),
+                restored=self.restoration_proven(snapshot),
                 stage_codes=["RESTORATION_EFFECT_ALREADY_RAN"],
                 service_state=service_state,
             )
@@ -629,22 +656,22 @@ class FakeActivationHost:
         # 3. Restore prior desired config as a NEW revision (never rewind).
         desired = self.desired()
         restored = dict(desired)
-        restored["config"] = dict(prior.get("config") or {})
+        restored["config"] = dict(snapshot.get("config") or {})
         restored["revision"] = max(
-            int(desired.get("revision", 0)), int(prior.get("revision", 0))
+            int(desired.get("revision", 0)), int(snapshot.get("revision", 0))
         ) + 1
-        restored["restored_content_of_revision"] = prior.get("revision")
+        restored["restored_content_of_revision"] = snapshot.get("revision")
         self._write(self.desired_path, restored)
         stage_codes.append("CONFIG_RESTORED")
         # 4. Restore the prior known-good row exactly, including absence.
-        prior_kg = prior.get("known_good")
+        prior_kg = snapshot.get("known_good")
         if prior_kg:
             self._write(self.known_good_path, dict(prior_kg))
         elif self.known_good_path.exists():
             self.known_good_path.unlink()
         stage_codes.append("KNOWN_GOOD_RESTORED")
         # 5. Publish the prior handoff exactly, or remove own candidate one.
-        prior_handoff = prior.get("handoff_payload")
+        prior_handoff = snapshot.get("handoff_payload")
         if prior_handoff:
             self._write(self.handoff_path, dict(prior_handoff))
             stage_codes.append("HANDOFF_RESTORED")
@@ -654,8 +681,8 @@ class FakeActivationHost:
             stage_codes.append("HANDOFF_REMOVED")
         # 6/7. Service state through the sole service owner only.
         server = self.server()
-        if prior.get("service_state") == "ACTIVE_VERIFIED":
-            alias = prior.get("observed_model_alias")
+        if service_state == "ACTIVE_VERIFIED":
+            alias = snapshot.get("observed_model_alias")
             if server.get("running") != alias:
                 self._record_effect(f"{restoration_id}:{alias}", "restart")
                 self.set_server_running(alias)

@@ -35,5 +35,7 @@ The full site inventory lives in [`command_audit_table.md`](command_audit_table.
 ## Regression guard
 
 `tests/test_production_gates.py::test_elevated_call_sites_frozen` freezes the
-`elevated(` call-site count at **44** (the audited value). Any new elevation
-must update this document and the guard together; R5 replaces them wholesale.
+`elevated(` call-site count at **45** (the audited value; +1 in Session 5C for
+the read-only `server.service_observation` `systemctl is-active` probe, which
+is elevation-wrapped like every other systemd call). Any new elevation must
+update this document and the guard together; R5 replaces them wholesale.

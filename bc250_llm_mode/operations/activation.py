@@ -261,13 +261,21 @@ class ActivationHost(Protocol):
         self, request: ModelActivateRequestV1, external_effect_id: str
     ) -> ConfigEvidenceV1: ...
 
-    def observe_config(self, request: ModelActivateRequestV1) -> ProbeResult: ...
+    def observe_config(
+        self,
+        request: ModelActivateRequestV1,
+        prior: PriorRuntimeSnapshotV1,
+    ) -> ProbeResult: ...
 
     def publish_candidate(
         self, candidate: CandidateRuntimeV1, external_effect_id: str
     ) -> HandoffEvidenceV1: ...
 
-    def observe_handoff(self, candidate: CandidateRuntimeV1) -> ProbeResult: ...
+    def observe_handoff(
+        self,
+        candidate: CandidateRuntimeV1,
+        prior: PriorRuntimeSnapshotV1,
+    ) -> ProbeResult: ...
 
     def restart_candidate(
         self,
@@ -290,10 +298,17 @@ class ActivationHost(Protocol):
         self, candidate: CandidateRuntimeV1, external_effect_id: str
     ) -> KnownGoodEvidenceV1: ...
 
-    def observe_known_good(self, candidate: CandidateRuntimeV1) -> ProbeResult: ...
+    def observe_known_good(
+        self,
+        candidate: CandidateRuntimeV1,
+        prior: PriorRuntimeSnapshotV1,
+    ) -> ProbeResult: ...
 
     def restore_prior(
-        self, candidate: CandidateRuntimeV1, restoration_id: str
+        self,
+        prior: PriorRuntimeSnapshotV1,
+        candidate: CandidateRuntimeV1,
+        restoration_id: str,
     ) -> RestorationEvidenceV1: ...
 
     def observe_restoration(
@@ -389,7 +404,9 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
 
     # Steps 3-5 and 8 share the aggregate restoration protocol (§9).
     def compensate_via_restoration(ctx: EffectContext) -> dict[str, Any]:
-        restoration = host.restore_prior(_candidate(ctx), ctx.external_effect_id)
+        restoration = host.restore_prior(
+            _prior(ctx), _candidate(ctx), ctx.external_effect_id
+        )
         return evidence_dict(restoration)
 
     def verify_restored(ctx: EffectContext) -> dict[str, Any]:
@@ -407,7 +424,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         )
 
     def commit_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_config(ctx.request)
+        result = host.observe_config(ctx.request, _prior(ctx))
         _require_complete(result, CODE_REVISION_CONFLICT)
         return {}
 
@@ -426,7 +443,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         """
         candidate = _candidate(ctx)
         prior = _prior(ctx)
-        handoff = host.observe_handoff(candidate)
+        handoff = host.observe_handoff(candidate, prior)
         if handoff.classification is not RecoveryClass.COMPLETE:
             return handoff
         runtime = host.observe_restart(candidate, prior)
@@ -450,7 +467,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         )
 
     def publish_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_handoff(_candidate(ctx))
+        result = host.observe_handoff(_candidate(ctx), _prior(ctx))
         _require_complete(result, CODE_HANDOFF_PUBLISHED)
         return {}
 
@@ -533,7 +550,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         )
 
     def promote_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_known_good(_candidate(ctx))
+        result = host.observe_known_good(_candidate(ctx), _prior(ctx))
         _require_complete(result, CODE_KNOWN_GOOD_PROMOTED)
         return {}
 
@@ -577,7 +594,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
             critical=True,
             cancel_safe_before=False,
             derive_input=_input(),
-            probe=lambda ctx: host.observe_config(ctx.request),
+            probe=lambda ctx: host.observe_config(ctx.request, _prior(ctx)),
             execute=commit_execute,
             verify=commit_verify,
             compensate=compensate_via_restoration,
@@ -649,7 +666,9 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
             critical=True,
             cancel_safe_before=False,
             derive_input=_input(),
-            probe=lambda ctx: host.observe_known_good(_candidate(ctx)),
+            probe=lambda ctx: host.observe_known_good(
+                _candidate(ctx), _prior(ctx)
+            ),
             execute=promote_execute,
             verify=promote_verify,
             compensate=compensate_via_restoration,
