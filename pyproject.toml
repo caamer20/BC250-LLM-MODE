@@ -21,8 +21,14 @@ bc250-llm-mode = "bc250_llm_mode.__main__:cli"
 
 # Explicit discovery: stray top-level directories (e.g. untracked scratch
 # folders) must never be picked up as packages by flat-layout auto-discovery.
+# U0.5: every importable production subpackage must appear here; the
+# architecture guard enumerates them so this list cannot silently rot.
 [tool.setuptools]
-packages = ["bc250_llm_mode", "bc250_llm_mode.gui"]
+packages = [
+  "bc250_llm_mode",
+  "bc250_llm_mode.gui",
+  "bc250_llm_mode.operations",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
