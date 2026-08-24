@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bc250_llm_mode.state import StateStore
+from support_legacy_store import LegacyStateStore as StateStore
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

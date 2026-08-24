@@ -16,7 +16,7 @@ if str(sys_path) not in sys.path:
 from bc250_llm_mode import __main__ as cli_module  # noqa: E402
 from bc250_llm_mode.__main__ import cli, main  # noqa: E402
 from bc250_llm_mode.server import generate_launcher  # noqa: E402
-from bc250_llm_mode.state import StateStore  # noqa: E402
+from support_legacy_store import LegacyStateStore as StateStore  # noqa: E402
 
 
 LAUNCHER_STATE_FLAGS = (
@@ -71,6 +71,10 @@ def _launcher_state(tmp_path):
     }
     state_path.parent.mkdir(parents=True)
     state_path.write_text(json.dumps(state), encoding="utf-8")
+    # Render the handoff the launcher consumes (the only launch source now).
+    from bc250_llm_mode.runtime_handoff import RuntimeHandoffRenderer
+
+    RuntimeHandoffRenderer(app_dir).publish(state, config_revision=1)
     return state, record
 
 
@@ -108,9 +112,8 @@ def test_launcher_delivers_all_flags_in_a_single_exec(tmp_path):
 def test_launcher_state_reader_compiles_and_omits_no_mmap(tmp_path):
     state, _record = _launcher_state(tmp_path)
     text = generate_launcher(state).read_text(encoding="utf-8")
-    # Both embedded builders (handoff + legacy fallback) must compile.
+    # The single handoff argv builder must compile; no legacy fallback exists.
+    assert "<<'PYS'" not in text
     handoff = text.split("<<'PYH'\n", 1)[1].split("\nPYH\n", 1)[0]
-    legacy = text.split("<<'PYS'\n", 1)[1].split("\nPYS\n", 1)[0]
     compile(handoff, "handoff-argv-builder", "exec")
-    compile(legacy, "legacy-argv-builder", "exec")
     assert "--no-mmap" not in text

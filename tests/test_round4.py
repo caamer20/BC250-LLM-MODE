@@ -71,7 +71,7 @@ def test_thermal_action_hysteresis():
 
 
 def test_watchdog_disabled_and_degraded_sensor(monkeypatch, tmp_path):
-    from bc250_llm_mode.state import StateStore
+    from support_legacy_store import LegacyStateStore as StateStore
 
     store = StateStore(tmp_path / "state.json")
     state = store.load()
@@ -85,7 +85,7 @@ def test_watchdog_disabled_and_degraded_sensor(monkeypatch, tmp_path):
 
 
 def test_watchdog_throttles_then_resumes_exact_profile(monkeypatch, tmp_path):
-    from bc250_llm_mode.state import StateStore
+    from support_legacy_store import LegacyStateStore as StateStore
 
     store = StateStore(tmp_path / "state.json")
     state = store.load()
@@ -121,7 +121,7 @@ def test_watchdog_throttles_then_resumes_exact_profile(monkeypatch, tmp_path):
 
 
 def test_watchdog_stop_latches_and_never_stops_twice(monkeypatch, tmp_path):
-    from bc250_llm_mode.state import StateStore
+    from support_legacy_store import LegacyStateStore as StateStore
 
     store = StateStore(tmp_path / "state.json")
     state = store.load()
@@ -147,7 +147,7 @@ def test_watchdog_stop_latches_and_never_stops_twice(monkeypatch, tmp_path):
 
 
 def test_reset_latch_requires_safe_temperature(monkeypatch, tmp_path):
-    from bc250_llm_mode.state import StateStore
+    from support_legacy_store import LegacyStateStore as StateStore
 
     store = StateStore(tmp_path / "state.json")
     state = store.load()
@@ -169,16 +169,14 @@ def test_launcher_adds_threads_cache_reuse_and_conditional_sync(tmp_path):
     }
     text = server.generate_launcher(state).read_text(encoding="utf-8")
     handoff = text.split("<<'PYH'\n", 1)[1].split("\nPYH\n", 1)[0]
-    legacy = text.split("<<'PYS'\n", 1)[1].split("\nPYS\n", 1)[0]
     compile(handoff, "handoff-argv-builder", "exec")
-    compile(legacy, "legacy-argv-builder", "exec")
+    # Handoff-only: the legacy argv builder must not come back.
+    assert "PYS" not in text
     assert '--threads "${CFG[14]}"' not in text, "positional CFG must be gone"
     assert '"--cache-reuse", "256"' in text
     assert '"--defrag-threshold", "0.1"' in text
-    assert '"--cache-reuse", "256"' in text
-    assert '"--defrag-threshold", "0.1"' in text
     assert 'if [ "$FAST_SYNC" != "1" ]; then' in text
-    assert "cores.add((socket_id, value))" in legacy
+    assert "cores.add((socket_id, value))" in handoff
     assert "--no-mmap" not in text
 
 

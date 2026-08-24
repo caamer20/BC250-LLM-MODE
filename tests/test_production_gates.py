@@ -11,7 +11,7 @@ import pytest
 from bc250_llm_mode.catalog import model_by_id, validation_tier
 from bc250_llm_mode.openwebui import IMAGE_REF, install_open_webui
 from bc250_llm_mode.paths import AppPaths
-from bc250_llm_mode.state import StateStore
+from support_legacy_store import LegacyStateStore as StateStore
 
 
 # --- Program 1.1: explicit application paths -------------------------------

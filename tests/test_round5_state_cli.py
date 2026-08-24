@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from bc250_llm_mode import __main__ as cli
 from bc250_llm_mode import env
 from bc250_llm_mode.constants import KNOWN_GOOD_LLAMACPP
-from bc250_llm_mode.state import StateStore
+from support_legacy_store import LegacyStateStore as StateStore
 
 
 class QuietRunner:

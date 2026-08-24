@@ -1,7 +1,7 @@
 import json
 
 from bc250_llm_mode import state as state_module
-from bc250_llm_mode.state import StateStore
+from support_legacy_store import LegacyStateStore as StateStore
 
 
 def test_state_defaults_and_atomic_update(tmp_path):
@@ -26,7 +26,9 @@ def test_v1_phase_is_migrated_for_new_optimize_step(tmp_path):
 
 
 def test_llm_session_reconciles_to_desktop_after_boot(tmp_path, monkeypatch):
-    monkeypatch.setattr(state_module, "_current_boot_id", lambda: "new-boot")
+    monkeypatch.setattr(
+        "bc250_llm_mode.legacy_schema._current_boot_id", lambda: "new-boot"
+    )
     store = StateStore(tmp_path / "state.json")
     store.path.write_text(
         '{"schema_version": 3, "boot_policy": "desktop", "system_mode": "llm-session", '

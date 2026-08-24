@@ -67,6 +67,7 @@ def build_payload(state: dict, *, config_revision: int) -> dict:
             break
     slots = int(effective.get("parallel_slots", 4))
     payload = {
+        "schema_version": 1,
         "config_revision": int(config_revision),
         "runtime_fingerprint": runtime_fingerprint(state),
         "model_id": current_id,

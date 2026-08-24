@@ -18,7 +18,6 @@ from _gui_stubs import install  # noqa: E402
 install()
 
 from bc250_llm_mode.gui import Wizard  # noqa: E402
-from bc250_llm_mode.state import StateStore  # noqa: E402
 
 
 

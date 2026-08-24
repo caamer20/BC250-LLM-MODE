@@ -64,20 +64,16 @@ class LegacyImporter:
             self.runner.emit(message)
 
     def canonicalize_raw(self, raw: dict[str, Any]) -> dict[str, Any]:
-        """Run raw JSON through the existing in-process v5 migration."""
-        from .state import StateStore
+        """Run raw JSON through the pure v1→v5 canonicalizer (no file I/O)."""
+        from .legacy_schema import canonicalize_legacy_state
 
-        staging_state = self.paths.staging_dir / "canonicalize-state.json"
-        staging_state.parent.mkdir(parents=True, exist_ok=True)
-        staging_state.write_text(json.dumps(raw), encoding="utf-8")
-        try:
-            return StateStore(staging_state).load()
-        finally:
-            staging_state.unlink(missing_ok=True)
+        return canonicalize_legacy_state(raw)
 
     def import_legacy(self, source: Path | None = None) -> dict[str, Any]:
         lock_path = self.paths.migration_lock_path
         lock_path.parent.mkdir(parents=True, exist_ok=True)
+        # Staging must exist before any connection is opened against it.
+        self.paths.staging_dir.mkdir(parents=True, exist_ok=True)
         try:
             lock_handle = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError as exc:

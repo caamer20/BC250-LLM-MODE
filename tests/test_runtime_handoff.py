@@ -169,3 +169,40 @@ def test_handoff_rendered_and_consumed_by_launcher(tmp_path):
     assert "--alias" in recorded
     assert "LFM 2.5 2.6B" in recorded
     assert "FORCE_SYNC=" in recorded
+
+
+def test_launcher_fails_closed_on_missing_handoff(tmp_path):
+    store = NativeApp(tmp_path)
+    _seed(store)
+    # No handoff published. The launcher must refuse, not fall back.
+    launcher = generate_launcher(store.load())
+    result = subprocess.run(
+        ["bash", str(launcher)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 78
+    assert "handoff missing" in result.stderr
+
+
+def test_launcher_fails_closed_on_invalid_handoff(tmp_path):
+    store = NativeApp(tmp_path)
+    _seed(store)
+    runtime = RuntimeConfigurationService(
+        UnitOfWorkFactory(store.paths.database_path),
+        app_dir=store.paths.app_dir,
+        state_supplier=store.load,
+    )
+    runtime.apply({"context": 16384}, expected_revision=store.revision())
+    handoff = store.paths.app_dir / HANDOFF_FILENAME
+
+    payload = json.loads(handoff.read_text(encoding="utf-8"))
+    payload["port"] = 1  # out of the documented range
+    handoff.write_text(json.dumps(payload), encoding="utf-8")
+
+    launcher = generate_launcher(store.load())
+    result = subprocess.run(
+        ["bash", str(launcher)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode != 0
+    assert "handoff invalid" in (result.stderr + result.stdout)

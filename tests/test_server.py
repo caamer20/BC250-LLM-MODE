@@ -11,11 +11,12 @@ def test_launcher_keeps_mmap_and_vulkan_workarounds(tmp_path):
     assert "--no-mmap" not in text
     assert "GGML_VK_DISABLE_F16=1" in text
     assert '"--n-gpu-layers", "99"' in text
-    assert "replace(chr(10)" in text  # alias sanitization
+    # Handoff-only: the legacy state.json argv builder is gone.
+    assert "state.json" not in text
+    assert "LEGACY_STATE" not in text
+    assert "<<'PYS'" not in text
     handoff = text.split("<<'PYH'\n", 1)[1].split("\nPYH\n", 1)[0]
-    legacy = text.split("<<'PYS'\n", 1)[1].split("\nPYS\n", 1)[0]
     compile(handoff, "handoff-argv-builder", "exec")
-    compile(legacy, "legacy-argv-builder", "exec")
     assert '"--n-gpu-layers", "99"' in text
     assert "--cache-type-k" in text
     assert "--parallel" in text

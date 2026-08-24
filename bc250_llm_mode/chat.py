@@ -30,7 +30,6 @@ from .server import (
 )
 from .sharing import https_sharing_status, start_https_sharing, stop_https_sharing
 from .paths import AppPaths
-from .state import StateStore
 from .tailscale import (
     connect_tailscale,
     disconnect_tailscale,
