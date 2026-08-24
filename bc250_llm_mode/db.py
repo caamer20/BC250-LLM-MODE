@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -244,6 +244,122 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """
             CREATE INDEX idx_operation_leases_expiry
                 ON operation_leases(expires_at)
+            """,
+        ),
+    ),
+    (
+        4,
+        "managed-model-artifacts",
+        (
+            # ADR 003 (U1.1): content-addressed managed artifacts. Digests
+            # are normalized lower-case sha256:<64hex>; legacy backfill rows
+            # use deterministic 'legacy:<installation id>' IDs and never
+            # claim verified trust.
+            """
+            CREATE TABLE model_artifacts (
+                id TEXT PRIMARY KEY,
+                content_digest TEXT UNIQUE,
+                byte_size INTEGER CHECK (byte_size >= 0),
+                canonical_path TEXT NOT NULL UNIQUE,
+                storage_state TEXT NOT NULL
+                    CHECK (storage_state IN
+                        ('MANAGED', 'QUARANTINED', 'LEGACY_EXTERNAL')),
+                trust_state TEXT NOT NULL
+                    CHECK (trust_state IN
+                        ('VERIFIED', 'UNVERIFIED', 'QUARANTINED',
+                         'LEGACY_UNVERIFIED')),
+                format TEXT,
+                architecture TEXT,
+                quantization TEXT,
+                tensor_count INTEGER,
+                validator_version INTEGER NOT NULL DEFAULT 1,
+                validation_detail_json TEXT NOT NULL DEFAULT '{}',
+                source_kind TEXT NOT NULL DEFAULT 'legacy',
+                source_repo TEXT,
+                source_revision TEXT,
+                source_filename TEXT,
+                source_digest TEXT,
+                catalog_id TEXT,
+                license_id TEXT,
+                provenance_json TEXT NOT NULL DEFAULT '{}',
+                quarantine_reason_code TEXT,
+                created_at TEXT NOT NULL,
+                validated_at TEXT,
+                CHECK (
+                    (storage_state = 'MANAGED'
+                     AND content_digest IS NOT NULL
+                     AND validated_at IS NOT NULL)
+                    OR (storage_state = 'QUARANTINED'
+                        AND content_digest IS NOT NULL
+                        AND quarantine_reason_code IS NOT NULL)
+                    OR storage_state = 'LEGACY_EXTERNAL'
+                )
+            )
+            """,
+            """
+            CREATE INDEX idx_model_artifacts_digest
+                ON model_artifacts(content_digest)
+            """,
+            """
+            CREATE INDEX idx_model_artifacts_state
+                ON model_artifacts(storage_state, trust_state)
+            """,
+            """
+            CREATE INDEX idx_model_artifacts_catalog
+                ON model_artifacts(catalog_id)
+            """,
+            # Link installations to artifacts without rebuilding migration
+            # 001's table. Legacy rows are backfilled deterministically in
+            # SQL below; no user file is read or hashed.
+            """
+            ALTER TABLE model_installations
+                ADD COLUMN artifact_id TEXT REFERENCES model_artifacts(id)
+            """,
+            """
+            INSERT INTO model_artifacts (
+                id, canonical_path, storage_state, trust_state,
+                validator_version, provenance_json, created_at
+            )
+            SELECT
+                'legacy:' || CAST(id AS TEXT),
+                path,
+                'LEGACY_EXTERNAL',
+                'LEGACY_UNVERIFIED',
+                1,
+                '{}',
+                imported_at
+            FROM model_installations
+            WHERE id IS NOT NULL
+            """,
+            """
+            UPDATE model_installations
+               SET artifact_id = 'legacy:' || CAST(id AS TEXT)
+            WHERE artifact_id IS NULL
+            """,
+            """
+            CREATE INDEX idx_model_installations_artifact
+                ON model_installations(artifact_id)
+            """,
+            # U1.1: logical per-operation disk reservations. Release marks;
+            # rows remain as Activity/support evidence.
+            """
+            CREATE TABLE operation_storage_reservations (
+                operation_id TEXT PRIMARY KEY REFERENCES operations(id)
+                    ON DELETE CASCADE,
+                filesystem_identity TEXT NOT NULL,
+                required_bytes INTEGER NOT NULL CHECK (required_bytes >= 0),
+                available_bytes INTEGER NOT NULL CHECK (available_bytes >= 0),
+                reserved_bytes INTEGER NOT NULL CHECK (reserved_bytes >= 0),
+                reclaimable_owned_bytes INTEGER NOT NULL
+                    CHECK (reclaimable_owned_bytes >= 0),
+                credited_partial_bytes INTEGER NOT NULL
+                    CHECK (credited_partial_bytes >= 0),
+                state TEXT NOT NULL
+                    CHECK (state IN ('RESERVED', 'RELEASED')),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                released_at TEXT
+            )
             """,
         ),
     ),

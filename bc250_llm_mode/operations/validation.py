@@ -46,6 +46,7 @@ SUMMARY_MAX_CHARS = 512                # human-readable summary lines
 KNOWN_REQUEST_VERSIONS: dict[OperationType, int] = {
     OperationType.MODEL_ACTIVATE: 1,
     OperationType.MODEL_ACQUIRE: 1,
+    OperationType.MODEL_IMPORT: 1,
     OperationType.RUNTIME_UPDATE: 1,
     OperationType.RUNTIME_ROLLBACK: 1,
 }

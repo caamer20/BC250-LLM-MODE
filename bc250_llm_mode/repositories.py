@@ -81,14 +81,35 @@ class RuntimeConfigRepository:
         )
 
 
+class RepositoryConflict(RuntimeError):
+    """Typed conflict with a stable result/error code (U1.1 §5.5)."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+
+
+def existing_row_id(conn, alias: str) -> int:
+    row = conn.execute(
+        "SELECT id FROM model_installations WHERE alias = ?", (alias,)
+    ).fetchone()
+    return int(row["id"])
+
+
 class ModelInstallationsRepository:
     def __init__(self, conn) -> None:
         self.conn = conn
 
     def list(self) -> list:
         rows = self.conn.execute(
-            "SELECT alias, path, quant, display_name, sampling_json, "
-            "provenance, validation_status FROM model_installations ORDER BY alias"
+            "SELECT i.alias, i.path, i.quant, i.display_name, i.sampling_json, "
+            "i.provenance, i.validation_status, i.artifact_id, "
+            "a.content_digest AS content_digest, "
+            "a.storage_state AS artifact_storage_state, "
+            "a.trust_state AS artifact_trust_state "
+            "FROM model_installations i "
+            "LEFT JOIN model_artifacts a ON a.id = i.artifact_id "
+            "ORDER BY i.alias"
         ).fetchall()
         models = []
         for r in rows:
@@ -99,10 +120,98 @@ class ModelInstallationsRepository:
                 "display_name": r["display_name"],
                 "provenance": r["provenance"],
                 "validation_status": r["validation_status"],
+                # U1.1 compatibility projections (bounded, read-only).
+                "artifact_id": r["artifact_id"],
+                "content_digest": r["content_digest"],
+                "artifact_storage_state": r["artifact_storage_state"],
+                "artifact_trust_state": r["artifact_trust_state"],
+                "managed": (
+                    r["artifact_storage_state"] == "MANAGED"
+                    if r["artifact_storage_state"] is not None
+                    else False
+                ),
             }
             model.update(json.loads(r["sampling_json"] or "{}"))
             models.append(model)
         return models
+
+    def get_by_alias(self, alias: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT alias, path, quant, display_name, sampling_json, "
+            "provenance, validation_status, artifact_id "
+            "FROM model_installations WHERE alias = ?",
+            (alias,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "alias": row["alias"],
+            "path": row["path"],
+            "quant": row["quant"],
+            "display_name": row["display_name"],
+            "sampling_json": json.loads(row["sampling_json"] or "{}"),
+            "provenance": row["provenance"],
+            "validation_status": row["validation_status"],
+            "artifact_id": row["artifact_id"],
+        }
+
+    def install_alias(
+        self,
+        *,
+        alias: str,
+        artifact_id: str,
+        path: str,
+        quant: str,
+        display_name: str,
+        sampling: dict | None = None,
+    ) -> int:
+        """Idempotent exact alias registration (U1.1 §5.2).
+
+        - same alias + same artifact -> no-op success;
+        - same alias + different artifact -> conflict;
+        - quarantined artifacts are refused an alias.
+        """
+        existing = self.get_by_alias(alias)
+        if existing is not None:
+            if existing["artifact_id"] == artifact_id:
+                return existing_row_id(self.conn, alias)
+            raise RepositoryConflict(
+                "INSTALLATION_ALIAS_CONFLICT",
+                f"alias {alias!r} already points at a different artifact",
+            )
+        trust = self.conn.execute(
+            "SELECT storage_state, trust_state FROM model_artifacts WHERE id = ?",
+            (artifact_id,),
+        ).fetchone()
+        if trust is None:
+            raise RepositoryConflict(
+                "ARTIFACT_RECORD_CONFLICT",
+                f"unknown artifact {artifact_id!r}",
+            )
+        if trust["storage_state"] != "MANAGED" or trust["trust_state"] not in (
+            "VERIFIED",
+            "LEGACY_UNVERIFIED",
+        ):
+            raise RepositoryConflict(
+                "INSTALLATION_ALIAS_CONFLICT",
+                "quarantined/unverified artifacts cannot receive an alias",
+            )
+        self.conn.execute(
+            "INSERT INTO model_installations(alias, path, quant, display_name, "
+            "sampling_json, provenance, validation_status, imported_at, "
+            "artifact_id) VALUES (?, ?, ?, ?, ?, 'managed-import', "
+            "'verified', ?, ?)",
+            (
+                alias,
+                path,
+                quant,
+                display_name,
+                json.dumps(sampling or {}),
+                utcnow(),
+                artifact_id,
+            ),
+        )
+        return existing_row_id(self.conn, alias)
 
     def replace_all(self, models: list) -> None:
         self.conn.execute("DELETE FROM model_installations")
@@ -371,3 +480,294 @@ class KnownGoodRuntimeRepository:
 
     def clear(self) -> None:
         self.conn.execute("DELETE FROM known_good_runtime WHERE id = 1")
+
+
+class ModelArtifactRepository:
+    """Typed access to managed/quarantined/legacy artifacts (ADR 003)."""
+
+    _COLUMNS = (
+        "id, content_digest, byte_size, canonical_path, storage_state, "
+        "trust_state, format, architecture, quantization, tensor_count, "
+        "validator_version, validation_detail_json, source_kind, "
+        "source_repo, source_revision, source_filename, source_digest, "
+        "catalog_id, license_id, provenance_json, quarantine_reason_code, "
+        "created_at, validated_at"
+    )
+
+    def __init__(self, conn, *, clock=None) -> None:
+        self.conn = conn
+        self._clock = clock or utcnow
+
+    def _row_to_dict(self, row) -> dict | None:
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "content_digest": row["content_digest"],
+            "byte_size": row["byte_size"],
+            "canonical_path": row["canonical_path"],
+            "storage_state": row["storage_state"],
+            "trust_state": row["trust_state"],
+            "format": row["format"],
+            "architecture": row["architecture"],
+            "quantization": row["quantization"],
+            "tensor_count": row["tensor_count"],
+            "validator_version": row["validator_version"],
+            "validation_detail": json.loads(
+                row["validation_detail_json"] or "{}"
+            ),
+            "source_kind": row["source_kind"],
+            "catalog_id": row["catalog_id"],
+            "provenance": json.loads(row["provenance_json"] or "{}"),
+            "quarantine_reason_code": row["quarantine_reason_code"],
+            "created_at": row["created_at"],
+            "validated_at": row["validated_at"],
+        }
+
+    def get(self, artifact_id: str) -> dict | None:
+        row = self.conn.execute(
+            f"SELECT {self._COLUMNS} FROM model_artifacts WHERE id = ?",
+            (artifact_id,),
+        ).fetchone()
+        return self._row_to_dict(row)
+
+    def require(self, artifact_id: str) -> dict:
+        found = self.get(artifact_id)
+        if found is None:
+            raise RepositoryConflict(
+                "ARTIFACT_RECORD_CONFLICT",
+                f"unknown artifact {artifact_id!r}",
+            )
+        return found
+
+    def get_by_digest(self, content_digest: str) -> dict | None:
+        row = self.conn.execute(
+            f"SELECT {self._COLUMNS} FROM model_artifacts "
+            "WHERE content_digest = ? "
+            "AND storage_state IN ('MANAGED', 'QUARANTINED')",
+            (content_digest.lower(),),
+        ).fetchone()
+        return self._row_to_dict(row)
+
+    def list_quarantined(self) -> list[dict]:
+        rows = self.conn.execute(
+            f"SELECT {self._COLUMNS} FROM model_artifacts "
+            "WHERE storage_state = 'QUARANTINED' ORDER BY created_at DESC"
+        ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def record_verified(
+        self,
+        *,
+        artifact_id: str,
+        content_digest: str,
+        byte_size: int,
+        canonical_path: str,
+        format: str = "GGUF",
+        architecture: str | None = None,
+        quantization: str | None = None,
+        tensor_count: int | None = None,
+        validator_version: int = 1,
+        validation_detail: dict | None = None,
+        source_kind: str = "hub",
+        source_repo: str | None = None,
+        source_revision: str | None = None,
+        source_filename: str | None = None,
+        catalog_id: str | None = None,
+        license_id: str | None = None,
+        provenance: dict | None = None,
+    ) -> str:
+        from .operations.validation import sanitize_payload, sanitize_summary
+
+        now = self._clock()
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO model_artifacts (
+                    id, content_digest, byte_size, canonical_path,
+                    storage_state, trust_state, format, architecture,
+                    quantization, tensor_count, validator_version,
+                    validation_detail_json, source_kind, source_repo,
+                    source_revision, source_filename, catalog_id,
+                    license_id, provenance_json, created_at, validated_at
+                ) VALUES (?, ?, ?, ?, 'MANAGED', 'VERIFIED',
+                          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact_id,
+                    content_digest.lower(),
+                    int(byte_size),
+                    canonical_path,
+                    format,
+                    sanitize_summary(architecture),
+                    sanitize_summary(quantization),
+                    tensor_count,
+                    int(validator_version),
+                    sanitize_payload(validation_detail or {}),
+                    source_kind,
+                    sanitize_summary(source_repo),
+                    sanitize_summary(source_revision),
+                    sanitize_summary(source_filename),
+                    sanitize_summary(catalog_id),
+                    sanitize_summary(license_id),
+                    sanitize_payload(provenance or {}),
+                    now,
+                    now,
+                ),
+            )
+        except Exception as exc:
+            raise RepositoryConflict(
+                "ARTIFACT_RECORD_CONFLICT", f"cannot record artifact: {exc}"
+            ) from exc
+        return artifact_id
+
+    def record_quarantine(
+        self,
+        *,
+        artifact_id: str,
+        content_digest: str,
+        byte_size: int,
+        canonical_path: str,
+        reason_code: str,
+        validation_detail: dict | None = None,
+        source_kind: str = "local",
+    ) -> str:
+        from .operations.validation import sanitize_payload, sanitize_summary
+
+        now = self._clock()
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO model_artifacts (
+                    id, content_digest, byte_size, canonical_path,
+                    storage_state, trust_state, format, validator_version,
+                    validation_detail_json, source_kind,
+                    quarantine_reason_code, created_at, validated_at
+                ) VALUES (?, ?, ?, ?, 'QUARANTINED', 'QUARANTINED', 'GGUF',
+                          1, ?, ?, ?, ?, ?)
+                """,
+                (
+                    artifact_id,
+                    content_digest.lower(),
+                    int(byte_size),
+                    canonical_path,
+                    sanitize_payload(validation_detail or {}),
+                    sanitize_summary(source_kind),
+                    sanitize_summary(reason_code),
+                    now,
+                    now,
+                ),
+            )
+        except Exception as exc:
+            raise RepositoryConflict(
+                "ARTIFACT_RECORD_CONFLICT", f"cannot quarantine: {exc}"
+            ) from exc
+        return artifact_id
+
+
+class StorageReservationRepository:
+    """Durable logical reservations (U1.1 §4.6/§5.4). Release marks."""
+
+    def __init__(self, conn, *, clock=None) -> None:
+        self.conn = conn
+        self._clock = clock or utcnow
+
+    def reserve(
+        self,
+        *,
+        operation_id: str,
+        filesystem_identity: str,
+        required_bytes: int,
+        available_bytes: int,
+        reserved_bytes: int,
+        reclaimable_owned_bytes: int = 0,
+        credited_partial_bytes: int = 0,
+    ) -> dict:
+        if min(required_bytes, available_bytes, reserved_bytes) < 0:
+            raise ValueError("reservation bytes must be >= 0")
+        if reserved_bytes > required_bytes:
+            raise ValueError("reserved bytes cannot exceed required")
+        now = self._clock()
+        try:
+            self.conn.execute(
+                """
+                INSERT INTO operation_storage_reservations (
+                    operation_id, filesystem_identity, required_bytes,
+                    available_bytes, reserved_bytes, reclaimable_owned_bytes,
+                    credited_partial_bytes, state, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'RESERVED', ?, ?)
+                """,
+                (
+                    operation_id,
+                    filesystem_identity,
+                    int(required_bytes),
+                    int(available_bytes),
+                    int(reserved_bytes),
+                    int(reclaimable_owned_bytes),
+                    int(credited_partial_bytes),
+                    now,
+                    now,
+                ),
+            )
+        except Exception as exc:
+            raise RepositoryConflict(
+                "MODEL_STORAGE_BUSY",
+                f"cannot reserve for {operation_id!r}: {exc}",
+            ) from exc
+        result = self.get(operation_id)
+        assert result is not None
+        return result
+
+    def update_growth(self, operation_id: str, *, reserved_bytes: int) -> dict:
+        now = self._clock()
+        cursor = self.conn.execute(
+            """
+            UPDATE operation_storage_reservations
+               SET reserved_bytes = MAX(reserved_bytes, ?), updated_at = ?
+             WHERE operation_id = ? AND state = 'RESERVED'
+            """,
+            (int(reserved_bytes), now, operation_id),
+        )
+        if cursor.rowcount != 1:
+            raise RepositoryConflict(
+                "STAGING_OWNERSHIP_INVALID",
+                f"no active reservation for {operation_id!r}",
+            )
+        result = self.get(operation_id)
+        assert result is not None
+        return result
+
+    def release(self, operation_id: str) -> None:
+        now = self._clock()
+        cursor = self.conn.execute(
+            """
+            UPDATE operation_storage_reservations
+               SET state = 'RELEASED', released_at = ?, updated_at = ?
+             WHERE operation_id = ? AND state = 'RESERVED'
+            """,
+            (now, now, operation_id),
+        )
+        if cursor.rowcount != 1:
+            raise RepositoryConflict(
+                "CLEANUP_INCOMPLETE",
+                f"no active reservation to release for {operation_id!r}",
+            )
+
+    def get(self, operation_id: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM operation_storage_reservations WHERE operation_id = ?",
+            (operation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "operation_id": row["operation_id"],
+            "filesystem_identity": row["filesystem_identity"],
+            "required_bytes": row["required_bytes"],
+            "available_bytes": row["available_bytes"],
+            "reserved_bytes": row["reserved_bytes"],
+            "reclaimable_owned_bytes": row["reclaimable_owned_bytes"],
+            "credited_partial_bytes": row["credited_partial_bytes"],
+            "state": row["state"],
+            "released_at": row["released_at"],
+        }
