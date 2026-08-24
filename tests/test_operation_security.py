@@ -7,9 +7,19 @@ SQLite. Canaries prove nothing secret ever lands in the database.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pytest
+
+import sys
+from pathlib import Path
+
+sys_path = Path(__file__).parent
+ops_support = sys_path / "operations"
+for _path in (sys_path, ops_support):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
 from bc250_llm_mode.db import initialize_and_close
 from bc250_llm_mode.operations.model import (
@@ -24,6 +34,23 @@ from bc250_llm_mode.operations.validation import (
     sanitize_summary,
 )
 from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
+
+from helpers import Harness
+
+
+def _engine(harness, worker_id):
+    from bc250_llm_mode.operations.engine import ExecutionEngine
+
+    return ExecutionEngine(
+        harness.units,
+        harness.registry,
+        clock=harness.clock.now,
+        uuid_factory=harness.effect_ids,
+        worker_id=worker_id,
+        lease_ttl_seconds=60,
+    )
+
+
 
 
 class FakeClock:
@@ -146,3 +173,97 @@ def test_summaries_bounded_and_strings_truncated():
 def test_unsupported_payload_types_rejected():
     with pytest.raises(OperationValidationError, match="unsupported payload type"):
         sanitize_payload({"bytes": b"\x00\x01"})
+
+
+# --- Session 5B §14.8: engine-level privacy and boundedness -------------------
+
+
+def _canary_harness(tmp_path):
+    from bc250_llm_mode.operations.workflow import (
+        WorkflowDefinition,
+        WorkflowRegistry,
+    )
+
+    harness = Harness(tmp_path)
+    harness.set_desired("v1")
+
+    def canary_execute(ctx):
+        raise RuntimeError(
+            "SECRET-CANARY-EXC leaked token=abcdef argv contained SECRET-CANARY-ARGV"
+        )
+
+    steps = []
+    for step in harness.workflow.steps:
+        if step.step_key == "capture_prior":
+            from dataclasses import replace
+
+            step = replace(step, execute=canary_execute)
+        steps.append(step)
+
+    definition = WorkflowDefinition(
+        operation_type=harness.workflow.operation_type,
+        request_version=1,
+        recovery_policy_version=1,
+        decode_request=harness.workflow.decode_request,
+        steps=tuple(steps),
+        summary=harness.workflow.summary,
+    )
+    registry = WorkflowRegistry()
+    registry.register(definition)
+    harness.registry = registry.freeze()
+    return harness
+
+
+def test_raw_exception_text_never_reaches_sqlite(tmp_path):
+    harness = _canary_harness(tmp_path)
+    harness.enqueue(desired_value="v1", operation_id="op-canary")
+    _engine(harness, "w1").execute_one("op-canary")
+
+    # Dump every durable text column and search for canaries.
+    conn = sqlite3.connect(str(harness.database))
+    try:
+        dumps = []
+        for table, column in (
+            ("operations", "request_json"),
+            ("operations", "error_detail"),
+            ("operation_steps", "input_json"),
+            ("operation_steps", "output_json"),
+            ("operation_steps", "failure_detail"),
+            ("operation_events", "detail_json"),
+            ("operation_events", "summary"),
+        ):
+            rows = conn.execute(f"SELECT {column} FROM {table}").fetchall()
+            dumps.extend(str(row[0]) for row in rows)
+    finally:
+        conn.close()
+    blob = "\n".join(dumps)
+    assert "SECRET-CANARY-EXC" not in blob
+    assert "token=abcdef" not in blob
+    assert "SECRET-CANARY-ARGV" not in blob
+
+
+def test_failure_terminal_records_only_exception_class(tmp_path):
+    harness = _canary_harness(tmp_path)
+    harness.enqueue(desired_value="v1", operation_id="op-cls")
+    _engine(harness, "w1").execute_one("op-cls")
+
+    with harness.units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        record = ops.get("op-cls")
+    assert record.error_detail is not None
+    detail = json.loads(record.error_detail)
+    assert detail["exception_class"] == "RuntimeError"
+
+
+def test_fake_world_files_stay_under_injected_root(tmp_path):
+    harness = Harness(tmp_path)
+    world_root = tmp_path / "fake-world"
+    harness.world.publish("x")
+    for path in (
+        harness.world.desired_path,
+        harness.world.active_path,
+        harness.world.prior_path,
+        harness.world.publication_path,
+    ):
+        if path.exists():
+            assert world_root in path.parents or path.parent == world_root

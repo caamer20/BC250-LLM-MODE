@@ -84,6 +84,7 @@ class ExecutionEngine:
         lease_ttl_seconds: int = 60,
         shutdown_requested: Callable[[], bool] | None = None,
         on_lease_acquired: Callable[[str], None] | None = None,
+        crash_hook: Callable[[str, str], None] | None = None,
     ) -> None:
         self.units = units
         self.registry = registry
@@ -93,6 +94,8 @@ class ExecutionEngine:
         self.lease_ttl_seconds = lease_ttl_seconds
         self.shutdown_requested = shutdown_requested or (lambda: False)
         self.on_lease_acquired = on_lease_acquired
+        self.crash_hook = crash_hook
+        self._crash = self.crash_hook or (lambda step_key, point: None)
 
     # -- infrastructure --------------------------------------------------------
 
@@ -311,6 +314,17 @@ class ExecutionEngine:
     ) -> EffectContext:
         """§7.3: fence, derive input, assign effect id, persist intent."""
         self._ensure_running(operation_id, held)
+        self._crash(step.step_key, "before_step_start")
+        with self.units.begin() as conn:
+            steps_repo = StepRepository(conn, clock=self.clock)
+            existing = steps_repo.require(operation_id, step.step_key)
+            if reclaim and existing.external_effect_id:
+                # Recovery reuses the SAME external-effect id: probe/verify
+                # identity depends on it.
+                effect_id = existing.external_effect_id
+            else:
+                effect_id = self.uuid_factory()
+        inputs = dict(step.derive_input(request=decoded, prior=prior_outputs))
         with self.units.begin() as conn:
             steps_repo = StepRepository(conn, clock=self.clock)
             existing = steps_repo.require(operation_id, step.step_key)
@@ -468,7 +482,9 @@ class ExecutionEngine:
         )
 
         if reclaim:
+            self._crash(step.step_key, "before_probe")
             probe = step.probe(ctx)
+            self._crash(step.step_key, "after_probe")
             decision = decide_recovery(
                 probe.classification,
                 operation_state=OperationState.RUNNING,
@@ -492,6 +508,7 @@ class ExecutionEngine:
                 probe, decision, held, effected,
             )
 
+        self._crash(step.step_key, "after_step_start")
         return self._execute_effect(
             operation_id, step, ctx, held, effected
         )
@@ -508,6 +525,7 @@ class ExecutionEngine:
     ) -> "ExecutionOutcome | list[StepDefinition]":
         try:
             output = step.execute(ctx)
+            self._crash(step.step_key, "before_step_checkpoint")
             import json as _json
 
             self._checkpoint_transaction(
@@ -518,7 +536,10 @@ class ExecutionEngine:
                 _json.loads(sanitize_payload(output or {})),
                 recovered=False,
             )
+            self._crash(step.step_key, "after_step_checkpoint")
+            self._crash(step.step_key, "before_step_verification")
             step.verify(ctx)
+            self._crash(step.step_key, "after_step_verification")
             self._verify_transaction(operation_id, step, held)
         except LostLease:
             raise
@@ -763,8 +784,10 @@ class ExecutionEngine:
                         summary=f"compensating {step.step_key}",
                     )
                 step.compensate(ctx)
+                self._crash(step.step_key, "after_compensation_effect")
                 if step.verify_restoration is not None:
                     step.verify_restoration(ctx)
+                self._crash(step.step_key, "before_compensation_checkpoint")
                 with self.units.begin() as conn:
                     ops, steps_repo, leases, events = self._repos(conn)
                     ops.require(operation_id)
@@ -791,6 +814,7 @@ class ExecutionEngine:
             ops, _s, leases, _e = self._repos(conn)
             record = ops.require(operation_id)
             self._fence(leases, operation_id, held)
+            self._crash("operation", "before_terminal_transition")
             ops.record_terminal_result(
                 operation_id,
                 terminal_state=terminal,
