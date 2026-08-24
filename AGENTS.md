@@ -5,7 +5,7 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 448-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 490-test green baseline**, and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -13,7 +13,9 @@ watchdog, autotune, llama.cpp staged update/rollback, schema v5 + ordered
 atomic migrations, production hardening, the `gui/` package, the **SQLite
 cutover with the compatibility facade removed** (repositories, unit of work,
 query layer, typed services, repair gate, durable publication, runtime
-handoff renderer/service), and the closed R1/R2 exit gate.
+handoff renderer/service), the closed R1/R2 exit gate, and **Session 5C:
+durable MODEL_ACTIVATE v1** (one production activation path; the synchronous
+orchestrator and every legacy fallback are deleted).
 
 ## Where we are in the master plan
 
@@ -26,16 +28,14 @@ rollback inference verification); launcher is handoff-only with strict
 fail-closed validation; legacy canonicalization is pure (`legacy_schema.py`)
 and the writable JSON store exists only as test support; duplicate
 post-service commits removed with owners recorded; docs truth pass complete.
-Next: ~~**Session 5A**~~ **DONE**; ~~**Session 5B**~~ **DONE**, then
-**Session 5C — convert model activation to durable steps** (remove the old
-synchronous activation path as it converts; never leave both callable).
-The implementation-ready Session 5C sequencing, generic-engine entry
-corrections, typed request/evidence contract, eight activation steps,
-aggregate restoration protocol, production adapter ownership, crash matrix,
-commit gates, and stop boundary are frozen in
-`SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`. Use it beneath the
-post-R2 plan and ADR 002; `SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md` remains
-the completed R3.2 authority and evidence handoff.
+Next: ~~**Session 5A**~~ **DONE**; ~~**Session 5B**~~ **DONE**;
+~~**Session 5C**~~ **DONE**, then **Session 6A — convert model
+acquisition/import to durable operations** (first red test: crash after
+final artifact publication but before checkpoint; the next executor must
+recognize the exact content digest without downloading, copying, or
+publishing twice). `SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`
+is the completed R3.3 authority; `SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`
+remains the completed R3.2 authority and evidence handoff.
 
 1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
 2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.
@@ -58,22 +58,26 @@ the completed R3.2 authority and evidence handoff.
    stays exactly 1 across takeover; full named crash-point matrix;
    20/20 focused stress iterations, no sleeps). **Still no real host
    adapter, CLI operation command, or Activity UI** — 5C/6C.
-5. **Session 5C**: first red test reuses the 5B crash harness — crash after
-   publishing the candidate runtime handoff but before checkpoint; a new
-   executor must inspect handoff fingerprint, desired runtime revision,
-   server health, and bounded inference, then checkpoint the complete
-   candidate once or restore the prior known-good exactly once. Map every
-   synchronous activation behavior to a StepDefinition and name one typed
-   adapter owner per effect (handoff publication, restart, health,
-   inference probe, known-good promotion/restoration). Remove the old
-   synchronous path as it converts. Follow
-   `SESSION_5C_DURABLE_ACTIVATION_IMPLEMENTATION_PLAN.md`; its first code
-   boundary red-tests critical-state cancellation, durable compensation
-   takeover, durable effect reconstruction, intent reuse, and per-step
-   implementation versions before any real adapter lands. Existing
-   model/context/slot surfaces drive the operation in the foreground; the
-   generic operation CLI, detach, and Activity GUI remain deferred to 6C.
-   Then Session 6 (acquisition, runtime update, Activity view), R4 typed
+5. ~~**Session 5C**: durable model activation~~ **DONE**
+   (`02b7e72` plan freeze → `dbacbdd` entry corrections → `b87e87f`
+   workflow → `3ff497f` adapter → `ee8a5fe` cutover → Commit 6 evidence).
+   Entry corrections landed first (ADR 002 §15: `COMMITTING → VERIFYING`
+   cycle + durable compensation resume; intent reuse; per-step versions;
+   fenced pulse). Production shape: `operations/activation.py` (request v1,
+   evidence, typed port, eight steps), `activation_adapter.py` (ONE
+   production host), `activation_command.py` (foreground enqueue/execute/
+   terminal mapping; resumes interrupted activations, RECOVERY_REQUIRED
+   barrier), strict handoff observation, bounded GGUF identity
+   (`model_artifact.py`). Frontends (`__main__`, chat, GUI, setup) all
+   reach `switch_model`/`change_context`/`change_parallel_slots` → the one
+   command; `_apply_legacy_or_raise`, `restart_with_rollback`, and the
+   synchronous orchestrator are deleted with AST guards. Mandatory
+   handoff-death test passes BOTH branches (candidate-complete succeeds
+   without a second restart; prior-still-active rolls back with exactly
+   one restoration); 18-case crash matrix converges under takeover;
+   20/20 focused stress iterations, no sleeps. **No operations CLI,
+   Activity UI, detach, background worker, or auto-start** — Session 6C.
+   Then **Session 6A** (acquisition), runtime update, R4 typed
    adapters/timeouts, and the later phases of the post-R2 plan.
 
 ## Layout highlights
@@ -83,6 +87,7 @@ the completed R3.2 authority and evidence handoff.
 | GUI package | `gui/app.py`, `gui/steps.py`, `gui/dashboard.py`, `gui/forms.py`; `Wizard`/`run_gui` composed in `gui/__init__.py`; surface frozen by headless contract test |
 | State | `state.py` (legacy JSON, schema v5, transaction()), `compat_state.py` (SQLite compatibility facade), `repositories.py` (typed SQL access), `paths.py` (AppPaths incl. database/legacy/migration paths), `db.py` (SQLite PRAGMA contract + migrations), `legacy_import.py` (one-time importer) |
 | Safety runtime | `thermals.py` (hysteresis/latch/baseline/reset_latch), `optimize.py` (`apply_gpu_clock_limit`, `restore_gpu_profile`) |
+| Durable activation (5C) | `operations/activation.py` (request v1 + evidence + typed port + eight steps), `activation_adapter.py` (one production host), `activation_command.py` (foreground enqueue/execute/terminal), `model_artifact.py` (bounded GGUF/digest identity); `runtime_handoff.py` strict `observe()`; `server.py` `service_observation` |
 | llama.cpp lifecycle | `env.py` (`llamacpp_status/update/rollback`; staged source clone, atomic swap) |
 | Composition | `app.py` (`Application.compose`, `load_state_with_paths`) |
 
