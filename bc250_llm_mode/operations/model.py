@@ -106,9 +106,13 @@ TRANSITIONS: dict[OperationState, frozenset[OperationState]] = {
             OperationState.RECOVERY_REQUIRED,
         }
     ),
-    # Critical section: no cancellation entry, only resolution outcomes.
+    # Critical section: cancellation never enters; the section cycles back
+    # to VERIFYING after a verified critical step, or to ROLLING_BACK when a
+    # mutation-possible failure occurs inside it (Session 5C ADR correction).
     OperationState.COMMITTING: frozenset(
         {
+            OperationState.VERIFYING,
+            OperationState.ROLLING_BACK,
             OperationState.SUCCEEDED,
             OperationState.FAILED_SAFE,
             OperationState.FAILED_ROLLED_BACK,

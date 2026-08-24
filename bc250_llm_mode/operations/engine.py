@@ -231,6 +231,22 @@ class ExecutionEngine:
         definition, decoded, held = claimed
         effected: list[StepDefinition] = []
 
+        with self.units.begin() as conn:
+            ops, _s, leases, _e = self._repos(conn)
+            state_now = ops.require(operation_id).state
+
+        # §3.2: a row left ROLLING_BACK by a dead executor resumes its
+        # durable compensation under this executor; it never restarts work.
+        if state_now is OperationState.ROLLING_BACK:
+            return self._compensate_and_finalize(
+                operation_id,
+                workflow=definition,
+                decoded=decoded,
+                held=held,
+                reason_code="RESUMED_ROLLBACK",
+                cancelled=False,
+            )
+
         while True:
             with self.units.begin() as conn:
                 ops, steps_repo, leases, _events = self._repos(conn)
@@ -250,10 +266,13 @@ class ExecutionEngine:
                 return self._complete(operation_id, held)
 
             # An accepted cancellation (durable CANCEL_REQUESTED) is honored
-            # at the next safe point of the loop. A critical step with intent
-            # already persisted resolves first (its state is RUNNING).
+            # at the next safe point of the loop — never inside COMMITTING.
             safe_to_cancel = not (
-                pending.critical and rows[pending.step_key].state is StepState.RUNNING
+                (
+                    pending.critical
+                    and rows[pending.step_key].state is StepState.RUNNING
+                )
+                or operation.state is OperationState.COMMITTING
             )
             if (
                 operation.cancel_requested_at is not None
@@ -312,47 +331,48 @@ class ExecutionEngine:
         reclaim: bool,
         prior_outputs: dict[str, Any],
     ) -> EffectContext:
-        """§7.3: fence, derive input, assign effect id, persist intent."""
+        """§7.3 (corrected §3.4): fence, resolve effect id and canonical
+        input, persist intent.
+
+        A reclaim reuses the SAME external-effect id and the durably stored
+        input; ``derive_input`` runs exactly once per NEW attempt, never on
+        a reclaim.
+        """
         self._ensure_running(operation_id, held)
         self._crash(step.step_key, "before_step_start")
+        effect_id: str | None = None
+        inputs: dict[str, Any] | None = None
         with self.units.begin() as conn:
-            steps_repo = StepRepository(conn, clock=self.clock)
-            existing = steps_repo.require(operation_id, step.step_key)
-            if reclaim and existing.external_effect_id:
-                # Recovery reuses the SAME external-effect id: probe/verify
-                # identity depends on it.
-                effect_id = existing.external_effect_id
-            else:
-                effect_id = self.uuid_factory()
-        inputs = dict(step.derive_input(request=decoded, prior=prior_outputs))
-        with self.units.begin() as conn:
-            steps_repo = StepRepository(conn, clock=self.clock)
-            existing = steps_repo.require(operation_id, step.step_key)
-            if reclaim and existing.external_effect_id:
-                # Recovery reuses the SAME external-effect id: probe/verify
-                # identity depends on it.
-                effect_id = existing.external_effect_id
-            else:
-                effect_id = self.uuid_factory()
-        inputs = dict(step.derive_input(request=decoded, prior=prior_outputs))
-        with self.units.begin() as conn:
-            ops, steps_repo, leases, events = self._repos(conn)
-            operation = ops.require(operation_id)
+            _ops, steps_repo, leases, _events = self._repos(conn)
             self._fence(leases, operation_id, held)
             row = steps_repo.require(operation_id, step.step_key)
             if reclaim and row.state is not StepState.RUNNING:
                 raise LostLease(
-                    f"{operation_id}:{step_key} reclaim requires RUNNING"
+                    f"{operation_id}:{step.step_key} reclaim requires RUNNING"
                 )
             if not reclaim and row.state is not StepState.PENDING:
                 raise OperationConflict(
                     f"step {step.step_key!r} is {row.state.value}, not PENDING"
                 )
+            if reclaim and row.external_effect_id:
+                # Recovery reuses the SAME external-effect id: probe/verify
+                # identity depends on it.
+                effect_id = row.external_effect_id
+                if row.input_json:
+                    inputs = json.loads(row.input_json)
+        if effect_id is None:
+            effect_id = self.uuid_factory()
+        if inputs is None:
+            inputs = dict(step.derive_input(request=decoded, prior=prior_outputs))
+        with self.units.begin() as conn:
+            _ops, steps_repo, leases, events = self._repos(conn)
+            self._fence(leases, operation_id, held)
             started = steps_repo.start(
                 operation_id,
                 step.step_key,
                 external_effect_id=effect_id,
                 reclaim=reclaim,
+                input_payload=inputs,
             )
             events.append(
                 operation_id,
@@ -372,8 +392,45 @@ class ExecutionEngine:
             inputs=inputs,
             prior_outputs=dict(prior_outputs),
             request=decoded,
-            pulse=lambda *a, **k: None,
+            pulse=self._make_pulse(operation_id, held),
         )
+
+    def _make_pulse(self, operation_id: str, held: dict[str, int]):
+        """Fenced heartbeat/progress callable handed to step effects (§3.6)."""
+
+        def pulse(
+            *,
+            phase: str | None = None,
+            current: int | None = None,
+            total: int | None = None,
+            unit: str | None = None,
+            summary: str | None = None,
+        ) -> None:
+            try:
+                with self.units.begin() as conn:
+                    ops, _s, leases, _e = self._repos(conn)
+                    record = ops.require(operation_id)
+                    self._fence(leases, operation_id, held)
+                    for key in sorted(held):
+                        leases.heartbeat(
+                            key,
+                            owner=self.worker_id,
+                            expected_revision=held[key],
+                            ttl_seconds=self.lease_ttl_seconds,
+                        )
+                    if phase is not None or current is not None:
+                        ops.update_progress(
+                            operation_id,
+                            phase=phase or record.progress_phase or "running",
+                            current=int(current or 0),
+                            total=total,
+                            unit=unit,
+                            summary=summary,
+                        )
+            except OperationConflict as lost:
+                raise LostLease(f"fenced pulse lost: {lost}") from lost
+
+        return pulse
 
     def _checkpoint_transaction(
         self,
@@ -407,7 +464,13 @@ class ExecutionEngine:
                     f"step {step.step_key} checkpointed"
                     + (" from recovery evidence" if recovered else "")
                 ),
-                detail={"output": checked.output_json},
+                detail={
+                    "output": (
+                        json.loads(checked.output_json)
+                        if checked.output_json
+                        else None
+                    )
+                },
                 progress={"phase": step.phase, "current": step.sequence},
             )
 
@@ -510,10 +573,55 @@ class ExecutionEngine:
 
         self._crash(step.step_key, "after_step_start")
         return self._execute_effect(
-            operation_id, step, ctx, held, effected
+            operation_id, step, ctx, held, effected,
+            workflow=workflow, decoded=decoded,
         )
 
     # -- effect / failure / cancellation ------------------------------------------
+
+    def _enter_critical(self, operation_id: str, held: dict[str, int]) -> bool:
+        """CAS into the critical section immediately before a critical effect.
+
+        Returns False when a durable cancellation won the race instead; the
+        caller must then honor the cancellation without any effect.
+        """
+        with self.units.begin() as conn:
+            ops, _s, leases, events = self._repos(conn)
+            record = ops.require(operation_id)
+            self._fence(leases, operation_id, held)
+            if record.state is OperationState.COMMITTING:
+                return True  # resumed inside the section (reclaim path)
+            if record.state is OperationState.CANCEL_REQUESTED:
+                return False
+            ops.compare_and_transition(
+                operation_id,
+                expected_state=record.state,
+                expected_revision=record.state_revision,
+                target_state=OperationState.COMMITTING,
+                event_code="ENTERING_CRITICAL",
+                event_summary="critical step begins; cancellation deferred",
+            )
+        return True
+
+    def _exit_critical(self, operation_id: str, held: dict[str, int]) -> None:
+        """After a critical step's verification commits, cycle to VERIFYING."""
+        with self.units.begin() as conn:
+            ops, _s, leases, events = self._repos(conn)
+            record = ops.require(operation_id)
+            self._fence(leases, operation_id, held)
+            if record.state is not OperationState.COMMITTING:
+                raise LostLease(
+                    f"{operation_id} expected COMMITTING after critical "
+                    f"verification, found {record.state.value}"
+                )
+            ops.compare_and_transition(
+                operation_id,
+                expected_state=OperationState.COMMITTING,
+                expected_revision=record.state_revision,
+                target_state=OperationState.VERIFYING,
+                event_code="CRITICAL_STEP_RESOLVED",
+                event_summary="critical step verified; leaving critical section",
+            )
 
     def _execute_effect(
         self,
@@ -522,7 +630,21 @@ class ExecutionEngine:
         ctx: EffectContext,
         held: dict[str, int],
         effected: list[StepDefinition],
+        *,
+        workflow: WorkflowDefinition | None = None,
+        decoded: Any = None,
     ) -> "ExecutionOutcome | list[StepDefinition]":
+        cancel_won = False
+        if step.critical and not self._enter_critical(operation_id, held):
+            cancel_won = True
+        if cancel_won:
+            return self._honor_cancellation(
+                operation_id,
+                workflow=workflow,
+                decoded=decoded,
+                held=held,
+                effected=effected,
+            )
         try:
             output = step.execute(ctx)
             self._crash(step.step_key, "before_step_checkpoint")
@@ -541,11 +663,13 @@ class ExecutionEngine:
             step.verify(ctx)
             self._crash(step.step_key, "after_step_verification")
             self._verify_transaction(operation_id, step, held)
+            if step.critical:
+                self._exit_critical(operation_id, held)
         except LostLease:
             raise
         except Exception as exc:  # BaseException (process death) propagates
             return self._handle_failure(
-                operation_id, workflow=None, step=step, ctx=ctx,
+                operation_id, workflow=workflow, step=step, ctx=ctx,
                 held=held, effected=effected,
                 error=exc,
             )
@@ -580,6 +704,17 @@ class ExecutionEngine:
             RecoveryAction.RESUME,
             RecoveryAction.DISCARD_AND_RETRY,
         ):
+            cancel_won = False
+            if step.critical and not self._enter_critical(operation_id, held):
+                cancel_won = True
+            if cancel_won:
+                return self._honor_cancellation(
+                    operation_id,
+                    workflow=workflow,
+                    decoded=decoded,
+                    held=held,
+                    effected=effected,
+                )
             try:
                 output = step.execute(ctx)
                 import json as _json
@@ -594,11 +729,13 @@ class ExecutionEngine:
                 )
                 step.verify(ctx)
                 self._verify_transaction(operation_id, step, held)
+                if step.critical:
+                    self._exit_critical(operation_id, held)
             except LostLease:
                 raise
             except Exception as exc:
                 return self._handle_failure(
-                    operation_id, workflow=None, step=step, ctx=ctx,
+                    operation_id, workflow=workflow, step=step, ctx=ctx,
                     held=held, effected=effected, error=exc,
                 )
             if step.externally_visible:
@@ -619,9 +756,9 @@ class ExecutionEngine:
                 )
             return self._compensate_and_finalize(
                 operation_id,
+                workflow=workflow,
                 decoded=decoded,
                 held=held,
-                effected=effected + [step],
                 reason_code="REVERTIBLE_INTERRUPTION",
                 cancelled=False,
             )
@@ -651,6 +788,40 @@ class ExecutionEngine:
             reason_code=decision.reason_code,
         )
 
+    def _durable_compensation_set(
+        self, operation_id: str, workflow: WorkflowDefinition | None
+    ) -> "list[tuple[StepDefinition, Any]]":
+        """§3.3: reconstruct effected steps from DURABLE rows, never memory."""
+        with self.units.begin() as conn:
+            steps_repo = StepRepository(conn, clock=self.clock)
+            rows = {s.step_key: s for s in steps_repo.list(operation_id)}
+        if workflow is None:
+            return []
+        compensable = []
+        for step in workflow.steps:
+            row = rows.get(step.step_key)
+            if row is None or step.compensate is None:
+                continue
+            if not step.externally_visible and not step.critical:
+                continue
+            if row.state in (
+                StepState.RUNNING,
+                StepState.CHECKPOINTED,
+                StepState.VERIFIED,
+                StepState.COMPENSATING,
+            ):
+                compensable.append((step, row))
+        return compensable
+
+    def _prior_outputs(self, operation_id: str) -> dict[str, Any]:
+        with self.units.begin() as conn:
+            steps_repo = StepRepository(conn, clock=self.clock)
+            collected: dict[str, Any] = {}
+            for done in steps_repo.list(operation_id):
+                if done.output_json:
+                    collected[done.step_key] = json.loads(done.output_json)
+        return collected
+
     def _handle_failure(
         self,
         operation_id: str,
@@ -667,12 +838,19 @@ class ExecutionEngine:
         Raw exception text is never persisted — only the class name and a
         bounded generic summary.
         """
-        del workflow
         probe = step.probe(ctx)
-        mutation_happened = probe.classification not in (
-            RecoveryClass.ABSENT,
-            RecoveryClass.DISCARDABLE,
-        ) or bool(effected)
+        # Durable reconstruction (§3.3) EXCLUDING the failing step itself:
+        # an intent that never mutated (probe ABSENT) is not evidence.
+        durable_pairs = [
+            (s, r)
+            for (s, r) in self._durable_compensation_set(operation_id, workflow)
+            if s.step_key != step.step_key
+        ]
+        mutation_happened = (
+            probe.classification
+            not in (RecoveryClass.ABSENT, RecoveryClass.DISCARDABLE)
+            or bool(durable_pairs)
+        )
         if mutation_happened:
             with self.units.begin() as conn:
                 ops, _s, leases, events = self._repos(conn)
@@ -689,11 +867,13 @@ class ExecutionEngine:
                 )
             return self._compensate_and_finalize(
                 operation_id,
+                workflow=workflow,
+                decoded=ctx.request,
                 held=held,
-                effected=effected + ([step] if step.externally_visible else []),
                 reason_code=f"FAILED_AT_{step.step_key.upper()}",
                 cancelled=False,
                 exception_class=type(error).__name__,
+                also=[step],
             )
         return self._fail_safe(operation_id, held, step, error)
 
@@ -735,54 +915,110 @@ class ExecutionEngine:
         self,
         operation_id: str,
         *,
+        workflow: WorkflowDefinition | None = None,
+        decoded: Any = None,
         held: dict[str, int],
-        effected: list[StepDefinition],
         reason_code: str,
         cancelled: bool,
         exception_class: str | None = None,
+        also: "list[StepDefinition] | None" = None,
     ) -> ExecutionOutcome:
-        """Reverse-order compensation; cancellation is NOT honored inside it."""
-        with self.units.begin() as conn:
-            steps_repo = StepRepository(conn, clock=self.clock)
-            rows = {s.step_key: s for s in steps_repo.list(operation_id)}
-        reverse = [
-            step
-            for step in reversed(effected)
-            if step.compensate is not None
-            and rows.get(step.step_key)
-            and (
-                rows[step.step_key].state
-                in (StepState.CHECKPOINTED, StepState.VERIFIED)
-                or rows[step.step_key].state is StepState.RUNNING
-            )
-        ]
+        """§3.2/§9: durable reverse compensation with restoration probes.
+
+        The compensation set is reconstructed from durable ``operation_steps``
+        rows, never from this worker's memory. An interrupted COMPENSATING
+        step probes its restoration postcondition first: COMPLETE checkpoints
+        without a second effect; ABSENT/REVERTIBLE re-runs the idempotent
+        effect with the SAME external-effect id; UNCERTAIN_MANUAL enters
+        RECOVERY_REQUIRED retaining leases.
+        """
+        compensable = self._durable_compensation_set(operation_id, workflow)
+        if also:
+            known = {s.step_key for s, _r in compensable}
+            with self.units.begin() as conn:
+                steps_repo = StepRepository(conn, clock=self.clock)
+                extra = []
+                for step in also:
+                    if step.step_key in known or step.compensate is None:
+                        continue
+                    row = steps_repo.get(operation_id, step.step_key)
+                    if row is not None and row.state in (
+                        StepState.RUNNING,
+                        StepState.CHECKPOINTED,
+                        StepState.VERIFIED,
+                        StepState.COMPENSATING,
+                    ):
+                        extra.append((step, row))
+            compensable = compensable + extra
+        prior_outputs = self._prior_outputs(operation_id)
         compensation_failures: list[str] = []
-        for step in reverse:
-            row = rows[step.step_key]
+        uncertain = False
+        for step, row in reversed(compensable):
             try:
                 ctx = EffectContext(
                     operation_id=operation_id,
                     step_key=step.step_key,
                     external_effect_id=row.external_effect_id or "",
                     inputs=_row_inputs(row),
-                    prior_outputs={},
-                    request=None,
+                    prior_outputs=prior_outputs,
+                    request=decoded,
                 )
                 assert step.compensate is not None
-                with self.units.begin() as conn:
-                    ops, steps_repo, leases, events = self._repos(conn)
-                    ops.require(operation_id)
-                    self._fence(leases, operation_id, held)
-                    steps_repo.begin_compensation(
-                        operation_id,
-                        step.step_key,
-                        expected_state=row.state.value,
-                    )
-                    events.append(
-                        operation_id,
-                        code="COMPENSATION_STARTED",
-                        summary=f"compensating {step.step_key}",
-                    )
+                if row.state is StepState.COMPENSATING:
+                    # Restoration probe decides before any repeat effect.
+                    self._crash(step.step_key, "before_probe_restoration")
+                    if step.probe_restoration is not None:
+                        result = step.probe_restoration(ctx)
+                        if (
+                            result.classification
+                            is RecoveryClass.UNCERTAIN_MANUAL
+                        ):
+                            uncertain = True
+                            break
+                        if result.classification is RecoveryClass.COMPLETE:
+                            with self.units.begin() as conn:
+                                ops, steps_repo, leases, events = (
+                                    self._repos(conn)
+                                )
+                                ops.require(operation_id)
+                                self._fence(leases, operation_id, held)
+                                steps_repo.complete_compensation(
+                                    operation_id, step.step_key
+                                )
+                                events.append(
+                                    operation_id,
+                                    code="COMPENSATION_COMPLETED",
+                                    summary=(
+                                        f"restoration already proven for "
+                                        f"{step.step_key}; checkpointed"
+                                    ),
+                                )
+                            continue
+                        # ABSENT/REVERTIBLE/PARTIALLY_RESUMABLE: re-run below.
+                    with self.units.begin() as conn:
+                        ops, steps_repo, leases, events = self._repos(conn)
+                        ops.require(operation_id)
+                        self._fence(leases, operation_id, held)
+                        events.append(
+                            operation_id,
+                            code="COMPENSATION_RECLAIMED",
+                            summary=f"resuming compensation of {step.step_key}",
+                        )
+                else:
+                    with self.units.begin() as conn:
+                        ops, steps_repo, leases, events = self._repos(conn)
+                        ops.require(operation_id)
+                        self._fence(leases, operation_id, held)
+                        steps_repo.begin_compensation(
+                            operation_id,
+                            step.step_key,
+                            expected_state=row.state.value,
+                        )
+                        events.append(
+                            operation_id,
+                            code="COMPENSATION_STARTED",
+                            summary=f"compensating {step.step_key}",
+                        )
                 step.compensate(ctx)
                 self._crash(step.step_key, "after_compensation_effect")
                 if step.verify_restoration is not None:
@@ -803,7 +1039,7 @@ class ExecutionEngine:
 
         terminal = (
             OperationState.RECOVERY_REQUIRED
-            if compensation_failures
+            if (compensation_failures or uncertain)
             else (
                 OperationState.CANCELLED
                 if cancelled
@@ -859,34 +1095,19 @@ class ExecutionEngine:
         held: dict[str, int],
         effected: list[StepDefinition],
     ) -> ExecutionOutcome:
-        del decoded
+        del effected
         # Mutation evidence comes from DURABLE step rows, never from this
-        # worker's memory: after process death the new worker must still see
-        # what the previous worker effected.
-        with self.units.begin() as conn:
-            steps_repo = StepRepository(conn, clock=self.clock)
-            rows = {s.step_key: s for s in steps_repo.list(operation_id)}
-        durable_effected = [
-            step
-            for step in workflow.steps
-            if step.externally_visible
-            and rows.get(step.step_key)
-            and (
-                rows[step.step_key].state
-                in (StepState.CHECKPOINTED, StepState.VERIFIED)
-                or (
-                    # An interrupted RUNNING effect may have mutated: the
-                    # conservative cancellation path compensates it too.
-                    rows[step.step_key].state is StepState.RUNNING
-                    and step.compensate is not None
-                )
-            )
-        ]
+        # worker's memory (§3.3): after process death the new worker still
+        # sees what the previous worker effected.
+        durable_effected = self._durable_compensation_set(
+            operation_id, workflow
+        )
         if durable_effected:
             return self._compensate_and_finalize(
                 operation_id,
+                workflow=workflow,
+                decoded=decoded,
                 held=held,
-                effected=durable_effected,
                 reason_code="CANCELLED_AFTER_COMPENSATION",
                 cancelled=True,
             )

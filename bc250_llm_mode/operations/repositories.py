@@ -544,13 +544,29 @@ class StepRepository:
         operation_id: str,
         steps: list[tuple[str, int]],
         *,
-        implementation_version: int = 1,
+        implementation_version: "int | list[int] | tuple[int, ...]" = 1,
         inputs: dict[str, dict[str, Any]] | None = None,
     ) -> list[OperationStepRecord]:
         _require_known(self.conn, operation_id)
+        if isinstance(implementation_version, (list, tuple)):
+            versions = [int(v) for v in implementation_version]
+        else:
+            versions = [int(implementation_version)] * len(steps)
+        if len(versions) != len(steps):
+            raise OperationValidationError(
+                "one implementation version per step is required"
+            )
+        for version in versions:
+            if version < 1:
+                raise OperationValidationError(
+                    f"implementation versions must be >= 1; got {version}"
+                )
+        ordered = sorted(
+            zip(steps, versions), key=lambda item: item[0][1]
+        )
         inputs = inputs or {}
         wanted = {key for key, _sequence in steps}
-        for step_key, sequence in sorted(steps, key=lambda item: item[1]):
+        for (step_key, sequence), version in ordered:
             input_json = (
                 sanitize_payload(inputs[step_key]) if step_key in inputs else None
             )
@@ -566,7 +582,7 @@ class StepRepository:
                         operation_id,
                         step_key,
                         sequence,
-                        implementation_version,
+                        version,
                         input_json,
                     ),
                 )
@@ -634,6 +650,7 @@ class StepRepository:
         *,
         external_effect_id: str | None = None,
         reclaim: bool = False,
+        input_payload: dict[str, Any] | None = None,
     ) -> OperationStepRecord:
         step = self.require(operation_id, step_key)
         expected = StepState.RUNNING if reclaim else StepState.PENDING
@@ -649,6 +666,9 @@ class StepRepository:
         if external_effect_id is not None:
             extra_sets.append("external_effect_id = ?")
             extra_params.append(external_effect_id)
+        if input_payload is not None:
+            extra_sets.append("input_json = ?")
+            extra_params.append(sanitize_payload(input_payload))
         return self._cas_step(
             operation_id,
             step_key,

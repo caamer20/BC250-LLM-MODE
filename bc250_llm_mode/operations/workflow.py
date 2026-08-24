@@ -90,7 +90,14 @@ class StepDefinition:
     critical: bool = False
     compensate: Callable[[EffectContext], dict[str, Any]] | None = None
     verify_restoration: Callable[[EffectContext], dict[str, Any]] | None = None
+    probe_restoration: Callable[[EffectContext], ProbeResult] | None = None
     safe_if_uncertain: bool = False
+
+    def __post_init__(self) -> None:
+        if int(self.implementation_version) < 1:
+            raise WorkflowRegistryError(
+                f"step {self.step_key!r} implementation_version must be >= 1"
+            )
 
 
 @dataclass(frozen=True)
@@ -248,11 +255,9 @@ class EnqueueService:
             steps.add_steps(
                 record.id,
                 [(step.step_key, step.sequence) for step in definition.steps],
-                implementation_version=(
-                    definition.steps[0].implementation_version
-                    if definition.steps
-                    else 1
-                ),
+                implementation_version=[
+                    step.implementation_version for step in definition.steps
+                ],
                 inputs={
                     step.step_key: step.derive_input(request=decoded, prior={})
                     for step in definition.steps

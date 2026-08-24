@@ -48,7 +48,7 @@ Frozen table (anything not listed is disallowed):
 | `PREPARING` | `RUNNING`, `ROLLING_BACK`, `CANCEL_REQUESTED`, `PAUSED`, `FAILED_SAFE` |
 | `RUNNING` | `VERIFYING`, `COMMITTING`, `ROLLING_BACK`, `CANCEL_REQUESTED`, `PAUSED`, `FAILED_SAFE`, `FAILED_ROLLED_BACK`, `RECOVERY_REQUIRED` |
 | `VERIFYING` | `COMMITTING`, `ROLLING_BACK`, `CANCEL_REQUESTED`, `PAUSED`, `FAILED_SAFE`, `FAILED_ROLLED_BACK`, `RECOVERY_REQUIRED` |
-| `COMMITTING` | `SUCCEEDED`, `FAILED_SAFE`, `FAILED_ROLLED_BACK`, `RECOVERY_REQUIRED` |
+| `COMMITTING` | `VERIFYING`, `ROLLING_BACK`, `SUCCEEDED`, `FAILED_SAFE`, `FAILED_ROLLED_BACK`, `RECOVERY_REQUIRED` (Session 5C correction: the section cycles to `VERIFYING` after a verified critical step and to `ROLLING_BACK` on mutation-possible failure) |
 | `CANCEL_REQUESTED` | `ROLLING_BACK`, `CANCELLED` |
 | `ROLLING_BACK` | `CANCELLED`, `FAILED_ROLLED_BACK`, `RECOVERY_REQUIRED` |
 | `PAUSED` | `PREPARING`, `RUNNING`, `VERIFYING`, `CANCEL_REQUESTED`, `CANCELLED`, `FAILED_SAFE` |
@@ -260,3 +260,34 @@ The allowlisted helper (post-R2 plan R5) integrates WITHOUT schema changes:
   acquisition operation invoking activation). Cancellation of a parent
   requests cancellation of running children first; a parent cannot reach a
   success terminal while a child is active.
+
+## 15. Session 5C corrections (narrow)
+
+Two corrections, both red-tested before adoption; no schema change.
+
+1. **Critical-state cycling.** §2 originally gave `COMMITTING` only
+   resolution terminals, so a cancellation could still transition an
+   operation while a critical step executed (the engine entered the
+   section only at final completion). Corrected behavior:
+
+   - immediately before a critical step's effect, the executor CASes
+     `RUNNING|VERIFYING -> COMMITTING`;
+   - the operation stays in `COMMITTING` through effect, checkpoint, and
+     postcondition verification;
+   - after the step's verification commits, it cycles
+     `COMMITTING -> VERIFYING`;
+   - if the critical effect or its verification fails after mutation was
+     possible, `COMMITTING -> ROLLING_BACK` runs compensation;
+   - if a cancellation CAS wins before entry, no effect runs; once inside,
+     `request_cancel` is refused until the critical step resolves.
+
+2. **Durable compensation resume.** §9 originally had no convergence rule
+   for an executor death between compensation effects/checkpoints, and the
+   forward loop could not resume a `ROLLING_BACK` row. The generic step
+   contract gains an optional restoration probe (`probe_restoration`);
+   takeover reconstructs the reverse compensation set from durable step
+   rows, probes interrupted compensations before repeating them
+   (`COMPLETE` checkpoints without a second effect), continues the
+   remaining compensations in reverse order, and publishes exactly one
+   terminal result (`FAILED_ROLLED_BACK`, `CANCELLED`, or
+   `RECOVERY_REQUIRED`).
