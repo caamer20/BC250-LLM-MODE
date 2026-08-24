@@ -1,12 +1,18 @@
 # BC250 LLM MODE — Session 5B Executor Implementation Plan
 
-**Status:** Ready for implementation after Session 5A  
-**Plan IDs:** R3.2 / POST-R2 Session 5B  
-**Baseline:** `63f5fab`, version `0.9.0.dev0`, 402 tests collected and passing  
-**Predecessor:** Session 5A (`3aa22cc` → `63f5fab`)  
-**Sequencing authority:** `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md`  
+**Status:** Ready for implementation after Session 5A
+
+**Plan IDs:** R3.2 / POST-R2 Session 5B
+
+**Baseline:** `63f5fab`, version `0.9.0.dev0`, 402 tests collected and passing
+
+**Predecessor:** Session 5A (`3aa22cc` → `63f5fab`)
+
+**Sequencing authority:** `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md`
+
 **Requirements authority:** `MASTER_IMPLEMENTATION_PLAN.md` and
-`R2_EXIT_AND_OPERATION_ENGINE_PLAN.md`  
+`R2_EXIT_AND_OPERATION_ENGINE_PLAN.md`
+
 **Durable contract:** `docs/adr/002-durable-operations.md`
 
 This document turns the Session 5B milestone into an implementation-ready
@@ -1099,7 +1105,8 @@ callable.
 
 ## 18. Exact next-session checklist
 
-1. Confirm HEAD `63f5fab` and preserve `scripts_audit/` untouched.
+1. Confirm HEAD contains this plan with Session 5A ancestor `63f5fab`, and
+   preserve `scripts_audit/` untouched.
 2. Re-run the authoritative collection/full/compile/diff baseline.
 3. Read ADR 002 and this plan completely.
 4. Add red lease-fence, cancel-timestamp, recovery-barrier, and lock-order
