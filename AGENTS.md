@@ -31,6 +31,10 @@ cancellation, recovery** on the fake-workflow harness. 5B's first crash test:
 persist step intent, simulate process death after the external effect but
 before its checkpoint, reopen the application, inspect the postcondition,
 and checkpoint the step exactly once without repeating the effect.
+The implementation-ready sequencing, transaction boundaries, crash matrix,
+commit gates, and 5C handoff are frozen in
+`SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`; use it as the detailed Session
+5B authority beneath the post-R2 plan and ADR 002.
 
 1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
 2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.

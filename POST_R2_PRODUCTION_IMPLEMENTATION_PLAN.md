@@ -408,6 +408,12 @@ Safest first red tests:
 
 ## 5. Session 5B — executor, leases, cancellation, progress, recovery
 
+**Detailed implementation authority:**
+`SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`. That document expands this
+milestone without changing ADR 002 or the Session 5B stop boundary. Where it
+identifies executor-facing contract ambiguities, they must be resolved with
+red tests and a narrow ADR clarification before engine code depends on them.
+
 ### 5.1 Engine boundaries
 
 Create the `operations/` package defined in the predecessor plan. Keep SQL in
