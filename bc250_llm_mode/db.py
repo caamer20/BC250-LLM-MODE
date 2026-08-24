@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -129,6 +129,124 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """,
         ),
     ),
+    (
+        3,
+        "durable-operations",
+        (
+            # ADR 002: one row per durable operation. Request payloads are
+            # sanitized/bounded by operations/validation before insert.
+            """
+            CREATE TABLE operations (
+                id TEXT PRIMARY KEY,
+                operation_type TEXT NOT NULL,
+                request_version INTEGER NOT NULL,
+                recovery_policy_version INTEGER NOT NULL DEFAULT 1,
+                request_json TEXT NOT NULL,
+                state TEXT NOT NULL,
+                state_revision INTEGER NOT NULL DEFAULT 1,
+                progress_phase TEXT,
+                progress_current INTEGER NOT NULL DEFAULT 0,
+                progress_total INTEGER,
+                progress_unit TEXT,
+                progress_summary TEXT,
+                surface TEXT NOT NULL DEFAULT 'unknown',
+                cancel_requested_at TEXT,
+                result_code TEXT,
+                result_detail TEXT,
+                error_code TEXT,
+                error_detail TEXT,
+                parent_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+            """,
+            """
+            CREATE INDEX idx_operations_active ON operations(state)
+                WHERE state NOT IN (
+                    'SUCCEEDED',
+                    'CANCELLED',
+                    'FAILED_SAFE',
+                    'FAILED_ROLLED_BACK',
+                    'RECOVERY_REQUIRED'
+                )
+            """,
+            """
+            CREATE INDEX idx_operations_state_type_updated
+                ON operations(state, operation_type, updated_at)
+            """,
+            """
+            CREATE INDEX idx_operations_recent_terminal
+                ON operations(finished_at DESC, id DESC)
+                WHERE finished_at IS NOT NULL
+            """,
+            """
+            CREATE INDEX idx_operations_parent
+                ON operations(parent_operation_id)
+            """,
+            """
+            CREATE TABLE operation_steps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id TEXT NOT NULL REFERENCES operations(id)
+                    ON DELETE CASCADE,
+                step_key TEXT NOT NULL,
+                sequence INTEGER NOT NULL,
+                implementation_version INTEGER NOT NULL DEFAULT 1,
+                state TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                input_json TEXT,
+                output_json TEXT,
+                external_effect_id TEXT,
+                failure_code TEXT,
+                failure_detail TEXT,
+                started_at TEXT,
+                checkpointed_at TEXT,
+                finished_at TEXT,
+                UNIQUE (operation_id, step_key),
+                UNIQUE (operation_id, sequence)
+            )
+            """,
+            """
+            CREATE INDEX idx_operation_steps_order
+                ON operation_steps(operation_id, sequence)
+            """,
+            """
+            CREATE TABLE operation_events (
+                cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+                operation_id TEXT NOT NULL REFERENCES operations(id)
+                    ON DELETE CASCADE,
+                ts TEXT NOT NULL,
+                level TEXT NOT NULL DEFAULT 'info',
+                code TEXT,
+                summary TEXT NOT NULL,
+                detail_json TEXT,
+                progress_json TEXT
+            )
+            """,
+            """
+            CREATE INDEX idx_operation_events_cursor
+                ON operation_events(operation_id, cursor)
+            """,
+            """
+            CREATE TABLE operation_leases (
+                resource_key TEXT PRIMARY KEY,
+                operation_id TEXT NOT NULL REFERENCES operations(id)
+                    ON DELETE CASCADE,
+                owner TEXT NOT NULL,
+                lease_revision INTEGER NOT NULL DEFAULT 1,
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX idx_operation_leases_expiry
+                ON operation_leases(expires_at)
+            """,
+        ),
+    ),
 )
 
 
@@ -206,20 +324,6 @@ def initialize_and_close(database_path: str | Path) -> None:
     """
     conn = initialize_file(database_path)
     conn.close()
-
-
-def initialize_file(database_path: str | Path) -> sqlite3.Connection:
-    """Create/initialize a database file with production permissions.
-
-    The caller owns the returned connection and MUST close it; prefer
-    :func:`initialize_and_close` at composition boundaries.
-    """
-    path = Path(database_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = open_database(path, mode="write")
-    initialize(conn)
-    Path(path).chmod(0o600)
-    return conn
 
 
 def _applied_versions(conn: sqlite3.Connection) -> set[int]:

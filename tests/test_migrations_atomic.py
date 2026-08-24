@@ -28,8 +28,9 @@ def _tables(conn):
 def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
     db.initialize(fresh_conn)  # baseline v1
 
+    next_version = db.SCHEMA_VERSION + 1
     failing = (
-        3,
+        next_version,
         "broken-migration",
         (
             "CREATE TABLE good_table (id INTEGER PRIMARY KEY)",
@@ -37,7 +38,7 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
         ),
     )
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (failing,))
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", next_version)
 
     with pytest.raises(sqlite3.OperationalError):
         db.initialize(fresh_conn)
@@ -46,17 +47,21 @@ def test_failed_migration_leaves_no_partial_schema(fresh_conn, monkeypatch):
     applied = {int(r["version"]) for r in fresh_conn.execute(
         "SELECT version FROM schema_migrations"
     )}
-    assert 3 not in applied, "failed migration must not record its version"
+    assert next_version not in applied, "failed migration must not record its version"
 
     # Retry after the migration is fixed succeeds cleanly.
-    fixed = (3, "fixed-migration", ("CREATE TABLE good_table (id INTEGER PRIMARY KEY)",))
+    fixed = (
+        next_version,
+        "fixed-migration",
+        ("CREATE TABLE good_table (id INTEGER PRIMARY KEY)",),
+    )
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:-1] + (fixed,))
-    assert db.initialize(fresh_conn) >= 3
+    assert db.initialize(fresh_conn) >= next_version
     assert "good_table" in _tables(fresh_conn)
     applied = {int(r["version"]) for r in fresh_conn.execute(
         "SELECT version FROM schema_migrations"
     )}
-    assert 3 in applied
+    assert next_version in applied
 
 
 def test_initialize_is_idempotent_across_connections(tmp_path):
@@ -84,17 +89,17 @@ def test_later_migration_depends_on_earlier_one(fresh_conn, monkeypatch):
     table created by the immediately preceding migration, and runs only
     because numeric order guarantees that predecessor exists."""
     dependent = (
-        3,
-        "depends-on-v2",
+        db.SCHEMA_VERSION + 1,
+        "depends-on-previous",
         (
             "INSERT INTO known_good_runtime(id, model_alias, context, slots, "
             "verified_at) VALUES (1, 'probe', 8192, 1, 'now')",
         ),
     )
     monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (dependent,))
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", db.SCHEMA_VERSION + 1)
 
-    assert db.initialize(fresh_conn) == 3
+    assert db.initialize(fresh_conn) == db.SCHEMA_VERSION
     row = fresh_conn.execute(
         "SELECT model_alias FROM known_good_runtime WHERE id = 1"
     ).fetchone()
@@ -126,12 +131,14 @@ def test_invalid_registries_rejected(fresh_conn, monkeypatch, registry, schema_v
 def test_reordered_declaration_still_executes_numerically(fresh_conn, monkeypatch):
     """Even if declarations are accidentally reversed, execution order is
     numeric — the dependent statement must still succeed."""
-    first = (3, "creates-probe-table", ("CREATE TABLE probe_t (v INTEGER)",))
-    second = (4, "uses-probe-table", ("INSERT INTO probe_t VALUES (7)",))
+    next_version = db.SCHEMA_VERSION + 1
+    after_next = next_version + 1
+    first = (next_version, "creates-probe-table", ("CREATE TABLE probe_t (v INTEGER)",))
+    second = (after_next, "uses-probe-table", ("INSERT INTO probe_t VALUES (7)",))
     monkeypatch.setattr(
         db, "MIGRATIONS", db.MIGRATIONS + (second, first)
     )
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", after_next)
 
-    assert db.initialize(fresh_conn) == 4
+    assert db.initialize(fresh_conn) == after_next
     assert fresh_conn.execute("SELECT v FROM probe_t").fetchone()["v"] == 7

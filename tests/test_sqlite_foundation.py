@@ -24,7 +24,7 @@ def test_fresh_database_creates_schema_at_version_one(paths):
     version = conn.execute(
         "SELECT MAX(version) AS v FROM schema_migrations"
     ).fetchone()["v"]
-    assert version == SCHEMA_VERSION == 2
+    assert version == SCHEMA_VERSION
     tables = {
         r["name"] for r in conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"

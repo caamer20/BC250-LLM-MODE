@@ -42,7 +42,7 @@ def test_fresh_profile_creates_initialized_database(tmp_path):
             "SELECT version FROM schema_migrations"
         )
     }
-    assert applied == {1, 2}
+    assert applied == {1, 2, 3}
 
 
 def test_v5_fixture_imports_once_and_query_is_authoritative(tmp_path):

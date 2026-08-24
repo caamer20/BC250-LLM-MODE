@@ -1,8 +1,9 @@
-"""Typed repositories over the SQLite schema (migration 001).
+"""Typed repositories over the SQLite schema.
 
-Repositories own persistence details. Domain code and the compatibility
-facade call these narrow methods; nothing outside this module executes raw
-SQL against durable state.
+Repositories own persistence details. Domain services call these narrow
+methods; nothing outside a repository module executes raw SQL against
+durable state. Repositories never commit: their callers own the unit-of-work
+transaction boundary so multi-repository invariants commit atomically.
 """
 
 from __future__ import annotations
@@ -133,10 +134,10 @@ class BenchHistoryRepository:
     def append(self, entry: dict, *, commit: bool = True) -> None:
         """Append one benchmark record and enforce retention atomically.
 
-        The insert and the oldest-first trim share one implicit transaction,
-        closed by this method's commit when ``commit`` is true (the default
-        for standalone/narrow callers; the facade passes commit=False inside
-        its own whole-state unit of work).
+        The insert and the oldest-first trim share the caller's unit-of-work
+        transaction; ``commit=True`` (the default) closes it for standalone
+        narrow callers, while unit-of-work callers pass ``commit=False`` so
+        multi-repository work stays atomic.
         """
         self.conn.execute(
             "INSERT INTO bench_history(ts, payload_json) VALUES (?, ?)",
