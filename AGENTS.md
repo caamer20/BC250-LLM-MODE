@@ -5,7 +5,7 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 330-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 402-test green baseline**, and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -26,17 +26,26 @@ rollback inference verification); launcher is handoff-only with strict
 fail-closed validation; legacy canonicalization is pure (`legacy_schema.py`)
 and the writable JSON store exists only as test support; duplicate
 post-service commits removed with owners recorded; docs truth pass complete.
-Next: **Session 5A — ADR 002, migration 003, operation state machine and
-repositories** (per the predecessor plan Part II §§7–8), then 5B/5C.
+Next: ~~**Session 5A**~~ **DONE**, then **Session 5B — executor, leases,
+cancellation, recovery** on the fake-workflow harness. 5B's first crash test:
+persist step intent, simulate process death after the external effect but
+before its checkpoint, reopen the application, inspect the postcondition,
+and checkpoint the step exactly once without repeating the effect.
 
 1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
 2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.
-3. **Session 5A–5C (R3 operation engine)**: ADR 002 + migration 003 +
-   operation state machine/repository; executor, leases, events,
-   cancellation, recovery with crash-injection foundation; convert model
-   activation to durable steps. Then Session 6 (acquisition, runtime update,
-   Activity view), R4 typed adapters/timeouts, and the later phases of the
-   post-R2 plan.
+3. ~~Session 5A: ADR 002 + migration 003 + operation state machine +
+   repositories~~ **DONE** (`docs/adr/002-durable-operations.md`;
+   `bc250_llm_mode/operations/` model/validation/repositories; schema v3
+   with operations/operation_steps/operation_events/operation_leases;
+   FAILED_SAFE terminal added per ADR 002; CAS transitions against state +
+   revision; leases with owner+revision ownership and expired takeover;
+   secret/bounds validation before persistence). **No executor, worker,
+   host adapter, CLI command, or Activity UI exists yet** — that is 5B+.
+4. **Session 5B–5C**: fake-workflow executor with the crash-injection
+   foundation above; then convert model activation to durable steps.
+   Then Session 6 (acquisition, runtime update, Activity view), R4 typed
+   adapters/timeouts, and the later phases of the post-R2 plan.
 
 ## Layout highlights
 
