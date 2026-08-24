@@ -43,11 +43,20 @@ def test_every_importable_production_package_is_declared():
     assert not stale, f"declared packages that do not exist: {sorted(stale)}"
 
 
+import pytest
+
+
+@pytest.mark.slow
 def test_clean_wheel_smoke_includes_operations(tmp_path):
     """U0.5 clean-wheel gate: build a wheel, install it WITHOUT the source
     root on sys.path, then import composition/operations/adapters,
     initialize a temporary schema, register MODEL_ACTIVATE v1, and execute
-    a no-host operation path end to end."""
+    a no-host operation path end to end.
+
+    Marked ``slow``: the nested wheel build exceeds interactive suite time
+    budgets; the gate runs explicitly in the session verification battery
+    (see AGENTS.md §Verification).
+    """
     import subprocess
     import sys
 

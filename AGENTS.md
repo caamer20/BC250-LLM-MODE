@@ -5,7 +5,8 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 505-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 505-test green baseline**
+(504 default + 1 slow-marked clean-wheel gate), and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -110,11 +111,14 @@ remains the completed R3.2 authority and evidence handoff.
 ## Verification
 
 ```bash
-PYTHONPATH=. .venv/bin/pytest -q        # full suite; the terminal summary
+PYTHONPATH=. .venv/bin/pytest -q        # default suite (slow-marked gates
+                                        # excluded); the terminal summary
                                         # prints the authoritative collected
-                                        # test count (never infer from dots)
+                                        # count (never infer from dots)
 .venv/bin/pytest tests --collect-only -q
 python -m compileall -q bc250_llm_mode tests
+# Session verification battery additionally runs the slow gates explicitly:
+.venv/bin/pytest -q -m slow tests/test_packaging.py   # U0.5 clean-wheel smoke
 ```
 
 The behavioral launcher test needs only bash ≥3.2 and python3 on PATH.

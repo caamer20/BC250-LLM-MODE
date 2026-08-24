@@ -35,4 +35,7 @@ test = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not slow'"
+markers = [
+  "slow: long-running verification gates run explicitly in the session battery (e.g. clean-wheel smoke)",
+]
