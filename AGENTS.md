@@ -5,7 +5,7 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 402-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 448-test green baseline**, and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -26,11 +26,9 @@ rollback inference verification); launcher is handoff-only with strict
 fail-closed validation; legacy canonicalization is pure (`legacy_schema.py`)
 and the writable JSON store exists only as test support; duplicate
 post-service commits removed with owners recorded; docs truth pass complete.
-Next: ~~**Session 5A**~~ **DONE**, then **Session 5B — executor, leases,
-cancellation, recovery** on the fake-workflow harness. 5B's first crash test:
-persist step intent, simulate process death after the external effect but
-before its checkpoint, reopen the application, inspect the postcondition,
-and checkpoint the step exactly once without repeating the effect.
+Next: ~~**Session 5A**~~ **DONE**; ~~**Session 5B**~~ **DONE**, then
+**Session 5C — convert model activation to durable steps** (remove the old
+synchronous activation path as it converts; never leave both callable).
 The implementation-ready sequencing, transaction boundaries, crash matrix,
 commit gates, and 5C handoff are frozen in
 `SESSION_5B_EXECUTOR_IMPLEMENTATION_PLAN.md`; use it as the detailed Session
@@ -46,8 +44,26 @@ commit gates, and 5C handoff are frozen in
    revision; leases with owner+revision ownership and expired takeover;
    secret/bounds validation before persistence). **No executor, worker,
    host adapter, CLI command, or Activity UI exists yet** — that is 5B+.
-4. **Session 5B–5C**: fake-workflow executor with the crash-injection
-   foundation above; then convert model activation to durable steps.
+4. ~~Session 5B: executor, leases, cancellation, recovery~~ **DONE**
+   (`operations/workflow.py` typed registry + EnqueueService;
+   `engine.py` fenced intent/effect/probe/checkpoint/verify protocol with
+   deterministic `execute_one`; `recovery.py` closed classification
+   vocabulary; `worker.py` bounded claim/run/shutdown loop — never
+   auto-started by composition; lease `assert_owned` fencing and
+   `list_expired`; durable cancel timestamps; RECOVERY_REQUIRED acquisition
+   barrier; death-after-effect-before-checkpoint test proves effect count
+   stays exactly 1 across takeover; full named crash-point matrix;
+   20/20 focused stress iterations, no sleeps). **Still no real host
+   adapter, CLI operation command, or Activity UI** — 5C/6C.
+5. **Session 5C**: first red test reuses the 5B crash harness — crash after
+   publishing the candidate runtime handoff but before checkpoint; a new
+   executor must inspect handoff fingerprint, desired runtime revision,
+   server health, and bounded inference, then checkpoint the complete
+   candidate once or restore the prior known-good exactly once. Map every
+   synchronous activation behavior to a StepDefinition and name one typed
+   adapter owner per effect (handoff publication, restart, health,
+   inference probe, known-good promotion/restoration). Remove the old
+   synchronous path as it converts.
    Then Session 6 (acquisition, runtime update, Activity view), R4 typed
    adapters/timeouts, and the later phases of the post-R2 plan.
 
