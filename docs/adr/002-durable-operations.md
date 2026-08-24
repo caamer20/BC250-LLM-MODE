@@ -151,6 +151,17 @@ Because acquisition within an operation follows lexicographic key order,
 and SQLite `BEGIN IMMEDIATE` serializes lease writes, deadlock is
 impossible.
 
+> **Erratum (Session 5B):** the `RUNTIME_UPDATE` example above lists
+> `runtime-installation` before `runtime-active`, which is not Python/string
+> lexicographic order. The binding rule is: acquire all resources for one
+> operation in **sorted (lexicographic) key order**, one at a time. The
+> example's prose intent ("installation before activation boundary") is
+> preserved by naming, not by that listing: `runtime-active` sorts before
+> `runtime-installation`, so an update acquires `runtime-active` first.
+> An operation may release a higher-sorted resource only after releasing
+> every lower-sorted resource it still holds; it may re-acquire a
+> lexicographically lower resource while retaining a higher one.
+
 ## 7. Leases
 
 - One row per resource key (`PRIMARY KEY`), referencing its owning

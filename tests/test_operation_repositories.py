@@ -440,3 +440,195 @@ def test_active_and_recent_queries_are_deterministically_ordered(units):
         # Repeat reads are deterministic.
         assert [r.id for r in ops.list_recent()] == [r.id for r in recent]
         assert [r.id for r in ops.list_active()] == [active.id]
+
+
+# --- Session 5B §3 entry corrections (red first) -----------------------------
+
+
+def test_assert_owned_fences_key_operation_owner_revision_and_expiry(units):
+    """§3.1: one assertion proves resource, operation, owner, revision, and
+    non-expiry before any owner-sensitive mutation."""
+    created = _create(units)
+    with units.begin() as conn:
+        clock = FakeClock()
+        leases = LeaseRepository(conn, clock=clock)
+        lease = leases.acquire(
+            "runtime-active", operation_id=created.id, owner="w1", ttl_seconds=60
+        )
+        # All five properties hold.
+        leases.assert_owned(
+            "runtime-active",
+            created.id,
+            owner="w1",
+            lease_revision=lease.lease_revision,
+            now=clock(),
+        )
+        # Wrong resource key.
+        with pytest.raises(OperationConflict):
+            leases.assert_owned(
+                "other-key", created.id, owner="w1",
+                lease_revision=lease.lease_revision, now=clock(),
+            )
+        # Wrong operation.
+        with pytest.raises(OperationConflict):
+            leases.assert_owned(
+                "runtime-active", "op-other", owner="w1",
+                lease_revision=lease.lease_revision, now=clock(),
+            )
+        # Wrong owner and wrong revision.
+        with pytest.raises(OperationConflict):
+            leases.assert_owned(
+                "runtime-active", created.id, owner="w2",
+                lease_revision=lease.lease_revision, now=clock(),
+            )
+        with pytest.raises(OperationConflict):
+            leases.assert_owned(
+                "runtime-active", created.id, owner="w1",
+                lease_revision=lease.lease_revision + 5, now=clock(),
+            )
+        # Expired at the injected now.
+        with pytest.raises(OperationConflict):
+            leases.assert_owned(
+                "runtime-active", created.id, owner="w1",
+                lease_revision=lease.lease_revision,
+                now="2027-08-23T12:00:00Z",
+            )
+
+
+def test_request_cancel_sets_durable_timestamp_once(units):
+    with units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        created = ops.create(operation_type="MODEL_ACTIVATE", request={})
+        preparing = ops.compare_and_transition(
+            created.id,
+            expected_state="QUEUED",
+            expected_revision=created.state_revision,
+            target_state="PREPARING",
+        )
+        requested = ops.request_cancel(preparing.id)
+        assert requested.cancel_requested_at is not None
+        stamp = requested.cancel_requested_at
+        revision = requested.state_revision
+
+        repeated = ops.request_cancel(requested.id)
+        assert repeated.cancel_requested_at == stamp, (
+            "a repeated request must preserve the original timestamp"
+        )
+        assert repeated.state_revision == revision
+
+
+def test_stale_cancel_revision_changes_nothing(units):
+    with units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        created = ops.create(operation_type="MODEL_ACTIVATE", request={})
+        preparing = ops.compare_and_transition(
+            created.id,
+            expected_state="QUEUED",
+            expected_revision=created.state_revision,
+            target_state="PREPARING",
+        )
+        running = ops.compare_and_transition(
+            preparing.id,
+            expected_state="PREPARING",
+            expected_revision=preparing.state_revision,
+            target_state="RUNNING",
+        )
+
+        with pytest.raises(OperationConflict):
+            ops.request_cancel(running.id, expected_revision=preparing.state_revision)
+
+        after = ops.get(created.id)
+        assert after.state == OperationState.RUNNING
+        assert after.cancel_requested_at is None
+
+
+def test_cancellation_refused_in_critical_sections_with_stable_result(units):
+    with units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        created = ops.create(operation_type="MODEL_ACTIVATE", request={})
+        preparing = ops.compare_and_transition(
+            created.id,
+            expected_state="QUEUED",
+            expected_revision=created.state_revision,
+            target_state="PREPARING",
+        )
+        running = ops.compare_and_transition(
+            preparing.id,
+            expected_state="PREPARING",
+            expected_revision=preparing.state_revision,
+            target_state="RUNNING",
+        )
+        committing = ops.compare_and_transition(
+            running.id,
+            expected_state="RUNNING",
+            expected_revision=running.state_revision,
+            target_state="COMMITTING",
+        )
+        with pytest.raises(InvalidTransition, match="critical section"):
+            ops.request_cancel(committing.id)
+
+
+def test_recovery_required_blocks_expired_takeover(units):
+    """§3.3: TTL expiry must not hand an unproven external state to another
+    worker while its operation is RECOVERY_REQUIRED."""
+    created = _create(units)
+    with units.begin() as conn:
+        clock = FakeClock()
+        ops = OperationRepository(conn, clock=clock)
+        leases = LeaseRepository(conn, clock=clock)
+        ops.compare_and_transition(
+            created.id,
+            expected_state="QUEUED",
+            expected_revision=created.state_revision,
+            target_state="PREPARING",
+        )
+        running = ops.compare_and_transition(
+            created.id,
+            expected_state="PREPARING",
+            expected_revision=created.state_revision + 1,
+            target_state="RUNNING",
+        )
+        leases.acquire(
+            "model:m1", operation_id=created.id, owner="w1", ttl_seconds=1
+        )
+        ops.record_terminal_result(
+            created.id,
+            terminal_state="RECOVERY_REQUIRED",
+            error_code="UNCERTAIN_EFFECT",
+        )
+        del running
+
+    # Well past nominal expiry: the barrier holds.
+    later = FakeClock()
+    for _ in range(120):
+        later()
+    with units.begin() as conn:
+        ops_late = OperationRepository(conn, clock=later)
+        leases_late = LeaseRepository(conn, clock=later)
+        other = ops_late.create(operation_type="MODEL_ACTIVATE", request={"m": 2})
+        with pytest.raises(OperationConflict):
+            leases_late.acquire("model:m1", operation_id=other.id, owner="w2")
+        with pytest.raises(OperationConflict):
+            leases_late.takeover("model:m1", operation_id=other.id, new_owner="w2")
+    del created
+
+
+def test_list_expired_is_bounded_and_deterministic(units):
+    created = _create(units)
+    with units.begin() as conn:
+        clock = FakeClock()
+        leases = LeaseRepository(conn, clock=clock)
+        leases.acquire("alpha-res", operation_id=created.id, owner="w1", ttl_seconds=1)
+        leases.acquire("beta-res", operation_id=created.id, owner="w1", ttl_seconds=60)
+
+    later = FakeClock()
+    for _ in range(10):
+        later()
+    with units.begin() as conn:
+        leases = LeaseRepository(conn, clock=later)
+        expired = leases.list_expired(now=later(), limit=10)
+        assert [lease.resource_key for lease in expired] == ["alpha-res"]
+        assert all(isinstance(lease.owner, str) for lease in expired)
+        # Bounded and deterministic.
+        again = leases.list_expired(now=later(), limit=10)
+        assert [l.resource_key for l in again] == [l.resource_key for l in expired]

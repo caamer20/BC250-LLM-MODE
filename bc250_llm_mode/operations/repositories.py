@@ -300,13 +300,30 @@ class OperationRepository:
     def request_cancel(
         self, operation_id: str, *, expected_revision: int | None = None
     ) -> OperationRecord:
-        """Idempotently request cancellation at the next safe point."""
+        """Durably request cancellation at the next safe point.
+
+        The first accepted request sets ``cancel_requested_at`` in the same
+        CAS update that moves state to ``CANCEL_REQUESTED``; a repeated
+        request preserves the original timestamp and revision. A stale
+        revision changes neither state nor timestamp. Cancellation is refused
+        from critical sections (`COMMITTING`, `ROLLING_BACK`) because ADR 002
+        deliberately defines no deferred-cancellation state there.
+        """
         current = self.require(operation_id)
         if current.state in (
             OperationState.CANCEL_REQUESTED,
             OperationState.CANCELLED,
         ):
             return current  # repeat requests are no-ops
+        if current.state in (
+            OperationState.COMMITTING,
+            OperationState.ROLLING_BACK,
+        ):
+            raise InvalidTransition(
+                f"cancellation refused inside critical section "
+                f"{current.state.value}; it will be resolved to a terminal "
+                "state before cancellation can be considered"
+            )
         if is_terminal(current.state):
             raise InvalidTransition(
                 f"cannot cancel terminal operation in {current.state.value}"
@@ -316,14 +333,37 @@ class OperationRepository:
             if expected_revision is not None
             else current.state_revision
         )
-        return self.compare_and_transition(
-            operation_id,
-            expected_state=current.state,
-            expected_revision=revision,
-            target_state=OperationState.CANCEL_REQUESTED,
-            event_code="CANCEL_REQUESTED",
-            event_summary="cancellation requested; honoring at next safe point",
+        now = self.clock()
+        cursor = self.conn.execute(
+            """
+            UPDATE operations SET
+                state = 'CANCEL_REQUESTED',
+                cancel_requested_at = ?,
+                state_revision = state_revision + 1,
+                updated_at = ?
+            WHERE id = ? AND state = ? AND state_revision = ?
+            """,
+            (now, now, operation_id, current.state.value, revision),
         )
+        if cursor.rowcount != 1:
+            refreshed = self.get(operation_id)
+            detail = (
+                f"{refreshed.state.value}@{refreshed.state_revision}"
+                if refreshed
+                else "missing"
+            )
+            raise OperationConflict(
+                f"stale cancellation lost for {operation_id}: expected "
+                f"{current.state.value}@{revision}, found {detail}"
+            )
+        self.events.append(
+            operation_id,
+            code="CANCEL_REQUESTED",
+            summary="cancellation requested; honoring at next safe point",
+        )
+        updated = self.get(operation_id)
+        assert updated is not None
+        return updated
 
     def update_progress(
         self,
@@ -730,6 +770,62 @@ class LeaseRepository:
         ).fetchone()
         return _lease_from_row(row) if row is not None else None
 
+    def assert_owned(
+        self,
+        resource_key: str,
+        operation_id: str,
+        *,
+        owner: str,
+        lease_revision: int,
+        now: str,
+    ) -> None:
+        """Fence an owner-sensitive mutation (Session 5B §3.1).
+
+        Proves from the current row that the resource key, operation, owner
+        token, and lease revision all match AND the lease has not expired at
+        the injected current time. Call this in the SAME write unit of work
+        as the mutation it guards; a lost fence raises ``OperationConflict``
+        and the stale worker must perform no further writes or effects.
+        """
+        row = self.conn.execute(
+            "SELECT * FROM operation_leases WHERE resource_key = ?",
+            (resource_key,),
+        ).fetchone()
+        if (
+            row is None
+            or row["operation_id"] != operation_id
+            or row["owner"] != owner
+            or int(row["lease_revision"]) != int(lease_revision)
+            or row["expires_at"] <= now
+        ):
+            raise OperationConflict(
+                f"lost lease for {resource_key!r}: "
+                f"owner {owner!r}@{lease_revision} is no longer current"
+            )
+
+    def list_expired(self, now: str, *, limit: int = 50) -> list[OperationLease]:
+        """Bounded deterministic read of expired leases (Session 5B §3.5)."""
+        limit = max(0, int(limit))
+        if limit == 0:
+            return []
+        rows = self.conn.execute(
+            "SELECT * FROM operation_leases WHERE expires_at <= ?"
+            " ORDER BY resource_key LIMIT ?",
+            (now, limit),
+        ).fetchall()
+        return [_lease_from_row(row) for row in rows]
+
+    def _owning_operation_state(self, resource_key: str) -> str | None:
+        row = self.conn.execute(
+            """
+            SELECT o.state FROM operation_leases l
+            JOIN operations o ON o.id = l.operation_id
+            WHERE l.resource_key = ?
+            """,
+            (resource_key,),
+        ).fetchone()
+        return row["state"] if row is not None else None
+
     def acquire(
         self,
         resource_key: str,
@@ -747,6 +843,16 @@ class LeaseRepository:
                 f"resource {resource_key!r} is actively held by "
                 f"{existing.owner!r} (revision {existing.lease_revision})"
             )
+        # Recovery barrier (Session 5B §3.3): an otherwise expired lease whose
+        # owning operation is RECOVERY_REQUIRED may NOT be taken over — the
+        # external state is unproven until an explicit recovery resolves it.
+        if existing is not None:
+            state = self._owning_operation_state(resource_key)
+            if state == OperationState.RECOVERY_REQUIRED.value:
+                raise OperationConflict(
+                    f"resource {resource_key!r} is a RECOVERY_REQUIRED barrier;"
+                    " takeover refused until explicit recovery"
+                )
         cursor = self.conn.execute(
             """
             INSERT INTO operation_leases (
@@ -757,7 +863,6 @@ class LeaseRepository:
                 operation_id = excluded.operation_id,
                 owner = excluded.owner,
                 lease_revision = operation_leases.lease_revision + 1,
-                acquired_at = excluded.acquired_at,
                 heartbeat_at = excluded.heartbeat_at,
                 expires_at = excluded.expires_at
             WHERE operation_leases.expires_at <= excluded.acquired_at
