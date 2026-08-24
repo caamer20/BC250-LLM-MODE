@@ -829,6 +829,10 @@ class ModelActivationService:
             view = self._view(restored.resolved)
             self.controller.restart(view)
             self.controller.health_check(view)
+            # A restored known-good runtime is verified by the same standard
+            # as a candidate: health AND bounded minimal inference. A rollback
+            # that restores config but cannot serve tokens is RECOVERY_REQUIRED.
+            self.controller.minimal_inference_probe(view)
         except Exception as rollback_error:  # noqa: BLE001 - both failed
             self.runtime.mark_recovery_required({
                 "activation_error": str(activation_error),
@@ -885,7 +889,7 @@ class HostModeService:
         self._units = units
 
     def enforce_desktop_next_boot(self, view, runner) -> dict[str, Any]:
-        from .desktop_mode import stage_desktop_boot
+        from .llmmode import stage_desktop_boot
 
         before = dict(view)
         stage_desktop_boot(view, runner)
@@ -894,7 +898,7 @@ class HostModeService:
 
     def enter_llm_mode(self, view, runner, *, install_service_fn=None,
                        install: bool = False) -> dict[str, Any]:
-        from .llm_mode import apply_llm_mode
+        from .llmmode import apply_llm_mode
 
         before = dict(view)
         apply_llm_mode(view, runner)
@@ -904,7 +908,7 @@ class HostModeService:
         return {"system_mode": view.get("system_mode")}
 
     def return_to_desktop(self, view, runner, *, activate_now: bool = False) -> dict[str, Any]:
-        from .desktop_mode import switch_to_desktop_mode
+        from .desktop import switch_to_desktop_mode
 
         before = dict(view)
         switch_to_desktop_mode(view, runner, activate_now=activate_now)

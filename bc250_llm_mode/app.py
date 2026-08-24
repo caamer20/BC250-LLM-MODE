@@ -27,8 +27,16 @@ class RepairRequired(RuntimeError):
 
 
 # Settings keys a frontend may narrow-commit during the transition to typed
-# view models (dies in Phase C). Anything else requires an owning service,
-# which keeps commit_settings_changes from being a whole-state escape hatch.
+# view models (dies in R4). Anything else requires an owning service, which
+# keeps commit_settings_changes from being a whole-state escape hatch.
+#
+# Frozen call-site census (Session 4.1 §3.6) — each remaining site owns
+# persistence because its command calls module functions, not services:
+#   __main__.py: 1  (llm start/stop/restart/ensure)
+#   chat.py:     4  (/llm /webui /serve /boot desktop)
+#   gui/app.py:  1  (commit_narrow, the GUI's sole persistence primitive)
+# Services that commit internally (activation, host-mode, component,
+# openwebui, sharing, model-install) MUST NOT get a caller-side commit.
 FRONTEND_COMMIT_KEYS = frozenset({
     "disclaimer_ack", "ack_timestamp", "setup_complete",
     "current_model", "current_ctx", "optimizations",

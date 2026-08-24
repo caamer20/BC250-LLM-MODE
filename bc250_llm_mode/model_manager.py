@@ -40,51 +40,11 @@ def restart_with_rollback(
     _apply_legacy_or_raise(state, {}, previous, runner, description)
 
 
-def _read_supplier(store: Any):
-    """Read supplier for the composition (``read_model``) or a test double
-    exposing the legacy ``load`` seam. Never a whole-state writer."""
-    read = getattr(store, "read_model", None)
-    return read if read is not None else store.load
-
-
-def _activation_service(store: Any, runner: CommandRunner) -> Any:
-    """ModelActivationService for SQLite profiles; None on legacy stores."""
-    database_path = getattr(getattr(store, "paths", None), "database_path", None)
-    if database_path is None:
-        return None
-    from .services import (
-        ModelActivationService,
-        RuntimeConfigurationService,
-        RuntimeController,
-    )
-    from .unit_of_work import UnitOfWorkFactory
-
-    class _ModuleController(RuntimeController):
-        """Delegates to this module's seams so hosts/tests can intercept."""
-
-        def __init__(self, inner_runner: CommandRunner) -> None:
-            self.runner = inner_runner
-
-        def restart(self, view: dict[str, Any]) -> None:
-            restart_service(view, self.runner)
-
-        def health_check(self, view: dict[str, Any]) -> dict[str, Any]:
-            return health_check(view, self.runner)
-
-        def minimal_inference_probe(self, view: dict[str, Any]) -> dict[str, Any]:
-            from .server import minimal_inference_probe
-
-            return minimal_inference_probe(view)
-
-    paths = store.paths
-    read = _read_supplier(store)
-    units = UnitOfWorkFactory(database_path)
-    runtime = RuntimeConfigurationService(
-        units, app_dir=paths.app_dir, state_supplier=read
-    )
-    return ModelActivationService(
-        units, runtime, _ModuleController(runner), state_supplier=read
-    )
+def _composed_activation_service(store: Any) -> Any:
+    """The composed ``Application.activation`` service, or ``None`` on
+    in-memory test doubles. Production never constructs a second service
+    graph here: one composition, one activation service, one restart."""
+    return getattr(store, "activation", None)
 
 
 def _apply_legacy_or_raise(
@@ -129,8 +89,14 @@ def _service_activation(
     context: int | None = None,
     slots: int | None = None,
 ) -> dict[str, Any] | None:
-    """Run the typed activation when a database profile exists."""
-    service = _activation_service(store, runner)
+    """Run the composed typed activation; ``None`` on in-memory doubles.
+
+    The service persists the candidate, restarts, verifies health and
+    minimal inference, and promotes known-good itself. On success this only
+    refreshes the caller's disposable draft via ``read_model()`` — exactly
+    once, after the external effect is durable.
+    """
+    service = _composed_activation_service(store)
     if service is None:
         return None
     from .services import ActivationRequest
@@ -149,7 +115,7 @@ def _service_activation(
         if result.status == "CONFLICT":
             raise RuntimeError(f"conflict: {reason}")
         raise RuntimeError(f"activation failed ({reason})")
-    fresh = store.load()
+    fresh = store.read_model()
     state.clear()
     state.update(fresh)
     return result.detail
@@ -214,7 +180,12 @@ def register_and_switch_local(
         raise ValueError(fit.detail)
     previous = {"current_model": state.get("current_model")}
     prepare_local_model(state, LocalModel.from_dict(model.to_dict()), runner)
-    _service_activation(store, state, runner, model_id=local_id)
+    result = _service_activation(store, state, runner, model_id=local_id)
+    if result is not None:
+        # The composed activation already restarted, verified health and
+        # inference, and promoted known-good; a second restart would be a
+        # duplicate external effect.
+        return state
     _apply_legacy_or_raise(
         state, {}, previous, runner, f"Switching to {model.display_name}"
     )

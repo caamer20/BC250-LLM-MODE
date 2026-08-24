@@ -192,7 +192,7 @@ def test_known_good_promotion_round_trip(tmp_path):
 class FakeController:
     fail_health_model: str | None = None
     fail_restart: bool = False
-    fail_probe: bool = False
+    fail_probe_model: str | None = None  # probe fails only for this model
     calls: list = field(default_factory=list)
 
     def restart(self, view):
@@ -207,7 +207,7 @@ class FakeController:
 
     def minimal_inference_probe(self, view):
         self.calls.append(("probe", view.get("current_model")))
-        if self.fail_probe:
+        if self.fail_probe_model == view.get("current_model"):
             raise RuntimeError("inference probe produced no tokens")
 
 
@@ -296,21 +296,60 @@ def test_health_failure_restores_previous_model(tmp_path):
     }
     assert result.detail["restored_model"] == MODEL["id"]
     kinds = [call[0] for call in controller.calls]
-    assert kinds == ["restart", "health", "restart", "health"]
+    # Candidate attempt, then rollback that verifies health AND inference.
+    assert kinds == ["restart", "health", "restart", "health", "probe"]
     assert runtime.current()["model_alias"] == MODEL["id"]
 
 
 def test_minimal_inference_failure_also_rolls_back(tmp_path):
     store, runtime, controller, activation = _activation(tmp_path)
-    controller.fail_probe = True
+    _install(
+        store,
+        [
+            MODEL,
+            dict(MODEL, id="qwen38-2b-distill", display_name="Qwen 3.8 2B Distill"),
+        ],
+        current=MODEL["id"],
+    )
+    # The candidate loads and becomes healthy but serves no tokens; the
+    # restored known-good model still verifies end to end.
+    controller.fail_probe_model = "qwen38-2b-distill"
 
     result = activation.activate(
-        ActivationRequest(model_id=MODEL["id"], context=8192)
+        ActivationRequest(model_id="qwen38-2b-distill")
     )
 
     assert result.status == "FAILED_ROLLED_BACK", result.to_dict()
-    assert ("probe", MODEL["id"]) in controller.calls
     assert runtime.known_good() is None  # never promoted on failure
+    assert result.detail["restored_model"] == MODEL["id"]
+    kinds = [call[0] for call in controller.calls]
+    assert kinds == ["restart", "health", "probe", "restart", "health", "probe"]
+
+
+def test_rollback_inference_failure_enters_recovery_required(tmp_path):
+    """A restored config that cannot serve tokens is RECOVERY_REQUIRED."""
+    store, runtime, controller, activation = _activation(tmp_path)
+    _install(
+        store,
+        [
+            MODEL,
+            dict(MODEL, id="qwen38-2b-distill", display_name="Qwen 3.8 2B Distill"),
+        ],
+        current=MODEL["id"],
+    )
+    # The restored model cannot serve tokens either: rollback verification
+    # (health passes, probe fails) must surface RECOVERY_REQUIRED.
+    def fail_all_probes(view):
+        controller.calls.append(("probe", view.get("current_model")))
+        raise RuntimeError("inference probe produced no tokens")
+
+    controller.minimal_inference_probe = fail_all_probes  # type: ignore[method-assign]
+    controller.fail_health_model = "qwen38-2b-distill"
+
+    result = activation.activate(ActivationRequest(model_id="qwen38-2b-distill"))
+
+    assert result.status == "RECOVERY_REQUIRED", result.to_dict()
+    assert "rollback_error" in result.detail
 
 
 def test_rollback_failure_produces_recovery_required(tmp_path):

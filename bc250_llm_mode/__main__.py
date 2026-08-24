@@ -477,14 +477,14 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(llamacpp_status(state, status_runner), indent=2))
             return 0
         require_acknowledgment(state)
-        before = dict(state)
         if args.action == "update":
             result = application.component.update_llamacpp(
                 state, runner, tag=args.tag
             )
         else:
             result = application.component.rollback_llamacpp(state, runner)
-        application.commit_settings_changes(before, state)
+        # Persistence owner: ComponentLifecycleService committed internally
+        # (settings diff + component provenance); no caller-side commit.
         print(json.dumps(result, indent=2, default=str))
         return 0
     if args.command in {"webui", "openwebui"}:
@@ -496,9 +496,9 @@ def main(argv: list[str] | None = None) -> int:
             "restart": lambda: svc.restart(state, runner),
             "status": lambda: svc.status(state, runner),
         }
-        before = dict(state)
         result = actions[args.action]()
-        application.commit_settings_changes(before, state)
+        # Persistence owner: OpenWebUIService committed internally; the CLI
+        # only refreshes nothing here — state is a disposable snapshot.
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "tailscale":
@@ -522,9 +522,8 @@ def main(argv: list[str] | None = None) -> int:
             "restart": lambda: svc.start(state, runner),
             "status": lambda: https_sharing_status(state, runner),
         }
-        before = dict(state)
         result = actions[args.action]()
-        application.commit_settings_changes(before, state)
+        # Persistence owner: SharingService committed internally.
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "models":
