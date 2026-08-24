@@ -235,10 +235,27 @@ class ExecutionEngine:
                 self._fence(leases, operation_id, held)
                 rows = {s.step_key: s for s in steps_repo.list(operation_id)}
 
-            if operation.cancel_requested_at is not None and operation.state in (
-                OperationState.RUNNING,
-                OperationState.PREPARING,
-                OperationState.VERIFYING,
+            pending = next(
+                (
+                    s
+                    for s in definition.steps
+                    if rows[s.step_key].state is not StepState.VERIFIED
+                ),
+                None,
+            )
+            if pending is None:
+                return self._complete(operation_id, held)
+
+            # An accepted cancellation (durable CANCEL_REQUESTED) is honored
+            # at the next safe point of the loop. A critical step with intent
+            # already persisted resolves first (its state is RUNNING).
+            safe_to_cancel = not (
+                pending.critical and rows[pending.step_key].state is StepState.RUNNING
+            )
+            if (
+                operation.cancel_requested_at is not None
+                and operation.state is OperationState.CANCEL_REQUESTED
+                and safe_to_cancel
             ):
                 return self._honor_cancellation(
                     operation_id, workflow=definition, decoded=decoded,
@@ -250,17 +267,6 @@ class ExecutionEngine:
                 in (OperationState.RUNNING, OperationState.PREPARING, OperationState.VERIFYING)
             ):
                 return self._pause(operation_id, held, "SHUTDOWN_REQUESTED")
-
-            pending = next(
-                (
-                    s
-                    for s in definition.steps
-                    if rows[s.step_key].state is not StepState.VERIFIED
-                ),
-                None,
-            )
-            if pending is None:
-                return self._complete(operation_id, held)
 
             result = self._advance_step(
                 operation_id, definition, decoded, pending,
@@ -502,20 +508,26 @@ class ExecutionEngine:
     ) -> "ExecutionOutcome | list[StepDefinition]":
         try:
             output = step.execute(ctx)
+            import json as _json
+
+            self._checkpoint_transaction(
+                operation_id,
+                step,
+                held,
+                ctx,
+                _json.loads(sanitize_payload(output or {})),
+                recovered=False,
+            )
+            step.verify(ctx)
+            self._verify_transaction(operation_id, step, held)
+        except LostLease:
+            raise
         except Exception as exc:  # BaseException (process death) propagates
             return self._handle_failure(
                 operation_id, workflow=None, step=step, ctx=ctx,
                 held=held, effected=effected,
                 error=exc,
             )
-        output = sanitize_payload(output or {})
-        import json as _json
-
-        self._checkpoint_transaction(
-            operation_id, step, held, ctx, _json.loads(output), recovered=False
-        )
-        step.verify(ctx)
-        self._verify_transaction(operation_id, step, held)
         if step.externally_visible:
             effected.append(step)
         return effected
@@ -549,18 +561,25 @@ class ExecutionEngine:
         ):
             try:
                 output = step.execute(ctx)
+                import json as _json
+
+                self._checkpoint_transaction(
+                    operation_id,
+                    step,
+                    held,
+                    ctx,
+                    _json.loads(sanitize_payload(output or {})),
+                    recovered=False,
+                )
+                step.verify(ctx)
+                self._verify_transaction(operation_id, step, held)
+            except LostLease:
+                raise
             except Exception as exc:
                 return self._handle_failure(
-                    operation_id, workflow, step, ctx, held, effected, exc
+                    operation_id, workflow=None, step=step, ctx=ctx,
+                    held=held, effected=effected, error=exc,
                 )
-            import json as _json
-
-            self._checkpoint_transaction(
-                operation_id, step, held, ctx, _json.loads(sanitize_payload(output or {})),
-                recovered=False,
-            )
-            step.verify(ctx)
-            self._verify_transaction(operation_id, step, held)
             if step.externally_visible:
                 effected.append(step)
             return effected
@@ -710,8 +729,11 @@ class ExecutionEngine:
             for step in reversed(effected)
             if step.compensate is not None
             and rows.get(step.step_key)
-            and rows[step.step_key].state
-            in (StepState.CHECKPOINTED, StepState.VERIFIED)
+            and (
+                rows[step.step_key].state
+                in (StepState.CHECKPOINTED, StepState.VERIFIED)
+                or rows[step.step_key].state is StepState.RUNNING
+            )
         ]
         compensation_failures: list[str] = []
         for step in reverse:
@@ -813,12 +835,34 @@ class ExecutionEngine:
         held: dict[str, int],
         effected: list[StepDefinition],
     ) -> ExecutionOutcome:
-        del workflow, decoded
-        if effected:
+        del decoded
+        # Mutation evidence comes from DURABLE step rows, never from this
+        # worker's memory: after process death the new worker must still see
+        # what the previous worker effected.
+        with self.units.begin() as conn:
+            steps_repo = StepRepository(conn, clock=self.clock)
+            rows = {s.step_key: s for s in steps_repo.list(operation_id)}
+        durable_effected = [
+            step
+            for step in workflow.steps
+            if step.externally_visible
+            and rows.get(step.step_key)
+            and (
+                rows[step.step_key].state
+                in (StepState.CHECKPOINTED, StepState.VERIFIED)
+                or (
+                    # An interrupted RUNNING effect may have mutated: the
+                    # conservative cancellation path compensates it too.
+                    rows[step.step_key].state is StepState.RUNNING
+                    and step.compensate is not None
+                )
+            )
+        ]
+        if durable_effected:
             return self._compensate_and_finalize(
                 operation_id,
                 held=held,
-                effected=effected,
+                effected=durable_effected,
                 reason_code="CANCELLED_AFTER_COMPENSATION",
                 cancelled=True,
             )
