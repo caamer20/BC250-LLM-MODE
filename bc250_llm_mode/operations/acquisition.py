@@ -221,10 +221,8 @@ class AcquisitionHost(Protocol):
 
     def reserve_storage(
         self,
-        request: Any,
+        ctx: EffectContext,
         source: SourceIdentity,
-        preflight: DiskPreflightEvidence,
-        external_effect_id: str,
     ) -> DiskPreflightEvidence: ...
 
     def observe_reservation(self, request: Any) -> ProbeResult: ...
@@ -310,14 +308,8 @@ def _acquire_step_callbacks(host: AcquisitionHost) -> dict[str, Any]:
 
     def reserve_execute(ctx: EffectContext) -> dict[str, Any]:
         source = SourceIdentity(**(ctx.inputs.get("source") or {}))
-        preflight = host.preflight_storage(ctx.request, source)
-        reserved = host.reserve_storage(
-            ctx.request, source, preflight, ctx.external_effect_id
-        )
-        return {
-            "preflight": _evidence(preflight),
-            "reservation": _evidence(reserved),
-        }
+        reserved = host.reserve_storage(ctx, source)
+        return {"preflight": _evidence(reserved), "reservation": _evidence(reserved)}
 
     def transfer_execute(ctx: EffectContext) -> dict[str, Any]:
         evidence = host.transfer_catalog(ctx)
@@ -449,9 +441,7 @@ def _build_steps(
     def step_for(key: str, phase: str, seq: int, extra: dict) -> StepDefinition:
         probe_map = {
             "resolve_source": resolve_probe,
-            "reserve_storage": lambda ctx, h=host: h.observe_reservation(
-                ctx.request
-            ),
+            "reserve_storage": lambda ctx, h=host: h.observe_reservation(ctx),
             "transfer_source": lambda ctx, h=host: h.probe_transfer(ctx),
             "materialize_candidate": lambda ctx, h=host: h.probe_candidate(ctx),
             "validate_candidate": lambda ctx: (
@@ -478,7 +468,7 @@ def _build_steps(
         verify_map = {
             "resolve_source": resolve_verify,
             "reserve_storage": lambda ctx, h=host: _require_complete(
-                h.observe_reservation(ctx.request),
+                h.observe_reservation(ctx),
                 "STAGING_OWNERSHIP_INVALID",
             ),
             "transfer_source": callbacks["transfer_verify"],
@@ -572,7 +562,7 @@ def build_acquire_workflow(host: AcquisitionHost) -> WorkflowDefinition:
         ),
         summary=lambda request: f"acquire catalog model {request.model_id}",
         terminal_decision=terminal,
-        cancel_finalizer=lambda request, h=host: h.release_on_cancellation(request),
+        cancel_finalizer=lambda request, operation_id="", h=host: h.release_on_cancellation(request, operation_id=operation_id),
         preflight=lambda request: None,
     )
 
@@ -637,7 +627,7 @@ def build_import_workflow(host: AcquisitionHost) -> WorkflowDefinition:
         # (U1.1 §3.1 P1).
         summary=lambda request: "import local GGUF into managed storage",
         terminal_decision=terminal,
-        cancel_finalizer=lambda request, h=host: h.release_on_cancellation(request),
+        cancel_finalizer=lambda request, operation_id="", h=host: h.release_on_cancellation(request, operation_id=operation_id),
         preflight=lambda request: None,
     )
 

@@ -129,12 +129,17 @@ class FakeAcquisitionHost:
             reserved_bytes=source.total_bytes * 2 + 512,
         )
 
-    def reserve_storage(self, request, source, preflight, external_effect_id):
-        self.reservations[external_effect_id] = {
-            "reserved": preflight.reserved_bytes,
+    def reserve_storage(self, ctx, source):
+        self.reservations[ctx.operation_id] = {
+            "reserved": source.total_bytes * 2 + 512,
             "released": False,
         }
-        return preflight
+        return DiskPreflightEvidence(
+            filesystem_identity="fs-test",
+            required_bytes=source.total_bytes * 3 + 1024,
+            available_bytes=10**9,
+            reserved_bytes=source.total_bytes * 2 + 512,
+        )
 
     def observe_reservation(self, request) -> ProbeResult:
         active = [r for r in self.reservations.values() if not r["released"]]
@@ -410,15 +415,23 @@ class FakeAcquisitionHost:
         self.compensated.add(ctx.operation_id)
         return {}
 
-    def release_on_cancellation(self, request) -> dict[str, Any]:
+    def release_on_cancellation(
+        self, request, *, operation_id: str = ""
+    ) -> dict[str, Any]:
         """§3.4: release the reservation; retain the resumable partial."""
         for reservation in self.reservations.values():
             reservation["released"] = True
-        partial = self.root / "staging"
+        staging_root = self.root / "staging"
         retained = 0
-        if partial.exists():
-            for p in partial.rglob("source.partial"):
-                retained += p.stat().st_size
+        if operation_id:
+            op_dir = staging_root / operation_id
+            if op_dir.exists():
+                for p in op_dir.rglob("source.partial"):
+                    retained += p.stat().st_size
+        else:
+            if staging_root.exists():
+                for p in staging_root.rglob("source.partial"):
+                    retained += p.stat().st_size
         return {"retained_bytes": retained}
 
     def observe_compensation(self, ctx) -> ProbeResult:

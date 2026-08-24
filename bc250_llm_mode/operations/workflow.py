@@ -76,6 +76,10 @@ class EffectContext:
     prior_outputs: dict[str, Any]
     request: Any
     pulse: Callable[..., None] = lambda *a, **k: None
+    # U1.1 §3.6: lease fence facts so host adapters can assert the current
+    # model-storage owner/revision inside their own repository units.
+    worker_id: str = ""
+    lease_revisions: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

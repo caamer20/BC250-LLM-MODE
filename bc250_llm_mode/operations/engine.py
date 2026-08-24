@@ -406,6 +406,8 @@ class ExecutionEngine:
             prior_outputs=dict(prior_outputs),
             request=decoded,
             pulse=self._make_pulse(operation_id, held),
+            worker_id=self.worker_id,
+            lease_revisions=dict(held),
         )
 
     def _make_pulse(self, operation_id: str, held: dict[str, int]):
@@ -577,6 +579,8 @@ class ExecutionEngine:
                 inputs=_row_inputs(row),
                 prior_outputs=prior_outputs,
                 request=decoded,
+                worker_id=self.worker_id,
+                lease_revisions=dict(held),
             )
             step.verify(ctx)
             self._verify_transaction(operation_id, step, held)
@@ -1054,6 +1058,8 @@ class ExecutionEngine:
                     inputs=_row_inputs(row),
                     prior_outputs=prior_outputs,
                     request=decoded,
+                    worker_id=self.worker_id,
+                    lease_revisions=dict(held),
                 )
                 assert step.compensate is not None
                 if row.state is StepState.COMPENSATING:
@@ -1198,7 +1204,10 @@ class ExecutionEngine:
                 ops, _s, leases, events = self._repos(conn)
                 record = ops.require(operation_id)
                 self._fence(leases, operation_id, held)
-                retained = workflow.cancel_finalizer(decoded) or {}
+                retained = (
+                    workflow.cancel_finalizer(decoded, operation_id=operation_id)
+                    or {}
+                )
                 result_code = (
                     "CANCELLED_PARTIAL_RETAINED"
                     if retained.get("retained_bytes")
