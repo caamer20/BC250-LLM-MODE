@@ -1,5 +1,10 @@
 # BC250 LLM MODE — Master Production Implementation Plan
 
+> **Status: historical (requirements authority only).** Sequencing authority
+> after R2 is `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md`; the master plan's
+> safety/reversibility/privilege rules remain binding requirements, but its
+> "immediate next task" ordering is superseded.
+
 **Document purpose:** Turn the existing architecture and production-readiness strategy into an ordered, testable implementation backlog that another engineer or coding agent can execute without having to reconstruct priorities or hidden dependencies.
 
 **Planning baseline:** `main` at `v0.7.0` (`46bedc6`) plus the intentionally uncommitted `0.8.0.dev0` feature and hardening work currently in the working tree.

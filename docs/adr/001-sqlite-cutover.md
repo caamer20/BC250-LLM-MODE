@@ -80,3 +80,21 @@ driving compatibility-save call sites to zero.
 - **Guard test** freezes direct `StateStore(` construction in production at
   its current four transitional call sites (`__main__.py --state`, chat/GUI
   fallbacks, importer staging); new call sites fail CI.
+
+## Post-R2 addendum (executed, supersedes details above)
+
+- **Facade removed.** `CompatStateStore` is deleted; `Application` exposes
+  only paths, the unit-of-work factory, the query layer, and typed domain
+  services. The guard above now requires zero `StateStore(` construction in
+  production.
+- **`--state` is import-only.** It is a deprecated alias accepted solely by
+  `repair-retry`; `import-state PATH` performs the one-time publication.
+- **Launcher is handoff-only.** The legacy `state.json` fallback branch is
+  removed; a missing or invalid `runtime-handoff.json` fails closed (exit 78)
+  until regenerated from SQLite.
+- **One connection policy.** All connections come from
+  `db.open_database(mode=read|write|migration)` with foreign keys and busy
+  timeout on every connection; read units are `query_only=ON`.
+- **Pure canonicalization.** v1→v5 JSON interpretation lives in
+  `legacy_schema.py` (no file I/O); `state.py` retains only defaults and boot
+  identity.

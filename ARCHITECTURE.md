@@ -10,7 +10,12 @@ module layout and the invariants that keep the hardware safe.
 | --- | --- |
 | `constants.py` | Paths, VRAM budgets, the shipped `KNOWN_GOOD_LLAMACPP` pin, tag validation |
 | `hardware.py` / `memory_profile.py` | DRM/GPU discovery, host RAM, BIOS UMA-split inference; card numbers are never cached |
-| `state.py` | Atomic (`0600`) JSON state with tested schema migrations (currently v5); every key is declared |
+| `state.py` | Legacy v5 defaults + boot identity only; no writable runtime JSON |
+| `legacy_schema.py` | Pure v1→v5 canonicalization of pre-SQLite JSON payloads (import source; no file I/O) |
+| `db.py` / `unit_of_work.py` | SQLite connection policy (`open_database`, FKs/WAL/query-only), ordered atomic migrations, per-command units of work |
+| `repositories.py` / `queries.py` | Typed SQL repositories and the assembled frontend read model |
+| `services.py` | Typed domain services (setup, thermal, runtime config, activation, host-mode, component, OpenWebUI, sharing, maintenance) |
+| `runtime_handoff.py` | Sole writer of the mode-0600 `runtime-handoff.json` rendered from committed state |
 | `disclaimer.py` | The mandatory safety gate; privileged or destructive paths call `require_acknowledgment` |
 | `llmmode.py` / `desktop.py` | Reboot safety: LLM mode is per-boot only; the next boot always returns to the desktop |
 | `catalog.py` | Curated model metadata, forbidden-artifact rejection, VRAM fit math (`calculate_fit`), `best_quant`, `search_catalog`, `recommend_models` |

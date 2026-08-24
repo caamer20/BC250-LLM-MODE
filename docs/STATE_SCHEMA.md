@@ -1,8 +1,11 @@
 # State schema reference (JSON, schemas v1–v5)
 
-v5 is the current JSON schema. The planned 0.9 release migrates durable state
-to SQLite (PRODUCTION_READINESS_PLAN R2); this document freezes the JSON
-contract that migration must consume. Fixtures: `tests/fixtures/`.
+> **Status: historical.** Durable state lives in SQLite (`state.db`) since the
+> R2 cutover. This document freezes the JSON contract that
+> `legacy_schema.canonicalize_legacy_state` consumes as an immutable import
+> source; it no longer describes a runtime store.
+
+v5 was the final JSON schema. Fixtures: `tests/fixtures/`.
 
 ## Field ownership
 

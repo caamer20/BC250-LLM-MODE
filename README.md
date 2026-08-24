@@ -391,7 +391,9 @@ Default paths are relative to the account that runs setup:
 
 | Item | Default |
 | --- | --- |
-| Application state | `~/.bc250-llm-mode/state.json` |
+| Application state (SQLite) | `~/.bc250-llm-mode/state.db` |
+| Runtime handoff (rendered, mode 0600) | `~/.bc250-llm-mode/runtime-handoff.json` |
+| Legacy JSON | `~/.bc250-llm-mode/state.json` — immutable import source only |
 | Managed models | `~/.bc250-llm-mode/models/` |
 | Setup log | `~/.bc250-llm-mode/logs/setup.log` |
 | Generated launcher | `~/.bc250-llm-mode/run-model.sh` |

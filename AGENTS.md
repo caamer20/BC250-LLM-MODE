@@ -5,7 +5,7 @@
 Python 3.11+ project for an AMD BC-250 running Bazzite: configures a local
 `llama.cpp` Vulkan server behind a single systemd service, with a resumable
 native tkinter wizard/dashboard and a terminal chat client. The working tree
-is at **`0.9.0.dev0`** with a **clean tree, 313-test green baseline**, and
+is at **`0.9.0.dev0`** with a **clean tree, 330-test green baseline**, and
 reviewed commits above `v0.7.0` (the pre-SQLite tree is tagged
 `v0.8.0-pre-sqlite` at `2126d61`) covering: 24-model catalog with
 tiers/recommendations, chat + benchmark features, thermal latch/baseline
@@ -17,29 +17,26 @@ handoff renderer/service), and the closed R1/R2 exit gate.
 
 ## Where we are in the master plan
 
-Executing `MASTER_IMPLEMENTATION_PLAN.md`. **R0.x, R1, and R2 are DONE —
-the R1/R2 exit gate is closed**: `compat_state.py` is deleted; `Application`
-exposes only paths, the unit-of-work factory, the query layer, and typed
-domain services (no generic store/load/save/transaction); frontends read
-disposable snapshots via `read_model()` and narrow-commit through
-`commit_settings_changes` (`FRONTEND_COMMIT_KEYS`); `--state` is a deprecated
-alias accepted only for `repair-retry`, with `import-state PATH` as the
-one-time publication command; legacy JSON is an immutable import source;
-architecture guards enforce zero facade references, zero frontend saves/
-transactions, and no generic persistence on `Application`.
+Executing `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md` (sequencing authority;
+the master plan remains requirements authority). **Phase 0 (Session 4.1) is
+DONE**: one SQLite connection policy (`db.open_database`) with test-proven
+FK/query-only contracts and deterministic composition close; production
+wiring repaired (host-mode imports, composed-activation single sequence,
+rollback inference verification); launcher is handoff-only with strict
+fail-closed validation; legacy canonicalization is pure (`legacy_schema.py`)
+and the writable JSON store exists only as test support; duplicate
+post-service commits removed with owners recorded; docs truth pass complete.
+Next: **Session 5A — ADR 002, migration 003, operation state machine and
+repositories** (per the predecessor plan Part II §§7–8), then 5B/5C.
 
-## Immediate next tasks
-
-1. ~~Sessions 1–2: safety/history/setup/runtime/model sweeps~~ **DONE**.
-2. ~~Session 3: frontend persistence removal + path closure~~ **DONE**.
-3. ~~Session 4: facade removal + `--state` import-only + R1/R2 exit matrix~~
-   **DONE** (313 tests green; behavioral launcher test lives in
-   `tests/test_runtime_handoff.py`).
-4. **Session 5A–5C (R3 operation engine)**: migration 003 + operation state
-   machine/repository; executor, leases, events, cancellation, recovery with
-   crash-injection foundation; convert model activation to durable steps per
-   `R2_EXIT_AND_OPERATION_ENGINE_PLAN.md` Part II. Then Session 6
-   (acquisition, runtime update, Activity view).
+1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
+2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.
+3. **Session 5A–5C (R3 operation engine)**: ADR 002 + migration 003 +
+   operation state machine/repository; executor, leases, events,
+   cancellation, recovery with crash-injection foundation; convert model
+   activation to durable steps. Then Session 6 (acquisition, runtime update,
+   Activity view), R4 typed adapters/timeouts, and the later phases of the
+   post-R2 plan.
 
 ## Layout highlights
 
@@ -67,11 +64,24 @@ transactions, and no generic persistence on `Application`.
 ## Verification
 
 ```bash
-PYTHONPATH=. .venv/bin/pytest -q        # full suite (editable install repaired)
+PYTHONPATH=. .venv/bin/pytest -q        # full suite; the terminal summary
+                                        # prints the authoritative collected
+                                        # test count (never infer from dots)
+.venv/bin/pytest tests --collect-only -q
 python -m compileall -q bc250_llm_mode tests
 ```
 
 The behavioral launcher test needs only bash ≥3.2 and python3 on PATH.
+
+### Test-count reconciliation record (Session 4.1 §3.1)
+
+- Handoff at `7672e7d` claimed **313**; the audited checkout collected **301**
+  — the earlier figure was stale because Session 4C deleted the facade-only
+  cutover tests without updating the handoff.
+- Session 4.1 added connection-contract, production-wiring, canonicalizer,
+  and launcher fail-closed tests; the reconciled baseline is now **330**,
+  printed automatically by `tests/conftest.py` in every run's summary.
+- Source (`PYTHONPATH=.`) and editable-install invocation collect identically.
 
 ## Development conventions
 

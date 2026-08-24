@@ -1,5 +1,8 @@
 # BC250 LLM MODE — Road to 1.0 Implementation Plan
 
+> **Status: historical.** Superseded by `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md`
+> as sequencing authority after the closed R1/R2 gate.
+
 **Purpose:** Provide one bounded execution plan from the current SQLite cutover to a production-ready 1.0 release, then stop feature development at a deliberate, useful “sweet spot.”
 
 **Current baseline:** `main` at `c3e076b`, package version `0.9.0.dev0`, 252 tests passing, pre-SQLite checkpoint tagged locally as `v0.8.0-pre-sqlite` at `2126d61`. The working tree was clean before this document was added. The branch is 28 commits ahead of `origin/main`; publication remains a user/repository-owner decision.
