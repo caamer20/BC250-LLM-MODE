@@ -184,7 +184,7 @@ def test_openwebui_create_uses_security_posture(monkeypatch):
     runner = RecordingRunner()
     state = {"openwebui_container": openwebui.CONTAINER}
     openwebui.install_open_webui(state, runner)
-    create = next(c for c in runner.commands if "create" in c)
+    create = next(c for c in runner.commands if c[:2] == ["podman", "create"])
     for flag in ("--security-opt", "no-new-privileges", "--cap-drop", "all",
                  "--memory", "--pids-limit"):
         assert flag in create, flag

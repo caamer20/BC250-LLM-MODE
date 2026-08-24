@@ -66,18 +66,71 @@ def test_service_install_starts_now_but_disables_next_boot(tmp_path, monkeypatch
 
 def test_openwebui_status_and_lifecycle(monkeypatch):
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    networks = json.dumps({openwebui.NETWORK: {}})
     outputs = {
         ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
         ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "running\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, networks + "\n"),
     }
     runner = FakeRunner(outputs)
     state = {}
     status = openwebui.open_webui_status(state, runner)
     assert status["installed"] is True
     assert status["running"] is True
+    assert status["topology"] == "contained"
 
     openwebui.stop_open_webui(state, runner)
     assert any(command[:3] == ["podman", "stop", "--time"] for command, _ in runner.commands)
+
+
+def test_openwebui_install_is_loopback_contained(monkeypatch):
+    """U0.6: no host networking; UI published strictly on 127.0.0.1."""
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    runner = FakeRunner(
+        {
+            ("podman", "network", "exists", openwebui.NETWORK): (1, ""),
+            ("podman", "container", "exists", openwebui.CONTAINER): (1, ""),
+        }
+    )
+    state = {}
+    openwebui.install_open_webui(state, runner)
+
+    commands = [command for command, _ in runner.commands]
+    assert ["podman", "network", "create", openwebui.NETWORK] in commands
+    create = next(c for c in commands if c[:2] == ["podman", "create"])
+    assert "--network" in create and "host" not in create
+    assert "-p" in create
+    assert create[create.index("-p") + 1] == "127.0.0.1:3000:8080"
+    assert "--security-opt" in create and "no-new-privileges" in create
+    assert "--cap-drop" in create and "all" in create
+    assert ["podman", "start", openwebui.CONTAINER] in commands
+
+
+def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
+    """Legacy/uncontained topology is migrated with the volume preserved."""
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    legacy_networks = json.dumps({"host": {}})
+    outputs = {
+        ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, legacy_networks + "\n"),
+    }
+    runner = FakeRunner(outputs)
+    state = {"openwebui_container": openwebui.CONTAINER}
+    openwebui.install_open_webui(state, runner)
+
+    commands = [command for command, _ in runner.commands]
+    assert ["podman", "stop", "--time", "10", openwebui.CONTAINER] in commands
+    assert ["podman", "rm", openwebui.CONTAINER] in commands
+    # Recreated contained: never started while still on host networking.
+    create_index = next(
+        i for i, c in enumerate(commands) if c[:2] == ["podman", "create"]
+    )
+    start_index = next(
+        i for i, c in enumerate(commands) if c[:2] == ["podman", "start"]
+    )
+    assert create_index < start_index
+    assert state["openwebui_container"] == openwebui.CONTAINER
 
 
 def test_tailscale_status_separates_daemon_and_tailnet(monkeypatch):
