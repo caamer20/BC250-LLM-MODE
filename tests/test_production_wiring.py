@@ -169,19 +169,35 @@ def test_uninstall_reaches_maintenance_adapter(tmp_path, monkeypatch):
 
 
 def test_activation_via_composed_application_single_restart(tmp_path, monkeypatch):
-    """F0.2 regression: CLI/chat/GUI activation must use the composed
-    service exactly once — no second restart, no deleted-API refresh."""
+    """F0.2 regression, Session 5C form: CLI/chat/GUI activation must use
+    the composed durable command exactly once — one restart, no second
+    restart, no generic frontend commit."""
     from bc250_llm_mode.model_manager import switch_model
 
     application = _composed(tmp_path)
+    import struct
+
+    def _s(value: bytes) -> bytes:
+        return struct.pack("<Q", len(value)) + value
+
+    model_path = tmp_path / "lfm.gguf"
+    model_path.write_bytes(
+        b"GGUF"
+        + struct.pack("<I", 3)
+        + struct.pack("<Q", 1)
+        + struct.pack("<Q", 1)
+        + _s(b"general.architecture")
+        + struct.pack("<I", 8)
+        + _s(b"llama")
+    )
     model = {
-        "id": "lfm25-26b", "path": "/models/lfm.gguf", "quant": "Q5_K_M",
+        "id": "lfm25-26b", "path": str(model_path), "quant": "Q5_K_M",
         "display_name": "LFM 2.5 2.6B",
     }
     _seed_model(application, model)
 
-    # Intercept at the adapter boundary: the server seams the composed
-    # controller delegates to (Application._wire_services).
+    # Intercept at the server-module boundary: the composed adapter's port
+    # delegates ALL service control and HTTP to bc250_llm_mode.server.
     import bc250_llm_mode.server as server
 
     restarts = []
@@ -189,11 +205,35 @@ def test_activation_via_composed_application_single_restart(tmp_path, monkeypatc
         server, "restart_service",
         lambda st, rn: restarts.append("restart"),
     )
-    monkeypatch.setattr(server, "health_check", lambda st, rn=None: {"healthy": True})
-    monkeypatch.setattr(server, "minimal_inference_probe", lambda st: {"tokens": 1})
+    monkeypatch.setattr(
+        server, "health_check",
+        lambda st, rn=None, timeout=120, monotonic=None, sleep=None: {
+            "healthy": True,
+            "model_id": st.get("current_model"),
+            "n_ctx": int(st.get("current_ctx", 8192))
+            * int((st.get("optimizations") or {}).get("parallel_slots", 4)),
+            "parallel_slots": int(
+                (st.get("optimizations") or {}).get("parallel_slots", 4)
+            ),
+        },
+    )
+    monkeypatch.setattr(server, "minimal_inference_probe", lambda st, timeout=20.0: {"ok": True})
+
+    class _ActiveRunner(QuietRunner):
+        def run(self, *command, **_kwargs):
+            if command[:2] == ("systemctl", "is-active") or list(command)[:2] == [
+                "systemctl",
+                "is-active",
+            ]:
+                return SimpleNamespace(returncode=0, stdout="active", stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    # The adapter's runner factory is the composed application runner;
+    # point logging at our active-reporting runner for observation calls.
+    application.runner = lambda callback=None: _ActiveRunner()
 
     state = application.read_model()
-    returned = switch_model(application, state, model["id"], QuietRunner())
+    returned = switch_model(application, state, model["id"], _ActiveRunner())
 
     # Exactly one restart for the whole switch; the draft was refreshed.
     assert restarts == ["restart"]

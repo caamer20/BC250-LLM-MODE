@@ -38,7 +38,6 @@ from .model_manager import (
     change_context,
     change_parallel_slots,
     register_and_switch_local,
-    restart_with_rollback,
     switch_model,
 )
 from .openwebui import (
@@ -653,17 +652,12 @@ def main(argv: list[str] | None = None) -> int:
                     "lower --ctx or choose a smaller model"
                 )
             quant, fit = pick
-        previous = {
-            "current_model": state.get("current_model"),
-            "current_ctx": state.get("current_ctx", 8192),
-        }
         downloaded = download_model(state, model, quant, runner)
         prepare_model(state, model, quant, downloaded, runner)
         application.model_install.register_context_change(state, args.ctx)
         if state.get("setup_complete"):
-            restart_with_rollback(
-                application, state, runner, previous, f"Activating {model.display_name}"
-            )
+            # Durable activation through the ONE composed command.
+            switch_model(application, state, model.id, runner)
         return 0
     if args.command == "switch":
         require_acknowledgment(state)

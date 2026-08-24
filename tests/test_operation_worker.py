@@ -161,7 +161,9 @@ def test_worker_uses_injected_units_no_production_autostart():
     app_text = (Path(__file__).parent.parent / "bc250_llm_mode" / "app.py").read_text(
         encoding="utf-8"
     )
-    for token in ("Worker(", "ExecutionEngine(", "operations.worker"):
+    # Session 5C: composition wires an ENGINE FACTORY for foreground
+    # execution; it must never construct a Worker, start one, or execute.
+    for token in ("Worker(", "run_until_idle", ".execute_one(", "operations.worker"):
         assert token not in app_text, (
             f"composition must not auto-start the executor: {token!r}"
         )

@@ -1,14 +1,13 @@
 """Shared model selection operations for the GUI and both CLIs.
 
-All durable mutations route through ``ModelActivationService`` (typed,
-revision-checked, verified rollback). Stores without a database profile
-(in-memory test doubles / legacy JSON) take a dry in-memory path that
-never performs a whole-state save.
+All durable mutations route through the composed durable activation
+command (``store.activation.activate``, Session 5C). There is no second
+path: success is reported only after health, bounded inference, and
+known-good promotion; rollback honestly reports the prior model.
 """
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import Any
 
 from .catalog import calculate_fit
@@ -21,104 +20,56 @@ from .optimize import (
     validate_settings,
 )
 from .prepare import prepare_local_model
-from .server import health_check, restart_service, stop_service
 
 
-def restart_with_rollback(
-    store: Any,
-    state: dict[str, Any],
-    runner: CommandRunner,
-    previous: dict[str, Any],
-    description: str,
-) -> None:
-    """Deprecated compatibility wrapper (GUI/CLI callers migrate in Session 3).
-
-    Durable persistence for SQLite profiles happens inside
-    ModelActivationService; this wrapper only performs the host
-    restart + health verification with in-memory rollback.
-    """
-    _apply_legacy_or_raise(state, {}, previous, runner, description)
-
-
-def _composed_activation_service(store: Any) -> Any:
-    """The composed ``Application.activation`` service, or ``None`` on
-    in-memory test doubles. Production never constructs a second service
-    graph here: one composition, one activation service, one restart."""
-    return getattr(store, "activation", None)
-
-
-def _apply_legacy_or_raise(
-    state: dict[str, Any],
-    changes: dict[str, Any],
-    previous: dict[str, Any],
-    runner: CommandRunner,
-    description: str,
-    *,
-    wait_for_health: bool = True,
-) -> None:
-    """In-memory fallback: fit-checked mutation with dict-level rollback."""
-    state.update(changes)
-    try:
-        restart_service(state, runner)
-        if wait_for_health:
-            health_check(state, runner)
-    except Exception as activation_error:  # noqa: BLE001 - rollback covers all
-        state.update(deepcopy(previous))
-        runner.emit(f"{description} failed; restoring the previous working server configuration")
-        try:
-            restart_service(state, runner)
-            if wait_for_health:
-                health_check(state, runner)
-        except Exception as rollback_error:  # noqa: BLE001 - report both
-            raise RuntimeError(
-                f"{description} failed ({activation_error}); rollback also failed "
-                f"({rollback_error}). Inspect the model server log."
-            ) from activation_error
-        raise RuntimeError(
-            f"{description} failed ({activation_error}); the previous working "
-            "configuration was restored."
-        ) from activation_error
-
-
-def _service_activation(
-    store: Any,
-    state: dict[str, Any],
-    runner: CommandRunner,
-    *,
-    model_id: str | None = None,
-    context: int | None = None,
-    slots: int | None = None,
-) -> dict[str, Any] | None:
-    """Run the composed typed activation; ``None`` on in-memory doubles.
-
-    The service persists the candidate, restarts, verifies health and
-    minimal inference, and promotes known-good itself. On success this only
-    refreshes the caller's disposable draft via ``read_model()`` — exactly
-    once, after the external effect is durable.
-    """
-    service = _composed_activation_service(store)
+def _activation(store: Any) -> Any:
+    """The composed ``Application.activation`` command service."""
+    service = getattr(store, "activation", None)
     if service is None:
-        return None
-    from .services import ActivationRequest
+        raise RuntimeError(
+            "Activation requires the composed application; no fallback "
+            "path exists."
+        )
+    return store.require_operational().activation
 
-    request = ActivationRequest(
-        model_id=model_id or str(state.get("current_model")),
-        context=context,
-        slots=slots,
-        requester="cli",
-    )
-    result = service.activate(request)
-    if not result.ok:
-        reason = result.detail.get("reason") or result.status
-        if result.status in ("REJECTED_INVALID", "REJECTED_THERMAL_LATCH"):
-            raise ValueError(reason)
-        if result.status == "CONFLICT":
-            raise RuntimeError(f"conflict: {reason}")
-        raise RuntimeError(f"activation failed ({reason})")
-    fresh = store.read_model()
-    state.clear()
-    state.update(fresh)
-    return result.detail
+
+def _requested_by(runner: CommandRunner) -> str:
+    return str(getattr(runner, "surface", "cli") or "cli")
+
+
+def _run_activation(
+    store: Any,
+    runner: CommandRunner,
+    payload: dict[str, Any],
+    description: str,
+) -> dict[str, Any]:
+    """ONE durable activation path; maps the typed terminal honestly."""
+    outcome = _activation(store).activate(payload)
+    if outcome.status == "BUSY":
+        raise RuntimeError(
+            f"{description}: an activation is already running; try again "
+            "when it finishes."
+        )
+    if outcome.status == "RECOVERY_REQUIRED":
+        raise RuntimeError(
+            f"{description}: repair is required (operation "
+            f"{outcome.operation_id}). The candidate is NOT confirmed "
+            "running."
+        )
+    if outcome.status == "FAILED_SAFE":
+        raise RuntimeError(
+            f"{description} was rejected before any change "
+            f"({outcome.detail.get('error_code') or 'validation'})."
+        )
+    if outcome.status == "FAILED_ROLLED_BACK":
+        runner.emit(
+            f"{description} failed; the previous working configuration "
+            "was restored and verified."
+        )
+        return {"rolled_back": True, "operation_id": outcome.operation_id}
+    if not outcome.ok:
+        raise RuntimeError(f"{description} failed: {outcome.status}")
+    return {"succeeded": True, "operation_id": outcome.operation_id}
 
 
 def switch_model(
@@ -126,8 +77,6 @@ def switch_model(
     state: dict[str, Any],
     model_id: str,
     runner: CommandRunner,
-    *,
-    wait_for_health: bool = True,
 ) -> dict[str, Any]:
     record = next(
         (item for item in state.get("installed_models", []) if item.get("id") == model_id), None
@@ -144,18 +93,17 @@ def switch_model(
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
 
-    previous = {"current_model": state.get("current_model")}
-    if wait_for_health:
-        result = _service_activation(store, state, runner, model_id=model_id)
-        if result is not None:
-            return state
-    state["current_model"] = model_id
-    _apply_legacy_or_raise(
-        state, {}, previous, runner, f"Switching to {model_id}",
-        wait_for_health=wait_for_health,
+    _run_activation(
+        store,
+        runner,
+        {
+            "model_alias": model_id,
+            "requested_by": _requested_by(runner),
+        },
+        f"Switching to {model_id}",
     )
-    if not wait_for_health:
-        restart_service(state, runner)
+    state.clear()
+    state.update(store.read_model())
     return state
 
 
@@ -178,17 +126,18 @@ def register_and_switch_local(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
-    previous = {"current_model": state.get("current_model")}
     prepare_local_model(state, LocalModel.from_dict(model.to_dict()), runner)
-    result = _service_activation(store, state, runner, model_id=local_id)
-    if result is not None:
-        # The composed activation already restarted, verified health and
-        # inference, and promoted known-good; a second restart would be a
-        # duplicate external effect.
-        return state
-    _apply_legacy_or_raise(
-        state, {}, previous, runner, f"Switching to {model.display_name}"
+    _run_activation(
+        store,
+        runner,
+        {
+            "model_alias": local_id,
+            "requested_by": _requested_by(runner),
+        },
+        f"Switching to {model.display_name}",
     )
+    state.clear()
+    state.update(store.read_model())
     return state
 
 
@@ -215,12 +164,18 @@ def change_context(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
-    previous = {"current_ctx": state.get("current_ctx", 8192)}
-    result = _service_activation(store, state, runner, context=ctx)
-    if result is not None:
-        return fit.detail
-    state["current_ctx"] = ctx
-    _apply_legacy_or_raise(state, {}, previous, runner, f"Changing context to {ctx}")
+    _run_activation(
+        store,
+        runner,
+        {
+            "model_alias": state.get("current_model"),
+            "context_per_slot": ctx,
+            "requested_by": _requested_by(runner),
+        },
+        f"Changing context to {ctx}",
+    )
+    state.clear()
+    state.update(store.read_model())
     return fit.detail
 
 
@@ -250,10 +205,16 @@ def change_parallel_slots(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
-    previous = {"optimizations": deepcopy(state.get("optimizations"))}
-    result = _service_activation(store, state, runner, slots=slots)
-    if result is not None:
-        return fit.detail
-    state["optimizations"] = checked
-    _apply_legacy_or_raise(state, {}, previous, runner, f"Changing request slots to {slots}")
+    _run_activation(
+        store,
+        runner,
+        {
+            "model_alias": state.get("current_model"),
+            "parallel_slots": slots,
+            "requested_by": _requested_by(runner),
+        },
+        f"Changing request slots to {slots}",
+    )
+    state.clear()
+    state.update(store.read_model())
     return fit.detail

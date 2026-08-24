@@ -31,7 +31,6 @@ from ..memory_profile import analyze_memory_profile
 from ..model_manager import (
     change_context,
     register_and_switch_local,
-    restart_with_rollback,
     switch_model,
 )
 from ..openwebui import (
@@ -482,17 +481,17 @@ class DashboardMixin:
 
         def action() -> None:
             runner = self.runner()
-            previous = {
-                "current_model": self.state_data.get("current_model"),
-                "current_ctx": self.state_data.get("current_ctx", 8192),
-            }
             downloaded = download_model(self.state_data, model, quant, runner)
             prepare_model(self.state_data, model, quant, downloaded, runner)
             if self.state_data.get("setup_complete"):
-                restart_with_rollback(
-                    self.application, self.state_data, runner, previous,
-                    f"Activating {model.display_name}",
+                # Durable activation through the ONE composed command.
+                switch_model(
+                    self.application,
+                    self.state_data,
+                    str(model.id),
+                    runner,
                 )
+                self.state_data.update(self.application.read_model())
             self.commit_narrow()
 
         self._work(action, self._populate_dashboard_models)

@@ -26,7 +26,6 @@ from ..memory_profile import analyze_memory_profile
 from ..model_manager import (
     change_context,
     register_and_switch_local,
-    restart_with_rollback,
     switch_model,
 )
 from ..openwebui import (
@@ -258,16 +257,11 @@ class StepsMixin:
             def action() -> None:
                 runner = self.runner()
                 install_service(self.state_data, runner, enable_and_start=False)
-                previous = self.state_data.pop(
-                    "pending_activation_previous",
-                    {"current_model": None, "current_ctx": 8192},
-                )
-                restart_with_rollback(
+                switch_model(
                     self.application,
                     self.state_data,
+                    str(self.state_data.get("selected_model")),
                     runner,
-                    previous,
-                    f"Activating {self.state_data.get('current_model', 'selected model')}",
                 )
                 if self.state_data.get("selected_source") != "local":
                     cleanup_conversion_intermediates(

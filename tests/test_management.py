@@ -114,26 +114,50 @@ def test_tailscale_connect_starts_daemon_then_runs_up(monkeypatch):
     assert commands[1] == ["tailscale", "up"]
 
 
-def test_parallel_slot_change_checks_fit_then_restarts(monkeypatch):
+def test_parallel_slot_change_checks_fit_then_activates():
     state = {
         "current_model": "lfm25-26b",
         "current_ctx": 128000,
         "installed_models": [{"id": "lfm25-26b", "quant": "Q5_K_M"}],
     }
+    calls = []
+
+    class FakeActivation:
+        def activate(self, payload):
+            calls.append(payload)
+
+            class _Outcome:
+                status = "SUCCEEDED"
+                operation_id = "op-1"
+                ok = True
+                detail = {}
+
+            return _Outcome()
 
     class Store:
-        saved = None
+        def require_operational(self):
+            return self
 
-        def save(self, value):
-            self.saved = value
+        activation = FakeActivation()
 
-    restarted = []
-    monkeypatch.setattr(model_manager, "restart_service", lambda *_args: restarted.append(True))
-    monkeypatch.setattr(model_manager, "health_check", lambda *_args: {"healthy": True})
-    result = model_manager.change_parallel_slots(Store(), state, 4, FakeRunner())
+        def read_model(self):
+            fresh = dict(state)
+            fresh["optimizations"] = {"parallel_slots": 4}
+            return fresh
+
+    result = model_manager.change_parallel_slots(
+        Store(), state, 4, FakeRunner()
+    )
     assert "128,000 tokens × 4 slots" in result
+    assert calls == [
+        {
+            "model_alias": "lfm25-26b",
+            "parallel_slots": 4,
+            "requested_by": "cli",
+        }
+    ]
+    # The disposable draft is refreshed from the durable read model.
     assert state["optimizations"]["parallel_slots"] == 4
-    assert restarted == [True]
 
 
 def test_parallel_slot_change_rejects_unsafe_large_model(monkeypatch):
@@ -151,7 +175,7 @@ def test_parallel_slot_change_rejects_unsafe_large_model(monkeypatch):
         model_manager.change_parallel_slots(Store(), state, 4, FakeRunner())
 
 
-def test_model_switch_rolls_back_after_health_failure(monkeypatch):
+def test_model_switch_reports_rollback_honestly():
     state = {
         "current_model": "qwen3-8b",
         "current_ctx": 8192,
@@ -162,40 +186,36 @@ def test_model_switch_rolls_back_after_health_failure(monkeypatch):
         "optimizations": {"parallel_slots": 1},
     }
 
+    class FakeActivation:
+        def activate(self, payload):
+            from bc250_llm_mode.activation_command import ActivationOutcome
+
+            return ActivationOutcome(
+                "op-rb",
+                "FAILED_ROLLED_BACK",
+                {"reason": "restored and verified"},
+            )
+
     class Store:
-        def __init__(self):
-            self.saved_models = []
+        def require_operational(self):
+            return self
 
-        def save(self, value):
-            self.saved_models.append(value.get("current_model"))
+        activation = FakeActivation()
 
-    restarts = []
-    health_calls = []
-    monkeypatch.setattr(
-        model_manager,
-        "restart_service",
-        lambda value, _runner: restarts.append(value["current_model"]),
+        def read_model(self):
+            return {"refreshed": True}
+
+    runner = FakeRunner()
+    model_manager.switch_model(Store(), state, "qwen38-9b", runner)
+    assert any(
+        "previous working configuration was restored" in message
+        for message in runner.messages
     )
-
-    def health(value, _runner):
-        health_calls.append(value["current_model"])
-        if value["current_model"] == "qwen38-9b":
-            raise TimeoutError("new model did not load")
-        return {"healthy": True}
-
-    monkeypatch.setattr(model_manager, "health_check", health)
-    store = Store()
-    with pytest.raises(RuntimeError, match="previous working configuration was restored"):
-        model_manager.switch_model(store, state, "qwen38-9b", FakeRunner())
-    assert state["current_model"] == "qwen3-8b"
-    assert restarts == ["qwen38-9b", "qwen3-8b"]
-    assert health_calls == ["qwen38-9b", "qwen3-8b"]
-    # Durable persistence is now the ModelActivationService's job (covered
-    # by tests/test_runtime_service.py); this legacy dry path only proves
-    # host-call ordering and in-memory rollback.
+    # The draft was refreshed from the durable read model exactly once.
+    assert state == {"refreshed": True}
 
 
-def test_context_change_rolls_back_after_health_failure(monkeypatch):
+def test_context_change_requires_composed_store():
     state = {
         "current_model": "lfm25-26b",
         "current_ctx": 8192,
@@ -204,20 +224,7 @@ def test_context_change_rolls_back_after_health_failure(monkeypatch):
     }
 
     class Store:
-        def save(self, _value):
-            pass
+        pass
 
-    monkeypatch.setattr(model_manager, "restart_service", lambda *_args: None)
-    calls = []
-
-    def health(value, _runner):
-        calls.append(value["current_ctx"])
-        if value["current_ctx"] == 16384:
-            raise TimeoutError("bad context")
-        return {"healthy": True}
-
-    monkeypatch.setattr(model_manager, "health_check", health)
-    with pytest.raises(RuntimeError, match="previous working configuration was restored"):
+    with pytest.raises(RuntimeError, match="no fallback"):
         model_manager.change_context(Store(), state, 16384, FakeRunner())
-    assert state["current_ctx"] == 8192
-    assert calls == [16384, 8192]

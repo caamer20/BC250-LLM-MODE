@@ -110,3 +110,71 @@ def test_runtime_handoff_written_only_by_its_service():
         if token in py.read_text(encoding="utf-8"):
             violations.append(rel)
     assert not violations, f"handoff path literal outside its service: {violations}"
+
+
+# --- Session 5C: one durable activation path ---------------------------------
+
+
+def test_synchronous_activation_orchestrator_is_gone():
+    """R3.3 cutover: the legacy orchestrator/fallback may never return."""
+    banned_symbols = (
+        "ModelActivationService",
+        "ActivationRequest",
+        "ActivationResult",
+        "RuntimeController",
+        "_apply_legacy_or_raise",
+        "restart_with_rollback",
+    )
+    for py in sorted(PACKAGE.rglob("*.py")):
+        text = py.read_text(encoding="utf-8")
+        for symbol in banned_symbols:
+            assert symbol not in text, (
+                f"{py.relative_to(PACKAGE)} references deleted legacy "
+                f"activation symbol {symbol!r}"
+            )
+
+
+def test_model_manager_never_touches_the_service_or_http_directly():
+    text = _read("model_manager.py")
+    for token in ("systemctl", "subprocess", "urllib", "requests",
+                  "restart_service", "health_check", "stop_service"):
+        assert token not in text, (
+            f"model_manager.py must route host effects through the "
+            f"durable command; found {token!r}"
+        )
+
+
+def test_runtime_keys_are_not_frontend_committable():
+    from bc250_llm_mode.app import FRONTEND_COMMIT_KEYS
+
+    for key in ("current_model", "current_ctx", "optimizations"):
+        assert key not in FRONTEND_COMMIT_KEYS, (
+            f"{key!r} is owned by the durable MODEL_ACTIVATE workflow; a "
+            "frontend generic commit would be a second activation path"
+        )
+
+
+def test_only_server_py_controls_the_llm_service_unit():
+    """One service owner: the durable activation path never constructs
+    service commands — every effect routes through server.py via the
+    injected port. Boot-policy/desktop modules keep their own legitimate
+    systemctl usage for system targets."""
+    guarded = [
+        "model_manager.py",
+        "activation_adapter.py",
+        "activation_command.py",
+    ]
+    for rel in guarded:
+        text = _read(rel)
+        for token in ("systemctl", "bc250-llm.service"):
+            assert token not in text, (
+                f"{rel}: activation path must route host effects through "
+                f"server.py; found {token!r}"
+            )
+    for py in sorted((PACKAGE / "operations").rglob("*.py")):
+        text = py.read_text(encoding="utf-8")
+        for token in ("systemctl", "bc250-llm.service"):
+            assert token not in text, (
+                f"operations/{py.name}: host command in generic engine: "
+                f"{token!r}"
+            )

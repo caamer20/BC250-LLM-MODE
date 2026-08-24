@@ -39,7 +39,6 @@ class RepairRequired(RuntimeError):
 # openwebui, sharing, model-install) MUST NOT get a caller-side commit.
 FRONTEND_COMMIT_KEYS = frozenset({
     "disclaimer_ack", "ack_timestamp", "setup_complete",
-    "current_model", "current_ctx", "optimizations",
     "openwebui_installed", "https_sharing_enabled", "boot_policy",
     "model_search_paths", "selected_model", "selected_quant",
     "selected_source", "selected_local_model", "download_dir", "models_dir",
@@ -158,16 +157,23 @@ class Application:
 
     @staticmethod
     def _wire_services(application: "Application") -> None:
+        import uuid as _uuid
+
+        from .activation_adapter import ActivationHostAdapter
+        from .activation_command import ActivationCommandService
+        from .operations.activation import build_activation_workflow
+        from .operations.engine import ExecutionEngine
+        from .operations.workflow import EnqueueService, WorkflowRegistry
         from .queries import ApplicationQueryService
+        from .legacy_import import utcnow
+        from .runtime_handoff import RuntimeHandoffRenderer
         from .services import (
             ComponentLifecycleService,
             HostModeService,
             MaintenanceService,
-            ModelActivationService,
             ModelInstallationService,
             OpenWebUIService,
             RuntimeConfigurationService,
-            RuntimeController,
             SetupService,
             SharingService,
             ThermalStateService,
@@ -185,25 +191,37 @@ class Application:
             state_supplier=lambda: application.read_model(),
         )
 
-        class _AppController(RuntimeController):
-            def restart(self, view):
-                from .server import restart_service
-
-                restart_service(view, application.runner())
-
-            def health_check(self, view):
-                from .server import health_check
-
-                return health_check(view, application.runner())
-
-            def minimal_inference_probe(self, view):
-                from .server import minimal_inference_probe
-
-                return minimal_inference_probe(view)
-
-        application.activation = ModelActivationService(
-            units, application.runtime_config, _AppController(),
+        # ONE durable activation path (Session 5C): adapter -> workflow ->
+        # engine, composed once; composition starts no worker or host call.
+        activation_adapter = ActivationHostAdapter(
+            units=units,
+            runtime=application.runtime_config,
+            renderer=RuntimeHandoffRenderer(application.paths.app_dir),
             state_supplier=lambda: application.read_model(),
+            runner_factory=lambda: application.runner(),
+        )
+        registry = WorkflowRegistry()
+        registry.register(build_activation_workflow(activation_adapter))
+        frozen_registry = registry.freeze()
+        enqueue = EnqueueService(
+            units,
+            frozen_registry,
+            clock=utcnow,
+            uuid_factory=lambda: str(_uuid.uuid4()),
+        )
+
+        def engine_factory() -> ExecutionEngine:
+            return ExecutionEngine(
+                units,
+                frozen_registry,
+                clock=utcnow,
+                uuid_factory=lambda: str(_uuid.uuid4()),
+                worker_id=f"foreground-{_uuid.uuid4().hex[:12]}",
+                lease_ttl_seconds=60,
+            )
+
+        application.activation = ActivationCommandService(
+            units=units, enqueue=enqueue, engine_factory=engine_factory
         )
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)

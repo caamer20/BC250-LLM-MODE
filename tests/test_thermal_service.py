@@ -42,23 +42,29 @@ def _latch_stopped(store) -> ThermalStateService:
 
 
 def test_stale_settings_commit_cannot_clear_or_downgrade_latch(tmp_path):
-    """The plan's safest-first test, end to end."""
+    """The plan's safest-first test, end to end.
+
+    Session 5C: model/context/optimizations are no longer frontend-
+    committable at all (the durable activation owns them), so a stale
+    draft claiming "nominal" persists NOTHING and cannot touch the latch.
+    """
     store = _store(tmp_path)
     _latch_stopped(store)
 
-    # A frontend commits settings through the only permitted narrow path;
-    # thermal-authority keys are not part of that contract, so even a stale
-    # draft claiming "nominal" cannot clear or downgrade the latch.
     state = store.load()
     assert state["thermal_watchdog_state"] == "stopped"
     changed = dict(state)
     changed["optimizations"] = dict(state["optimizations"], threads=6)
+    # The narrow-commit path rejects the whole diff: no runtime key is
+    # frontend-committable, so nothing is written and the revision stands.
     store.application.commit_settings_changes(state, changed)
 
     reloaded = store.load()
     assert reloaded["thermal_watchdog_state"] == "stopped"
     assert reloaded["thermal_watchdog_baseline"] is not None
-    assert reloaded["optimizations"]["threads"] == 6
+    assert reloaded["optimizations"] == state["optimizations"], (
+        "runtime settings are owned by the durable activation only"
+    )
 
     # Direct service downgrade attempts are refused at the persistence layer.
     service = ThermalStateService.for_database(store.paths.database_path)

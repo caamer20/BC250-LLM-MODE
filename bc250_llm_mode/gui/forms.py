@@ -19,7 +19,6 @@ from ..local_models import (
 from ..model_manager import (
     change_context,
     register_and_switch_local,
-    restart_with_rollback,
     switch_model,
 )
 from ..openwebui import (
