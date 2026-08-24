@@ -13,10 +13,15 @@ helpers, or global state.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
-from .model import OperationError, OperationType
+from .model import (
+    OperationError,
+    OperationState,
+    OperationType,
+    OperationValidationError,
+)
 from .recovery import RecoveryClass, RecoveryDecision
 
 
@@ -74,6 +79,39 @@ class EffectContext:
 
 
 @dataclass(frozen=True)
+class TerminalDecision:
+    """Typed successful-completion decision (U1.1 §8.1).
+
+    Closed to SUCCEEDED / FAILED_SAFE: rollback, recovery-required, and
+    cancellation remain engine/recovery decisions that workflow callbacks
+    cannot invent.
+    """
+
+    state: OperationState
+    result_code: str
+    detail: dict[str, Any] = field(default_factory=dict)
+    summary: str = ""
+
+    def __post_init__(self) -> None:
+        allowed = {OperationState.SUCCEEDED, OperationState.FAILED_SAFE}
+        from .model import OperationState as _OS
+
+        if not isinstance(self.state, _OS) or self.state not in allowed:
+            raise OperationValidationError(
+                "terminal decisions are closed to SUCCEEDED / FAILED_SAFE"
+            )
+
+
+def _default_terminal_decision(request: Any, verified_outputs: dict) -> TerminalDecision:
+    return TerminalDecision(
+        OperationState.SUCCEEDED,
+        "ALL_STEPS_VERIFIED",
+        {},
+        "all steps verified; operation succeeded",
+    )
+
+
+@dataclass(frozen=True)
 class StepDefinition:
     step_key: str
     phase: str
@@ -108,6 +146,9 @@ class WorkflowDefinition:
     decode_request: Callable[[dict[str, Any]], Any]
     steps: tuple[StepDefinition, ...]
     summary: Callable[[Any], str]
+    terminal_decision: Callable[[Any, dict], TerminalDecision] = (
+        _default_terminal_decision
+    )
     preflight: Callable[[Any], None] = lambda request: None
 
     def __post_init__(self) -> None:

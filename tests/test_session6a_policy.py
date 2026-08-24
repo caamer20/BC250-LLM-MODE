@@ -50,15 +50,15 @@ def test_terminal_decision_states_are_closed_to_success_and_safe():
     """Workflow callbacks can pick only SUCCEEDED / FAILED_SAFE; rollback,
     recovery-required, and cancellation remain engine decisions."""
     from bc250_llm_mode.operations.acquisition import (
-        AcquisitionTerminalDecision,
         decide_acquisition_terminal,
     )
+    from bc250_llm_mode.operations.workflow import TerminalDecision
 
     installed = decide_acquisition_terminal(
         {"validate_candidate": {"verdict": "ok"}},
         quarantined=False,
     )
-    assert isinstance(installed, AcquisitionTerminalDecision)
+    assert isinstance(installed, TerminalDecision)
     assert installed.state is OperationState.SUCCEEDED
 
     quarantined = decide_acquisition_terminal({}, quarantined=True)

@@ -44,6 +44,12 @@ class LostLease(Exception):
     """Internal signal: a lease fence was lost mid-run."""
 
 
+class CancellationObserved(Exception):
+    """Internal signal (U1.1 §8.2): a cancellation-safe pulse observed a
+    durably requested cancellation between chunks. The engine treats this
+    as cancellation, never as a generic step failure."""
+
+
 @dataclass(frozen=True)
 class ExecutionOutcome:
     """Typed result of one ``execute_one`` call. Never frontend text."""
@@ -268,7 +274,9 @@ class ExecutionEngine:
                 None,
             )
             if pending is None:
-                return self._complete(operation_id, held)
+                return self._complete(
+                    operation_id, held, definition=definition, decoded=decoded
+                )
 
             # An accepted cancellation (durable CANCEL_REQUESTED) is honored
             # at the next safe point of the loop — never inside COMMITTING.
@@ -401,7 +409,17 @@ class ExecutionEngine:
         )
 
     def _make_pulse(self, operation_id: str, held: dict[str, int]):
-        """Fenced heartbeat/progress callable handed to step effects (§3.6)."""
+        """Fenced heartbeat/progress callable handed to step effects (§3.6).
+
+        §8.2: progress writes are throttled by the shared ProgressPolicy
+        while heartbeats stay unconditional; a ``cancellation_safe`` pulse
+        observes durable cancellation and raises the internal signal.
+        """
+        from .progress import ProgressPolicy
+
+        policy = ProgressPolicy()
+        ticks = [0]
+        last_written = {"phase": None, "current": 0, "tick": 0}
 
         def pulse(
             *,
@@ -410,12 +428,15 @@ class ExecutionEngine:
             total: int | None = None,
             unit: str | None = None,
             summary: str | None = None,
+            cancellation_safe: bool = False,
         ) -> None:
             try:
                 with self.units.begin() as conn:
                     ops, _s, leases, _e = self._repos(conn)
                     record = ops.require(operation_id)
                     self._fence(leases, operation_id, held)
+                    # §8.2: heartbeats are unconditional; progress writes are
+                    # throttled by policy and can never starve them.
                     for key in sorted(held):
                         leases.heartbeat(
                             key,
@@ -424,14 +445,36 @@ class ExecutionEngine:
                             ttl_seconds=self.lease_ttl_seconds,
                         )
                     if phase is not None or current is not None:
-                        ops.update_progress(
-                            operation_id,
-                            phase=phase or record.progress_phase or "running",
+                        ticks[0] += 1
+                        if policy.should_emit(
+                            phase=phase,
                             current=int(current or 0),
-                            total=total,
-                            unit=unit,
-                            summary=summary,
-                        )
+                            last_phase=last_written["phase"],
+                            last_current=last_written["current"],
+                            ticks_since_last_write=ticks[0]
+                            - last_written["tick"],
+                        ):
+                            ops.update_progress(
+                                operation_id,
+                                phase=phase or record.progress_phase or "running",
+                                current=int(current or 0),
+                                total=total,
+                                unit=unit,
+                                summary=summary,
+                            )
+                            last_written.update(
+                                phase=phase,
+                                current=int(current or 0),
+                                tick=ticks[0],
+                            )
+                # §8.2: cancellation is observed only at declared safe
+                # points, after the fenced heartbeat, from DURABLE state.
+                if (
+                    cancellation_safe
+                    and record.cancel_requested_at is not None
+                    and record.state is OperationState.CANCEL_REQUESTED
+                ):
+                    raise CancellationObserved()
             except OperationConflict as lost:
                 raise LostLease(f"fenced pulse lost: {lost}") from lost
 
@@ -674,6 +717,15 @@ class ExecutionEngine:
                 self._exit_critical(operation_id, held)
         except LostLease:
             raise
+        except CancellationObserved:
+            # §8.2: safe-point cancellation is honored, not failed.
+            return self._honor_cancellation(
+                operation_id,
+                workflow=workflow,
+                decoded=decoded,
+                held=held,
+                effected=effected,
+            )
         except Exception as exc:  # BaseException (process death) propagates
             return self._handle_failure(
                 operation_id, workflow=workflow, step=step, ctx=ctx,
@@ -743,6 +795,14 @@ class ExecutionEngine:
                     self._exit_critical(operation_id, held)
             except LostLease:
                 raise
+            except CancellationObserved:
+                return self._honor_cancellation(
+                    operation_id,
+                    workflow=workflow,
+                    decoded=decoded,
+                    held=held,
+                    effected=effected,
+                )
             except Exception as exc:
                 return self._handle_failure(
                     operation_id, workflow=workflow, step=step, ctx=ctx,
@@ -1159,7 +1219,30 @@ class ExecutionEngine:
                 )
         return ExecutionOutcome("PAUSED", operation_id, reason_code=reason_code)
 
-    def _complete(self, operation_id: str, held: dict[str, int]) -> ExecutionOutcome:
+    def _complete(
+        self,
+        operation_id: str,
+        held: dict[str, int],
+        *,
+        definition: WorkflowDefinition | None = None,
+        decoded: Any = None,
+    ) -> ExecutionOutcome:
+        # §8.1: the workflow's typed terminal decision is validated and
+        # recorded exactly once; it cannot invent rollback/recovery.
+        if definition is not None:
+            verified = self._prior_outputs(operation_id)
+            decision = definition.terminal_decision(decoded, verified)
+            terminal_state = decision.state
+            result_code = decision.result_code
+            detail = dict(decision.detail)
+            summary = (
+                decision.summary or f"operation reached {terminal_state.value}"
+            )
+        else:
+            terminal_state = OperationState.SUCCEEDED
+            result_code = "ALL_STEPS_VERIFIED"
+            detail = {}
+            summary = "all steps verified; operation succeeded"
         with self.units.begin() as conn:
             ops, _s, leases, _e = self._repos(conn)
             record = ops.require(operation_id)
@@ -1177,12 +1260,23 @@ class ExecutionEngine:
                 record = ops.require(operation_id)
             ops.record_terminal_result(
                 operation_id,
-                terminal_state=OperationState.SUCCEEDED,
-                result_code="ALL_STEPS_VERIFIED",
-                event_summary="all steps verified; operation succeeded",
+                terminal_state=terminal_state,
+                result_code=result_code,
+                result_detail=detail or None,
+                event_summary=summary,
             )
             for key in sorted(held):
                 leases.release(
                     key, owner=self.worker_id, expected_revision=held[key]
                 )
-        return ExecutionOutcome("COMPLETED", operation_id, reason_code="SUCCEEDED")
+        # Outcome parity with the pre-§8.1 contract: activation outcomes keep
+        # reason_code "SUCCEEDED"; acquisition/import expose their stable
+        # result code (MODEL_INSTALLED / MODEL_REUSED / ARTIFACT_QUARANTINED).
+        if (
+            terminal_state is OperationState.SUCCEEDED
+            and result_code == "ALL_STEPS_VERIFIED"
+        ):
+            outcome_reason = "SUCCEEDED"
+        else:
+            outcome_reason = result_code or terminal_state.value
+        return ExecutionOutcome("COMPLETED", operation_id, reason_code=outcome_reason)

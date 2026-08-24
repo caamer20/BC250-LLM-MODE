@@ -30,15 +30,16 @@ def v2_conn(tmp_path, monkeypatch):
     """A real file database at schema v2 (pre-operations), like existing installs."""
     path = tmp_path / "v2.db"
     conn = db.open_database(path, mode="migration", journal="delete")
-    migrations_v3 = tuple(db.MIGRATIONS)
-    migrations_v2 = tuple(m for m in migrations_v3 if m[0] <= 2)
+    migrations_all = tuple(db.MIGRATIONS)
+    migrations_v2 = tuple(m for m in migrations_all if m[0] <= 2)
+    real_schema_version = db.SCHEMA_VERSION
     monkeypatch.setattr(db, "MIGRATIONS", migrations_v2)
     monkeypatch.setattr(db, "SCHEMA_VERSION", 2)
     db.initialize(conn)
-    # Hand over with the REAL registry restored: migration 003 must be
+    # Hand over with the REAL registry restored: later migrations must be
     # visible (and applicable) inside the test body.
-    monkeypatch.setattr(db, "MIGRATIONS", migrations_v3)
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    monkeypatch.setattr(db, "MIGRATIONS", migrations_all)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", real_schema_version)
     yield conn
     conn.close()
 
@@ -46,13 +47,16 @@ def v2_conn(tmp_path, monkeypatch):
 def test_migration_003_fails_after_first_ddl_leaves_no_v3_trace(v2_conn, monkeypatch):
     """Inject a failure after migration 003's FIRST statement: no operations
     table may survive and no version row may be written."""
-    version, name, statements = db.MIGRATIONS[-1]
+    version, name, statements = next(
+        m for m in db.MIGRATIONS if m[0] == 3
+    )
     injected = (statements[0], "INSERT INTO definitely_missing_table VALUES (1)")
 
-    registry = list(db.MIGRATIONS)
-    registry[-1] = (version, name, injected)
+    registry = [
+        (v, n, injected if v == 3 else s) for v, n, s in db.MIGRATIONS
+    ]
     monkeypatch.setattr(db, "MIGRATIONS", tuple(registry))
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 3)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 4)
 
     before_tables = _tables(v2_conn)
     with pytest.raises(sqlite3.OperationalError):
@@ -66,13 +70,13 @@ def test_migration_003_fails_after_first_ddl_leaves_no_v3_trace(v2_conn, monkeyp
 
 
 def test_fixed_retry_succeeds_and_creates_all_operation_tables(v2_conn):
-    assert db.initialize(v2_conn) == 3
+    assert db.initialize(v2_conn) == db.SCHEMA_VERSION
     tables = _tables(v2_conn)
     for name in ("operations", "operation_steps", "operation_events", "operation_leases"):
         assert name in tables
-    assert _applied(v2_conn) == {1, 2, 3}
+    assert _applied(v2_conn) == {1, 2, 3, 4}
     # Idempotent re-initialization does not reapply or duplicate.
-    assert db.initialize(v2_conn) == 3
+    assert db.initialize(v2_conn) == db.SCHEMA_VERSION
 
 
 def test_existing_v2_rows_survive_migration_003(v2_conn):
@@ -81,7 +85,7 @@ def test_existing_v2_rows_survive_migration_003(v2_conn):
         " VALUES (1, 'lfm25-26b', 8192, 1, '2026-08-23T00:00:00Z')"
     )
     v2_conn.commit()
-    assert db.initialize(v2_conn) == 3
+    assert db.initialize(v2_conn) == db.SCHEMA_VERSION
 
     row = v2_conn.execute(
         "SELECT model_alias, context FROM known_good_runtime WHERE id = 1"
@@ -90,10 +94,10 @@ def test_existing_v2_rows_survive_migration_003(v2_conn):
     assert row["context"] == 8192
 
 
-def test_schema_004_is_refused(v2_conn):
+def test_schema_newer_than_supported_is_refused(v2_conn):
     v2_conn.execute(
         "INSERT INTO schema_migrations(version, name, applied_at)"
-        " VALUES (4, 'future', 'now')"
+        " VALUES (99, 'future', 'now')"
     )
     v2_conn.commit()
     with pytest.raises(db.DatabaseTooNew):

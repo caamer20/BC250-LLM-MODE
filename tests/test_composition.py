@@ -42,7 +42,9 @@ def test_fresh_profile_creates_initialized_database(tmp_path):
             "SELECT version FROM schema_migrations"
         )
     }
-    assert applied == {1, 2, 3}
+    from bc250_llm_mode.db import SCHEMA_VERSION
+
+    assert applied == set(range(1, SCHEMA_VERSION + 1))
 
 
 def test_v5_fixture_imports_once_and_query_is_authoritative(tmp_path):
