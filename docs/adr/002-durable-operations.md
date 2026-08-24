@@ -263,6 +263,7 @@ The allowlisted helper (post-R2 plan R5) integrates WITHOUT schema changes:
 
 ## 15. Session 5C corrections (narrow)
 
+
 Two corrections, both red-tested before adoption; no schema change.
 
 1. **Critical-state cycling.** §2 originally gave `COMMITTING` only
@@ -291,3 +292,22 @@ Two corrections, both red-tested before adoption; no schema change.
    remaining compensations in reverse order, and publishes exactly one
    terminal result (`FAILED_ROLLED_BACK`, `CANCELLED`, or
    `RECOVERY_REQUIRED`).
+
+## 16. Session 6A amendments (U1.1)
+
+1. **`MODEL_IMPORT` request version 1** joins the frozen
+   `KNOWN_REQUEST_VERSIONS` vocabulary alongside `MODEL_ACQUIRE`.
+2. **`model-storage` resource key** is the v1 acquisition/import lease.
+   It supersedes the provisional `model:<artifact-id>` key because the
+   content digest is unknown before transfer completes; a single global
+   storage lease intentionally serializes model-storage growth on one
+   appliance and prevents app-internal overcommit.
+3. **`ARTIFACT_QUARANTINED`** is the closed failed-safe terminal decision
+   for acquisition/import: an invalid complete candidate is quarantined,
+   receives no installation alias, and never reports success.
+4. **Operation-owned hidden staging** (`.bc250-staging/<operation-id>/`)
+   is not an installed/external effect: safe cancellation may retain a
+   labeled resumable partial there when bounded, without fabricating a
+   rollback. Every other existing activation and lease-fencing rule is
+   unchanged.
+
