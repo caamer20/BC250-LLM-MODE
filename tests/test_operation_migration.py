@@ -56,7 +56,7 @@ def test_migration_003_fails_after_first_ddl_leaves_no_v3_trace(v2_conn, monkeyp
         (v, n, injected if v == 3 else s) for v, n, s in db.MIGRATIONS
     ]
     monkeypatch.setattr(db, "MIGRATIONS", tuple(registry))
-    monkeypatch.setattr(db, "SCHEMA_VERSION", 5)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 6)
 
     before_tables = _tables(v2_conn)
     with pytest.raises(sqlite3.OperationalError):
@@ -74,7 +74,7 @@ def test_fixed_retry_succeeds_and_creates_all_operation_tables(v2_conn):
     tables = _tables(v2_conn)
     for name in ("operations", "operation_steps", "operation_events", "operation_leases"):
         assert name in tables
-    assert _applied(v2_conn) == {1, 2, 3, 4, 5}
+    assert _applied(v2_conn) == {1, 2, 3, 4, 5, 6}
     # Idempotent re-initialization does not reapply or duplicate.
     assert db.initialize(v2_conn) == db.SCHEMA_VERSION
 

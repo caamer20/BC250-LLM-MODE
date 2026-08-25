@@ -134,6 +134,9 @@ def _parser() -> argparse.ArgumentParser:
                                              "resume"))
     llamacpp.add_argument("--tag", help="Update to a specific upstream tag instead of the shipped pin")
     llamacpp.add_argument("--operation-id", help="Operation id for explicit resume", default=None)
+    llamacpp.add_argument("--detach", action="store_true",
+                          help="Hand the operation to one detached worker "
+                               "host instead of running in the foreground")
     context = sub.add_parser("ctx", aliases=["context"], help="Change context size and restart safely")
     context.add_argument("tokens", type=int)
     slots = sub.add_parser("slots", aliases=["users"], help="Set concurrent request slots and restart safely")
@@ -476,6 +479,7 @@ def main(argv: list[str] | None = None) -> int:
                 outcome = lifecycle.update(
                     requested_ref=getattr(args, "tag", None),
                     requested_by="cli",
+                    detach=bool(getattr(args, "detach", False)),
                 )
             elif args.action == "rollback":
                 outcome = lifecycle.rollback(requested_by="cli")

@@ -216,3 +216,32 @@ def test_mutable_refs_are_display_only_in_workflow_module():
         "workflow module computes identities; identity belongs to "
         "runtime_builds primitives"
     )
+
+
+# --- U1.3: the worker host is never auto-started -------------------------------
+
+
+def test_worker_host_is_never_started_by_composition_or_boot():
+    """U1.3: the WorkerHost exists only behind explicit start/detach;
+    composition, boot, and frontends never construct or spawn it."""
+    app_text = _read("app.py")
+    for token in ("WorkerHost", "worker_service", "worker_main",
+                  "spawn_detached"):
+        assert token not in app_text, (
+            f"app.py references {token!r}: workers must never auto-start"
+        )
+    main_text = _read("__main__.py")
+    # The CLI may only REFERENCE the spawn through the composed command
+    # service flag; direct construction stays out of frontends.
+    assert "WorkerHost(" not in main_text
+    assert "spawn_detached(" not in main_text
+    boot = _read("bootstrap.py")
+    for token in ("WorkerHost", "spawn_detached", "worker_main"):
+        assert token not in boot, f"bootstrap.py references {token!r}"
+
+
+def test_worker_waiter_is_condition_backed_not_zero_poll():
+    """The production entry waits on a bounded Condition, never timeout=0."""
+    text = _read("worker_service.py")
+    assert "condition.wait(" in text.replace("Condition().wait(", "condition.wait(")
+    assert "wait(timeout=0)" not in text

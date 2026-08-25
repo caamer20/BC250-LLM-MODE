@@ -5,6 +5,20 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Added (Session 6B+ / U1.3: explicit worker lifecycle)
+
+- One bounded, profile-scoped `WorkerHost`: survives frontend closure by
+  resuming abandoned operations through standard takeover probes (no
+  duplicate effects), enforced single-instance via a heartbeated
+  `worker_locks` row (migration 006), idle exit after a bounded quiet
+  period on injected clocks, bounded restart policy that pauses poisoned
+  operations, graceful shutdown checkpoints, and condition-backed bounded
+  waiting (never timeout=0 polling).
+- `bc250-llm-mode llamacpp update --detach` hands the queued operation to
+  exactly one detached worker process (`python -m worker_main`) with an
+  honest DETACHED outcome; composition/boot/frontends never auto-start
+  workers (hard architecture guards).
+
 ## [0.9.0.dev0] — unreleased development line
 
 ### Added (Session 6B / U1.2: durable llama.cpp runtime lifecycle)

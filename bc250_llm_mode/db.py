@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -510,6 +510,27 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             FROM component_provenance p
             WHERE p.component = 'llamacpp'
               AND p.recorded_at IS NOT NULL
+            """,
+        ),
+    ),
+    (
+        6,
+        "explicit-worker-lifecycle",
+        (
+            # U1.3: one bounded worker host per application profile. The
+            # lock lives OUTSIDE operation_leases (whose FK requires a
+            # real operation row) so a sentinel can never pollute
+            # operation history or boot behavior.
+            """
+            CREATE TABLE worker_locks (
+                token TEXT PRIMARY KEY CHECK (token = 'worker-host'),
+                owner TEXT NOT NULL,
+                lease_revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (lease_revision >= 1),
+                acquired_at TEXT NOT NULL,
+                heartbeat_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            )
             """,
         ),
     ),

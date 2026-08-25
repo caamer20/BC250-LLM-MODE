@@ -2,8 +2,8 @@
 
 ## Current state
 
-**SESSION 6B COMPLETE — U1.2 durable llama.cpp runtime lifecycle gate
-closed.**
+**U1.3 COMPLETE — explicit worker lifecycle landed on top of the closed
+Session 6B / U1.2 durable llama.cpp runtime lifecycle gate.**
 
 - One durable runtime path: CLI (`llamacpp update|rollback|resume|
   status`), wizard step 3, dashboard buttons, and initial setup all reach
@@ -43,31 +43,35 @@ closed.**
   mutable `llamacpp_history`, fixed `-staging/-backup/-rolled` paths,
   `ComponentLifecycleService.update/rollback`; setup cannot clone/build
   llama.cpp; frontends import no runtime infrastructure.
-- Foreground-only limitation remains until U1.3: closing a frontend leaves
-  the operation durably paused/interrupted for explicit resume
-  (`llamacpp resume --operation-id …`). This is stated in every surface.
+- Operations survive frontend closure: `llamacpp update --detach` hands
+  the queued operation to ONE profile-scoped `WorkerHost`
+  (`operations/worker_host.py`, spawned via `worker_service.py`) that
+  resumes abandoned work exactly once, idles out after a bounded quiet
+  period, pauses poisoned operations after bounded failures, and never
+  changes reboot policy. Composition/boot/frontends never auto-start it
+  (hard guards). Foreground remains the default; second Ctrl-C pauses
+  durably with exit 130 and resume instructions.
 
 Verification (this sandbox kills processes at ~20 s CPU, so the default
 suite cannot run single-shot HERE; it runs as four deterministic chunks
 whose counts reconcile to one authoritative collection — on target
 hardware `PYTHONPATH=. .venv/bin/pytest -q` is the command):
-authoritative collection **651**; chunked default execution green
-(623 executed passes across eight alphabetical chunks, 1 Linux-gated skip);
-slow gates explicit: runtime stress/canaries **6/6**
-(`-m slow tests/test_runtime_security_stress.py`), acquisition stress
-**41/41**, clean-wheel incl. runtime workflow execution **2/2**;
-compile/diff-check clean.
+authoritative collection **662**; chunked default execution green
+across eight deterministic alphabetical chunks (single-shot runs are CPU-
+capped here), 1 Linux-gated skip; slow gates explicit: runtime
+stress/canaries **6/6** (`-m slow tests/test_runtime_security_stress.py`),
+acquisition stress **41/41**, clean-wheel incl. runtime workflow execution
+**2/2**; compile/diff-check clean.
 
-Next: **Session 6B+ / U1.3** supervised foreground-independent worker;
-first red test: enqueue a long operation, close the frontend after a
-safe checkpoint, and prove one profile-scoped supervised worker resumes
-it without duplicate effects or changing reboot policy.
+Next: **U1.4 Operation command/query API** (`operations list|show|events|
+wait|cancel|resume|retry|recover`) sharing one typed truth with the
+Activity Center (U1.5).
 
 The application is a `llama.cpp` Vulkan server behind a single systemd
 service, with a resumable native tkinter wizard/dashboard and a terminal
 chat client. The working tree is at **`0.9.0.dev0`** on reviewed commits
 covering: 24-model catalog, chat/benchmark, thermal latch watchdog,
-autotune, ordered atomic migrations to **schema v5** (runtime builds/
+autotune, ordered atomic migrations to **schema v6** (runtime builds/
 verifications/trees/component state), production hardening, the `gui/`
 package, SQLite cutover with facade removed, R1/R2 exit gate, Session 5C
 durable `MODEL_ACTIVATE v1`, Session 6A durable `MODEL_ACQUIRE/MODEL_IMPORT
@@ -91,9 +95,12 @@ post-service commits removed with owners recorded; docs truth pass complete.
 (`SESSION_6A_DURABLE_MODEL_ACQUISITION_IMPLEMENTATION_PLAN.md` is the
 completed authority); ~~**Session 6B / U1.2** durable llama.cpp runtime
 lifecycle~~ **DONE** (`SESSION_6B_DURABLE_RUNTIME_LIFECYCLE_IMPLEMENTATION_PLAN.md`
-is the completed authority; ADR 004 accepted; schema v5).
+is the completed authority; ADR 004 accepted; schema v6 with
+worker locks).
 `ULTIMATE_BC250_APPLIANCE_IMPLEMENTATION_PLAN.md` remains the sequencing
-authority for U1+. Next: **U1.3 supervised foreground-independent worker**.
+authority for U1+. ~~**U1.3 explicit worker lifecycle**~~ **DONE**.
+Next: **U1.4 Operation command/query API**, then **U1.5 Activity Center
+v1** toward the R3-complete exit gate (`0.9.0` tag candidate).
 
 1. ~~Sessions 1–4: sweeps, facade removal, R1/R2 exit gate~~ **DONE**.
 2. ~~Session 4.1: post-R2 production wiring stabilization~~ **DONE**.
@@ -139,8 +146,8 @@ authority for U1+. Next: **U1.3 supervised foreground-independent worker**.
    adapters/timeouts, and the later phases of the post-R2 plan.
 6. ~~**Session 6A / U1.1**: durable model acquisition & import~~ **DONE**.
 7. ~~**Session 6B / U1.2**: durable llama.cpp runtime lifecycle~~ **DONE**
-   (ADR 004 `docs/adr/004-immutable-runtime-lifecycle.md`; migration 005
-   adds `runtime_builds`/`runtime_build_verifications`/`runtime_trees`/
+   (ADR 004 `docs/adr/004-immutable-runtime-lifecycle.md`; migrations 005/006
+   add `runtime_builds`/`runtime_build_verifications`/`runtime_trees`/
    `runtime_component_state`; `operations/runtime_lifecycle.py` pure
    workflows; `runtime_lifecycle_adapter.py` ONE production host;
    `runtime_lifecycle_command.py` composed command; `runtime_process.py`
@@ -148,14 +155,24 @@ authority for U1+. Next: **U1.3 supervised foreground-independent worker**.
    digest-checked renameat2 exchange; handoff schema v2 + start receipt;
    phase-scoped leases per ADR 002 §17; mandatory exchange-death test
    green in both fake world and crash matrix; legacy routes deleted with
-   hard guards). Foreground-only until U1.3.
+   hard guards).
+8. **U1.3: explicit worker lifecycle** **DONE**
+   (`operations/worker_host.py`, `worker_service.py`, migration 006
+   `worker_locks`). Mandatory abandoned-frontend resume test proves ONE
+   supervised worker finishes an operation exactly once without touching
+   reboot policy; single-instance via heartbeated profile lock; idle exit
+   on injected clocks; bounded restart policy pauses poisoned operations;
+   condition-backed bounded waiting; graceful shutdown checkpoints;
+   `llamacpp update --detach` spawns exactly one typed helper process.
+   Composition/boot/frontends never auto-start workers (hard guards).
+   Foreground remains the default path.
 
 ## Layout highlights
 
 | Area | Files |
 | --- | --- |
 | GUI package | `gui/app.py`, `gui/steps.py`, `gui/dashboard.py`, `gui/forms.py`; `Wizard`/`run_gui` composed in `gui/__init__.py`; surface frozen by headless contract test |
-| State | `state.py` (legacy JSON defaults only), `repositories.py` + `runtime_builds.py` (typed SQL access), `paths.py` (AppPaths incl. database/migration paths), `db.py` (SQLite PRAGMA contract + ordered migrations to v5), `legacy_import.py` (one-time importer) |
+| State | `state.py` (legacy JSON defaults only), `repositories.py` + `runtime_builds.py` (typed SQL access), `paths.py` (AppPaths incl. database/migration paths), `db.py` (SQLite PRAGMA contract + ordered migrations to v6 incl. worker locks), `legacy_import.py` (one-time importer) |
 | Safety runtime | `thermals.py` (hysteresis/latch/baseline/reset_latch), `optimize.py` (`apply_gpu_clock_limit`, `restore_gpu_profile`) |
 | Durable activation (5C) | `operations/activation.py` (request v1 + evidence + typed port + eight steps), `activation_adapter.py` (one production host), `activation_command.py` (foreground enqueue/execute/terminal), `model_artifact.py` (bounded GGUF/digest identity); `runtime_handoff.py` strict `observe()`; `server.py` `service_observation` |
 | Runtime lifecycle (6B) | `operations/runtime_lifecycle.py` (requests/evidence/port/steps), `runtime_lifecycle_adapter.py` (ONE production host), `runtime_lifecycle_command.py` (composed command/status), `runtime_builds.py` (immutable identities + repositories), `runtime_process.py` (bounded typed-argv runner), `runtime_exchange_helper.py` (digest-pinned RENAME_EXCHANGE); `env.py` is provisioning-only |
@@ -206,10 +223,10 @@ launcher tests need only bash ≥3.2 and python3 on PATH.
   and launcher fail-closed tests; the reconciled baseline is now **330**,
   printed automatically by `tests/conftest.py` in every run's summary.
 - Source (`PYTHONPATH=.`) and editable-install invocation collect identically.
-- Session 6B closeout (+follow-through): collection is **651**
-  (default executed green + slow-marked gates). This sandbox's ~20 s CPU kill prevents single-shot full
-  runs; evidence comes from eight alphabetical chunk runs whose pass sums
-  equal the executed total, plus explicit slow-gate runs (runtime 6/6,
+- Session 6B closeout (+follow-through, +U1.3): collection is **662**
+  (default executed green + slow-marked gates). This sandbox's ~20 s CPU
+  kill prevents single-shot full runs; evidence comes from eight
+  alphabetical chunk runs plus explicit slow-gate runs (runtime 6/6,
   acquisition 41/41, packaging 2/2). Never quote a count without naming
   how it was produced.
 

@@ -366,6 +366,9 @@ class Application:
         application.runtime_lifecycle = RuntimeLifecycleCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
         )
+        # U1.3: exposed read-only for the explicitly-started worker host;
+        # composition itself NEVER constructs or starts one.
+        application.registry = frozen_registry
 
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)

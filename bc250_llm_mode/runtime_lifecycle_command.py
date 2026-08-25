@@ -125,6 +125,8 @@ class RuntimeLifecycleCommandService:
         requested_ref: str | None = None,
         expected_active_build_id: str | None = None,
         requested_by: str = "cli",
+        detach: bool = False,
+        spawner: Any | None = None,
     ) -> RuntimeLifecycleOutcome:
         payload: dict[str, Any] = {"requested_by": requested_by}
         if requested_ref is not None:
@@ -140,6 +142,8 @@ class RuntimeLifecycleCommandService:
             payload=payload,
             surface=requested_by,
         )
+        if detach:
+            return self._detach(record.id, action="UPDATE", spawner=spawner)
         outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="UPDATE")
 
@@ -169,6 +173,24 @@ class RuntimeLifecycleCommandService:
         )
         outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="ROLLBACK")
+
+    def _detach(self, operation_id: str, *, action: str,
+                spawner: Any | None) -> RuntimeLifecycleOutcome:
+        """U1.3: hand the queued operation to ONE detached worker host."""
+        from .worker_service import spawn_detached
+
+        try:
+            pid = spawn_detached(spawner=spawner)
+        except Exception as exc:  # noqa: BLE001 - typed mapping only
+            return RuntimeLifecycleOutcome(
+                operation_id, "BUSY", action,
+                {"reason": f"worker spawn failed ({exc.__class__.__name__})",
+                 "foreground_only": True},
+            )
+        return RuntimeLifecycleOutcome(
+            operation_id, "DETACHED", action,
+            {"pid": pid, "continues_after_close": True},
+        )
 
     def resume(self, operation_id: str) -> RuntimeLifecycleOutcome:
         """Explicit foreground resume of an interrupted operation."""

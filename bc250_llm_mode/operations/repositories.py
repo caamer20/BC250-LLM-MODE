@@ -939,6 +939,15 @@ class LeaseRepository:
             acquired[key] = lease.lease_revision
         return acquired
 
+    def leases_for_operation(self, operation_id: str) -> list[OperationLease]:
+        """All leases currently held by one operation (any freshness)."""
+        rows = self.conn.execute(
+            "SELECT * FROM operation_leases WHERE operation_id = ?"
+            " ORDER BY resource_key",
+            (operation_id,),
+        ).fetchall()
+        return [_lease_from_row(row) for row in rows]
+
     def availability(self, resource_keys) -> dict[str, str | None]:
         """Read-only occupancy view: ``resource -> holding operation id``.
 
@@ -1039,9 +1048,100 @@ class LeaseRepository:
         )
 
 
+class WorkerLockRepository:
+    """U1.3 single-instance lock for the explicit worker host.
+
+    Deliberately separate from ``operation_leases`` (whose FK requires a
+    real operation row). Token is fixed to 'worker-host'; takeover of an
+    EXPIRED lock increments the revision like operation leases do.
+    """
+
+    TOKEN = "worker-host"
+
+    def __init__(self, conn, *, clock: Callable[[], str] | None = None) -> None:
+        self.conn = conn
+        self.clock = clock or utcnow
+
+    def get(self) -> dict[str, Any] | None:
+        row = self.conn.execute(
+            "SELECT * FROM worker_locks WHERE token = ?",
+            (self.TOKEN,),
+        ).fetchone()
+        return dict(row) if row is not None else None
+
+    def acquire(self, *, owner: str, ttl_seconds: int) -> dict[str, Any]:
+        now = self.clock()
+        expires = _advance_timestamp(now, ttl_seconds)
+        cursor = self.conn.execute(
+            """
+            INSERT INTO worker_locks (
+                token, owner, lease_revision, acquired_at, heartbeat_at,
+                expires_at
+            ) VALUES (?, ?, 1, ?, ?, ?)
+            ON CONFLICT(token) DO UPDATE SET
+                owner=excluded.owner,
+                lease_revision=worker_locks.lease_revision + 1,
+                acquired_at=excluded.acquired_at,
+                heartbeat_at=excluded.heartbeat_at,
+                expires_at=excluded.expires_at
+            WHERE worker_locks.expires_at <= excluded.heartbeat_at
+            """,
+            (self.TOKEN, owner, now, now, expires),
+        )
+        if cursor.rowcount != 1:
+            raise OperationConflict(
+                "worker-host lock is actively held by another host"
+            )
+        return self.require()
+
+    def require(self) -> dict[str, Any]:
+        row = self.get()
+        if row is None:
+            raise OperationConflict("no worker-host lock exists")
+        return row
+
+    def heartbeat(
+        self, *, owner: str, expected_revision: int, ttl_seconds: int
+    ) -> dict[str, Any]:
+        now = self.clock()
+        expires = _advance_timestamp(now, ttl_seconds)
+        cursor = self.conn.execute(
+            """
+            UPDATE worker_locks SET heartbeat_at = ?, expires_at = ?,
+                lease_revision = lease_revision + 1
+            WHERE token = ? AND owner = ? AND lease_revision = ?
+            """,
+            (now, expires, self.TOKEN, owner, int(expected_revision)),
+        )
+        if cursor.rowcount != 1:
+            raise OperationConflict(
+                "worker-host lock lost; another host took over"
+            )
+        return self.require()
+
+    def release(self, *, owner: str, expected_revision: int) -> None:
+        self.conn.execute(
+            "DELETE FROM worker_locks WHERE token = ? AND owner = ? "
+            "AND lease_revision = ?",
+            (self.TOKEN, owner, int(expected_revision)),
+        )
+
+    def leases_for_operation_stub(self):  # pragma: no cover
+        raise NotImplementedError
+
+
+def _advance_timestamp(now: str, seconds: int) -> str:
+    import datetime
+
+    moment = datetime.datetime.strptime(now, "%Y-%m-%dT%H:%M:%SZ")
+    moment += datetime.timedelta(seconds=int(seconds))
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 __all__ = [
     "EventRepository",
     "LeaseRepository",
     "OperationRepository",
     "StepRepository",
+    "WorkerLockRepository",
 ]

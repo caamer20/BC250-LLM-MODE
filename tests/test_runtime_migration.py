@@ -77,8 +77,8 @@ def test_fresh_schema_reaches_v5_with_runtime_tables(units):
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert applied == [1, 2, 3, 4, 5]
-        assert SCHEMA_VERSION == 5
+        assert applied == [1, 2, 3, 4, 5, 6]
+        assert SCHEMA_VERSION == 6
         tables = {
             row["name"]
             for row in conn.execute(
@@ -223,7 +223,7 @@ def _migrate_v4(path):
 def test_v4_to_v5_without_provenance_inserts_no_backfill(tmp_path):
     fixture = tmp_path / "v4.db"
     _v4_fixture(fixture, with_provenance=False)
-    assert _migrate_v4(fixture) == 5
+    assert _migrate_v4(fixture) == 6
     units = UnitOfWorkFactory(fixture)
     with units.begin() as conn:
         rows = conn.execute("SELECT COUNT(*) AS n FROM runtime_builds").fetchone()
@@ -235,7 +235,7 @@ def test_v4_to_v5_with_legacy_provenance_is_deterministic(tmp_path):
     for name in ("one.db", "two.db"):
         fixture = tmp_path / name
         _v4_fixture(fixture, with_provenance=True)
-        assert _migrate_v4(fixture) == 5
+        assert _migrate_v4(fixture) == 6
         conn = open_database(fixture, mode="read")
         try:
             row = conn.execute(
@@ -273,11 +273,16 @@ def test_migration_failure_rolls_back_to_complete_v4(tmp_path):
     from bc250_llm_mode import db as db_module
 
     original = db_module.MIGRATIONS
-    broken_entry = list(original[-1])
-    statements = list(broken_entry[2])
-    statements.insert(2, "INSERT INTO runtime_trees VALUES ('x', 'y')")
-    broken_entry[2] = tuple(statements)
-    db_module.MIGRATIONS = tuple(list(original[:-1]) + [tuple(broken_entry)])
+    version, name, statements = next(
+        m for m in original if m[0] == 5
+    )
+    broken_entry = [version, name, list(statements)]
+    broken_entry[2].insert(2, "INSERT INTO runtime_trees VALUES ('x', 'y')")
+    broken_entry[2] = tuple(broken_entry[2])
+    rebuilt = [
+        tuple(broken_entry) if m[0] == 5 else m for m in original
+    ]
+    db_module.MIGRATIONS = tuple(rebuilt)
     try:
         fixture = tmp_path / "v4.db"
         _v4_fixture(fixture, with_provenance=True)
@@ -367,3 +372,32 @@ def test_derive_build_id_excludes_display_refs_and_refuses_mutability():
     with pytest.raises(RuntimeBuildError) as err:
         derive_build_id({**base, "api_key_material": "x"})
     assert err.value.code == "MANIFEST_FIELD_FORBIDDEN"
+
+
+def test_migration_006_worker_locks_constraints(units):
+    from bc250_llm_mode.operations.repositories import WorkerLockRepository
+
+    with units.begin() as conn:
+        locks = WorkerLockRepository(conn)
+        first = locks.acquire(owner="worker-a", ttl_seconds=60)
+        assert first["lease_revision"] == 1
+        # Active lock refuses a second host.
+        import pytest as _pytest
+
+        from bc250_llm_mode.operations.model import OperationConflict
+
+        with _pytest.raises(OperationConflict):
+            locks.acquire(owner="worker-b", ttl_seconds=60)
+        # Heartbeat bumps revision and extends expiry.
+        beaten = locks.heartbeat(owner="worker-a", expected_revision=1,
+                                 ttl_seconds=120)
+        assert beaten["lease_revision"] == 2
+        # Wrong owner/revision cannot heartbeat or release.
+        with _pytest.raises(OperationConflict):
+            locks.heartbeat(owner="worker-b", expected_revision=2,
+                            ttl_seconds=10)
+        locks.release(owner="worker-a", expected_revision=2)
+        assert locks.get() is None
+        # Expired lock takeover increments revision.
+        again = locks.acquire(owner="worker-c", ttl_seconds=0)
+        assert again["lease_revision"] == 1

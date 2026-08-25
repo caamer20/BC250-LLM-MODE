@@ -31,8 +31,8 @@ def test_fresh_schema_reaches_v4_with_constraints(tmp_path):
         applied = conn.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [r["version"] for r in applied] == [1, 2, 3, 4, 5]
-        assert SCHEMA_VERSION == 5
+        assert [r["version"] for r in applied] == [1, 2, 3, 4, 5, 6]
+        assert SCHEMA_VERSION == 6
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO model_artifacts (id, canonical_path, "
