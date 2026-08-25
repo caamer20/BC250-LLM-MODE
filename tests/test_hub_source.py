@@ -1,12 +1,11 @@
-"""U1.1 §5: immutable hub source and range transfer against a local server."""
+"""U1.1 §5: immutable hub source and range transfer (mock transport)."""
 
 from __future__ import annotations
 
 import json
 import re
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import httpx
 import pytest
 
 from bc250_llm_mode.hub_source import (
@@ -19,73 +18,78 @@ REVISION = "a" * 40
 PAYLOAD = b"0123456789abcdef" * 8  # 128 bytes
 
 
-class _Handler(BaseHTTPRequestHandler):
-    received: list = []
+class FakeHubState:
+    def __init__(self) -> None:
+        self.received: list[tuple[str, str, dict]] = []
 
-    def log_message(self, *a):
-        pass
 
-    def _send(self, code, body=b"", headers=None):
-        self.send_response(code)
-        for key, value in (headers or {}).items():
-            self.send_header(key, value)
-        self.end_headers()
-        if body:
-            self.wfile.write(body)
+STATE = FakeHubState()
 
-    def do_GET(self):
-        type(self).received.append(("GET", self.path, dict(self.headers)))
-        if self.path.startswith("/api/models/"):
-            body = json.dumps({"sha": REVISION}).encode()
-            self._send(200, body, {"Content-Type": "application/json"})
-            return
-        match = re.search(r"/repo/resolve/([0-9a-f]{40})/(file\.gguf)$", self.path)
-        if not match:
-            self._send(404)
-            return
-        range_header = self.headers.get("Range", "")
+
+def _handler(request: httpx.Request) -> httpx.Response:
+    path = request.url.path
+    headers = dict(request.headers)
+    STATE.received.append((request.method, str(request.url), headers))
+    host = request.url.host
+    if path.startswith("/api/models/"):
+        return httpx.Response(
+            200,
+            json={"sha": REVISION},
+            headers={"Content-Type": "application/json"},
+        )
+    match = re.search(r"/repo/resolve/([0-9a-f]{40})/(file\.gguf)$", path)
+    if match:
+        range_header = headers.get("range", "")
         start = 0
+        status = 200
         if range_header.startswith("bytes="):
             start = int(range_header[6:].split("-")[0])
+            status = 206
         body = PAYLOAD[start:]
-        self._send(
-            206 if start else 200,
-            body,
-            {
+        return httpx.Response(
+            status,
+            content=body,
+            headers={
                 "Content-Length": str(len(body)),
                 "ETag": '"etag-1"',
                 "Accept-Ranges": "bytes",
             },
         )
+    return httpx.Response(404)
 
-    def do_HEAD(self):
-        type(self).received.append(("HEAD", self.path, dict(self.headers)))
-        if "/redirect/" in self.path:
-            # Cross-origin signed redirect: auth must be stripped on follow.
-            self._send(
-                302,
-                {},
-                {"Location": f"{self.headers['Host']}/elsewhere?sig=CANARY"},
-            )
-            return
-        self._send(
-            200,
-            {},
-            {"Content-Length": str(len(PAYLOAD)), "ETag": '"etag-1"'},
+
+def make_client(token: str | None = None) -> HubClient:
+    transport = httpx.MockTransport(_handler)
+    return HubClient(
+        api_base="https://hub.test/api",
+        file_base="https://hub.test",
+        token_provider=(lambda: token) if token else None,
+        transport=transport,
+    )
+
+
+def make_redirect_client(redirect_host: str) -> HubClient:
+    """HEAD replies with a cross-origin signed redirect."""
+
+    def redirect_handler(request: httpx.Request) -> httpx.Response:
+        STATE.received.append(
+            (request.method, str(request.url), dict(request.headers))
+        )
+        if request.url.path.startswith("/api/models/"):
+            return httpx.Response(200, json={"sha": REVISION})
+        return httpx.Response(
+            302,
+            headers={
+                "Location": f"https://{redirect_host}/elsewhere?sig=CANARY"
+            },
         )
 
-
-@pytest.fixture()
-def server():
-    factory = lambda *a, **k: _Handler(*a, **k)  # noqa: E731
-    factory.protocol_version = "HTTP/1.1"
-    httpd = ThreadingHTTPServer(("127.0.0.1", 0), factory)
-    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{httpd.server_port}"
-    _Handler.received = []
-    yield base
-    httpd.shutdown()
+    return HubClient(
+        api_base="https://hub.test/api",
+        file_base="https://hub.test",
+        token_provider=lambda: "SECRET-CANARY-TOKEN",
+        transport=httpx.MockTransport(redirect_handler),
+    )
 
 
 def test_fingerprint_is_stable_and_covers_policy():
@@ -105,8 +109,8 @@ def test_fingerprint_is_stable_and_covers_policy():
     assert catalog_fingerprint(Entry, "Q4") != catalog_fingerprint(Entry, "Q8")
 
 
-def test_resolve_pins_immutable_revision_and_observes_blob(server):
-    client = HubClient(api_base=f"{server}/api", file_base=server)
+def test_resolve_pins_immutable_revision_and_observes_blob():
+    client = make_client()
     sha = client.resolve_revision("org/repo")
     assert sha == REVISION
     blob = client.observe_blob("org/repo", sha, "file.gguf")
@@ -114,8 +118,8 @@ def test_resolve_pins_immutable_revision_and_observes_blob(server):
     assert blob.validator
 
 
-def test_stream_range_downloads_full_body_and_resumes_partial(server, tmp_path):
-    client = HubClient(api_base=f"{server}/api", file_base=server)
+def test_stream_range_downloads_full_body_and_resumes_partial(tmp_path):
+    client = make_client()
     blob = client.observe_blob("org/repo", REVISION, "file.gguf")
     dest = tmp_path / "file.gguf.partial"
     total = client.stream_range(blob, dest, expected_fingerprint="fp-x")
@@ -124,18 +128,23 @@ def test_stream_range_downloads_full_body_and_resumes_partial(server, tmp_path):
     # Simulate an interrupted prefix with a matching receipt.
     dest.write_bytes(PAYLOAD[:64])
     dest.with_name(dest.name + "-receipt.json").write_text(
-        json.dumps({"fingerprint": "fp-x", "total": len(PAYLOAD),
-                    "validator": blob.validator})
+        json.dumps(
+            {
+                "fingerprint": "fp-x",
+                "total": len(PAYLOAD),
+                "validator": blob.validator,
+            }
+        )
     )
-    get_before = len(_Handler.received)
+    get_before = len(STATE.received)
     total = client.stream_range(blob, dest, expected_fingerprint="fp-x")
     assert total == len(PAYLOAD)
-    ranged = [r for r in _Handler.received[get_before:] if r[0] == "GET"]
-    assert any("Range" in r[2] for r in ranged), "resume must use a range request"
+    ranged = [r for r in STATE.received[get_before:] if r[0] == "GET"]
+    assert any("range" in r[2] for r in ranged), "resume must use a range"
 
 
-def test_stream_range_resets_foreign_partial(server, tmp_path):
-    client = HubClient(api_base=f"{server}/api", file_base=server)
+def test_stream_range_resets_foreign_partial(tmp_path):
+    client = make_client()
     blob = client.observe_blob("org/repo", REVISION, "file.gguf")
     dest = tmp_path / "f.partial"
     dest.write_bytes(b"foreign-garbage")
@@ -143,24 +152,23 @@ def test_stream_range_resets_foreign_partial(server, tmp_path):
     assert total == len(PAYLOAD)
 
 
-def test_auth_token_never_sent_in_url_and_strips_on_cross_origin(server):
-    token_box = {"token": "SECRET-CANARY-TOKEN"}
-    client = HubClient(
-        api_base=f"{server}/api",
-        file_base=server,
-        token_provider=lambda: token_box["token"],
-    )
+def test_auth_token_never_leaks_into_urls():
+    STATE.received.clear()
+    client = make_client(token="SECRET-CANARY-TOKEN")
     sha = client.resolve_revision("org/repo")
     assert sha == REVISION
-    # Token rides the Authorization header only; URLs carry no secret.
-    for method, path, headers in _Handler.received:
-        assert "CANARY" not in path
-    authed = [h for _, _, h in _Handler.received if h.get("Authorization")]
-    assert authed, "same-origin requests may carry credentials in headers only"
+    for method, url, headers in STATE.received:
+        assert "CANARY" not in url
+    authed = [h for _, _, h in STATE.received if h.get("authorization")]
+    assert authed, "same-origin requests carry credentials in headers only"
+    # Cross-origin redirects strip Authorization before following.
+    redirector = make_redirect_client("evil.test")
+    with pytest.raises(SourceError):
+        redirector.observe_blob("org/repo", REVISION, "file.gguf")
 
 
-def test_mutable_or_unsafe_revisions_are_refused(server):
-    client = HubClient(api_base=f"{server}/api", file_base=server)
+def test_mutable_or_unsafe_revisions_are_refused():
+    client = make_client()
     with pytest.raises(SourceError) as err:
         client.observe_blob("org/repo", "main", "file.gguf")
     assert err.value.code == "SOURCE_MANIFEST_INVALID"

@@ -152,7 +152,9 @@ class AcquisitionHostAdapter:
             os.close(fd)
         return SourceIdentity(
             fingerprint=f"local:{digest}:{size}:{st.st_mtime_ns}",
-            files=({"path": source.name, "size": size},),
+            # Redacted label: the real basename never enters durable evidence
+            # (U1.1 §9.3); the absolute path lives only in the request row.
+            files=({"path": "local-source.gguf", "size": size},),
             total_bytes=size,
         )
 

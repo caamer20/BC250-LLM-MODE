@@ -182,12 +182,16 @@ def test_duplicate_import_reuses_artifact(tmp_path):
     host = FakeAcquisitionHost(tmp_path / "dup-world")
     harness = AcquisitionHarness(tmp_path, host)
     source = host.seed_local_source()
+    print('DUP-DEBUG enqueue1', flush=True)
     harness.enqueue_import(source, operation_id="op-dup-1")
     first = harness.engine().execute_one(harness.operation_id)
+    print('DUP-DEBUG first done', flush=True)
     assert first.reason_code == "MODEL_INSTALLED"
 
+    print('DUP-DEBUG enqueue2', flush=True)
     harness.enqueue_import(source, operation_id="op-dup-2")
     second = harness.engine("worker-b").execute_one(harness.operation_id)
+    print('DUP-DEBUG second done', flush=True)
     assert second.reason_code == "MODEL_REUSED"
     # The second op still proves the source bytes but never republishes.
     assert host.final_path().exists()

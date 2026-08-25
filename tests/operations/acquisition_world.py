@@ -116,7 +116,8 @@ class FakeAcquisitionHost:
             fingerprint=(
                 f"local:{_sha256_bytes(data)}:{stat.st_size}:{int(stat.st_mtime)}"
             ),
-            files=({"path": src.name, "size": len(data)},),
+            # Redacted label: the real basename never enters durable evidence.
+            files=({"path": "local-source.gguf", "size": len(data)},),
             total_bytes=len(data),
         )
 
