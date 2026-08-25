@@ -644,6 +644,7 @@ class RuntimeComponentRepository:
         *,
         expected_generation: int,
         expected_promoted_build_id: str | None,
+        expected_rollback_build_id: str | None,
         restored_promoted_build_id: str,
         new_rollback_build_id: str | None,
         promoted_tree_id: str | None = None,
@@ -656,7 +657,8 @@ class RuntimeComponentRepository:
         return self.promote_verified(
             expected_generation=expected_generation,
             expected_promoted_build_id=expected_promoted_build_id,
-            expected_rollback_build_id=None,  # toggles are unconstrained here
+            # D7: the cutover revalidates BOTH lineage pointers.
+            expected_rollback_build_id=expected_rollback_build_id,
             promoted_build_id=restored_promoted_build_id,
             rollback_build_id=new_rollback_build_id,
             promoted_tree_id=promoted_tree_id,

@@ -904,9 +904,13 @@ class ExecutionEngine:
                 error_detail={
                     "step": step.step_key,
                     "classification": decision.classification.value,
+                    # U1.2 §11.5: bounded remediation evidence — WHICH probe
+                    # was uncertain, never raw output.
+                    "probe": getattr(probe, "reason_code", None),
                 },
                 event_summary=(
-                    f"uncertain external state at {step.step_key}; barrier held"
+                    f"uncertain external state at {step.step_key}: "
+                    f"{getattr(probe, 'reason_code', 'unknown')}; barrier held"
                 ),
             )
         return ExecutionOutcome(
@@ -993,6 +997,19 @@ class ExecutionEngine:
             workflow is not None and workflow.cancel_finalizer is not None
         )
         if mutation_happened and forward_only_workflow:
+            mutation_happened = False
+        # U1.2 §10.4: NEVER report FAILED_ROLLED_BACK after a mere
+        # successful move — entering compensation with NOTHING to restore
+        # would claim an unproven restoration. A revertible-looking probe
+        # on a step that owns no reverse effect is a safe failure.
+        if (
+            mutation_happened
+            and not durable_pairs
+            and (
+                step.compensate is None
+                or step.effect_disposition == "FORWARD_ONLY"
+            )
+        ):
             mutation_happened = False
         if mutation_happened:
             with self.units.begin() as conn:

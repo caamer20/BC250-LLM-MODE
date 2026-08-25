@@ -197,6 +197,7 @@ def test_record_restoration_toggles_lineage(units, seeded):
         restored = components.record_restoration(
             expected_generation=before["generation"],
             expected_promoted_build_id=before["promoted_build_id"],
+            expected_rollback_build_id=before["rollback_build_id"],
             restored_promoted_build_id=seeded["target_build_id"],
             new_rollback_build_id=before["promoted_build_id"],
             operation_id="op-1",

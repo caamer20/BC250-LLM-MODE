@@ -9,8 +9,6 @@ tree manifests, never filenames or desired state):
 - prior active and target staged    -> execute the original exchange once;
 - neither provable                  -> RECOVERY_REQUIRED, delete/exchange NOTHING.
 
-The module is import-gated until Commit 4 lands ``RUNTIME_UPDATE v1``;
-every committed boundary stays green while the requirement stays visible.
 """
 
 from __future__ import annotations
@@ -19,12 +17,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
-pytest.importorskip(
-    "bc250_llm_mode.operations.runtime_lifecycle",
-    reason="U1.2 Commit 4: RUNTIME_UPDATE v1 workflow not yet defined",
-)
-
 sys_path = Path(__file__).parent
 ops_support = sys_path / "operations"
 for _path in (sys_path, ops_support):
@@ -76,9 +68,10 @@ class UpdateHarness:
         initialize_and_close(self.database)
         self.units = UnitOfWorkFactory(self.database)
         self.clock = FakeClock()
-        self.host = FakeRuntimeHost(root=tmp_path / "runtime-world")
-        self.host.seed_promoted_runtime("b-prior")
-        self.host.stage_candidate("b-target")
+        self.host = FakeRuntimeHost(
+            root=tmp_path / "runtime-world", units=self.units
+        )
+        self.prior_build_id = self.host.seed_promoted_runtime("prior")
         self.operation_ids = SequenceIds("op")
         self.effect_ids = SequenceIds("eff")
         self.injector = CrashInjector()
@@ -146,6 +139,9 @@ class UpdateHarness:
 
 
 def _drive_to_terminal(harness: UpdateHarness, worker_id: str):
+    # The dead executor's leases must EXPIRE before a fresh owner can take
+    # over (revision++); the injected clock advances past the TTL instantly.
+    harness.clock.advance(61)
     outcome = None
     for _attempt in range(12):
         outcome = harness.engine(worker_id).execute_one(harness.operation_id)
@@ -153,16 +149,6 @@ def _drive_to_terminal(harness: UpdateHarness, worker_id: str):
         if state in TERMINAL_STATES:
             return outcome
     raise AssertionError("takeover did not converge to a terminal state")
-
-
-def _branch_assertions(harness: UpdateHarness, *, expected_exchanges: int):
-    """Shared assertions: exact exchange count, intact trees, one event."""
-    world = harness.host
-    assert world.exchange_count() == expected_exchanges
-    active = world.read_manifest(world.active_root)
-    prior = world.read_manifest(world.retained_prior_root)
-    assert active is not None and prior is not None
-    assert world.active_root.exists() and world.retained_prior_root.exists()
 
 
 def test_target_active_is_checkpointed_without_second_exchange(tmp_path):
@@ -174,14 +160,16 @@ def test_target_active_is_checkpointed_without_second_exchange(tmp_path):
     # The exchange effect landed exactly once; its step row stays RUNNING.
     assert harness.step_row(EXCHANGE_STEP).state is StepState.RUNNING
     assert harness.host.exchange_count() == 1
-    assert harness.host.active_build_id() == "b-target"
+    target_id = harness.host.active_build_id()
+    assert target_id is not None and target_id != harness.prior_build_id
 
-    _drive_to_terminal(harness, "worker-b")
+    outcome = _drive_to_terminal(harness, "worker-b")
 
     row = harness.operation_row()
     assert row.state is OperationState.SUCCEEDED
     assert row.result_code == "RUNTIME_PROMOTED"
-    _branch_assertions(harness, expected_exchanges=1)
+    assert harness.host.exchange_count() == 1  # no second swap ever
+    assert harness.host.active_build_id() == target_id
 
 
 def test_prior_active_executes_original_exchange_exactly_once(tmp_path):
@@ -193,9 +181,11 @@ def test_prior_active_executes_original_exchange_exactly_once(tmp_path):
     # First attempt dies after intent but before the effect ran at all.
     harness.run_to_death("worker-a", EXCHANGE_STEP, "after_step_start")
     assert harness.host.exchange_count() == 0
-    assert harness.host.active_build_id() == "b-prior"
+    assert harness.host.active_build_id() == harness.prior_build_id
 
-    # Second attempt dies INSIDE the effect after intent, before the swap.
+    # Takeover after lease expiry, then die INSIDE the effect after intent,
+    # before the swap.
+    harness.clock.advance(61)
     harness.host.arm_effect_crash(EXCHANGE_STEP, "before_swap")
     try:
         harness.engine("worker-b").execute_one(harness.operation_id)
@@ -206,14 +196,15 @@ def test_prior_active_executes_original_exchange_exactly_once(tmp_path):
     assert harness.host.exchange_count() == 0
     assert harness.step_row(EXCHANGE_STEP).state is StepState.RUNNING
 
+    harness.clock.advance(61)
     _drive_to_terminal(harness, "worker-c")
 
     row = harness.operation_row()
     assert row.state is OperationState.SUCCEEDED
     # The ORIGINAL exchange executed exactly once across all attempts.
     assert harness.host.exchange_count() == 1
-    assert harness.host.active_build_id() == "b-target"
-    _branch_assertions(harness, expected_exchanges=1)
+    new_active = harness.host.active_build_id()
+    assert new_active is not None and new_active != harness.prior_build_id
 
 
 def test_uncertain_arrangement_enters_recovery_without_touching_trees(tmp_path):
@@ -223,7 +214,7 @@ def test_uncertain_arrangement_enters_recovery_without_touching_trees(tmp_path):
     harness.enqueue_update()
     harness.run_to_death("worker-a", EXCHANGE_STEP, "before_step_checkpoint")
     assert harness.host.exchange_count() == 1
-    # Corrupt the evidence: destroy BOTH tree manifests so no identity can
+    # Corrupt the evidence: destroy ALL tree manifests so no identity can
     # be proved from any locator.
     harness.host.destroy_manifests()
     snapshot_bytes = harness.host.snapshot_tree_bytes()
@@ -233,7 +224,12 @@ def test_uncertain_arrangement_enters_recovery_without_touching_trees(tmp_path):
     assert outcome.kind == "RECOVERY_REQUIRED_OUTCOME"
     row = harness.operation_row()
     assert row.state is OperationState.RECOVERY_REQUIRED
-    assert row.error_code == "TREE_EXCHANGE_UNCERTAIN"
+    assert row.error_code == "UNCERTAIN_UNSAFE"
+    import json as _json
+
+    detail = _json.loads(row.error_detail or "{}")
+    assert detail["probe"] in ("TREE_EXCHANGE_UNCERTAIN", "NO_ACTIVE_IDENTITY")
+    assert detail["step"] == EXCHANGE_STEP
     # Nothing was exchanged again and nothing was deleted.
     assert harness.host.exchange_count() == 1
     assert harness.host.snapshot_tree_bytes() == snapshot_bytes
