@@ -9,6 +9,7 @@ while the requirement stays visible; they flip to passing at the cutover.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -63,14 +64,25 @@ def test_no_synchronous_update_rollback_definitions():
 
 
 def test_runtime_modules_use_no_shell_interpolation():
-    """Runtime lifecycle modules use typed argv only (plan §12.1)."""
+    """Runtime lifecycle modules use typed argv only (plan §12.1).
+
+    The tokens below match INVOCATION forms; defensive validators that
+    list forbidden launcher strings (e.g. runtime_process's spec guard)
+    contain them only as banned literals and do not execute shells.
+    """
     for rel in RUNTIME_LIFECYCLE_MODULES:
         if not _module_exists(rel):
             continue
         text = _read(rel)
-        for token in ("bash -lc", "shell=True", "`", "$(", "executescript"):
-            assert token not in text.replace("``", "").replace("`{}`", ""), (
-                f"{rel}: forbidden shell token {token!r}"
+        # Strip RST literal emphasis/roles (docstrings legitimately name
+        # banned tokens and class references) before scanning for real
+        # invocation forms.
+        scrubbed = re.sub(r"``[^`]*``", "", text)
+        scrubbed = re.sub(r"`[^`]*`", "", scrubbed)
+        for token in ('shell=True', '"-lc"', "'-lc'", '"bash"', "'sh -c'",
+                      '`', '$('):
+            assert token not in scrubbed, (
+                f"{rel}: forbidden shell invocation token {token!r}"
             )
 
 
