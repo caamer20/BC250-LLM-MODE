@@ -29,56 +29,31 @@ class RecordingRunner:
 def test_hf_token_never_reaches_argv_or_logs(tmp_path, monkeypatch):
     from bc250_llm_mode.catalog import model_by_id
 
-    secret = "hf_SUPERSECRET_TOKEN_VALUE"
-    monkeypatch.setenv("HF_TOKEN", secret)
-    state = {
-        "models_dir": str(tmp_path / "models"),
-        "venv_path": "/root/.venvs/hf",
-        "container_name": "llm",
-        "app_dir": str(tmp_path),
-        "setup_phase": 0,
-    }
-    runner = RecordingRunner()
-    model = model_by_id("lfm25-26b")
-    with pytest.raises(Exception):
-        # No artifact exists in tmp; the command capture is what matters.
-        download.download_model(state, model, "Q5_K_M", runner)
-    flat = [item for command in runner.commands for item in command]
-    assert not any("--token" == item for item in flat), "--token must never be used"
-    for command in runner.commands:
-        joined = " ".join(command)
-        assert secret not in joined, "token leaked into podman argv"
-    for message in runner.messages:
-        assert secret not in message, "token leaked into setup.log"
-    env_uses = [c for c in runner.commands if "--env-file" in c]
-    assert env_uses, "token must be delivered via --env-file"
+    # U1.1 §8.5: the synchronous `hf download` route is deleted. Tokens now
+    # travel ONLY in Authorization headers inside the typed hub client, and
+    # the architecture guard (test_architecture) proves no bypass remains.
+    import bc250_llm_mode.download as download_module
+
+    assert not hasattr(download_module, "download_model"), (
+        "the synchronous download bypass must stay deleted"
+    )
 
 
-def test_token_env_file_is_cleaned_up(tmp_path, monkeypatch):
-    import os
+def test_hub_client_sends_tokens_via_headers_only():
+    """U1.1: tokens are never written to env-files at all anymore; guard
+    against reintroduction by asserting the hub client sends headers only."""
+    from urllib.parse import urlparse
 
-    from bc250_llm_mode.catalog import model_by_id
+    from bc250_llm_mode.hub_source import HubClient
 
-    monkeypatch.setenv("HF_TOKEN", "hf_ephemeral")
-    leftovers = []
-    real_unlink = os.unlink
-
-    def tracking_unlink(path, *a, **k):
-        if "bc250-hf-" in str(path):
-            leftovers.append(str(path))
-        return real_unlink(path, *a, **k)
-
-    monkeypatch.setattr(download.os, "unlink", tracking_unlink)
-    state = {
-        "models_dir": str(tmp_path / "models"),
-        "venv_path": "/root/.venvs/hf",
-        "container_name": "llm",
-        "app_dir": str(tmp_path),
-        "setup_phase": 0,
-    }
-    with pytest.raises(Exception):
-        download.download_model(state, model_by_id("lfm25-26b"), "Q5_K_M", RecordingRunner())
-    assert leftovers, "the private env-file must be removed after the run"
+    client = HubClient(token_provider=lambda: "hf_SUPERSECRET_TOKEN_VALUE")
+    headers = client._auth_headers(True)
+    assert headers.get("Authorization") == "Bearer hf_SUPERSECRET_TOKEN_VALUE"
+    # No argv/env-file channel exists in the module at all.
+    source = Path(client.__module__.replace(".", "/") + ".py")
+    text = (Path(__file__).parent.parent / source).read_text()
+    assert "--env-file" not in text
+    assert "--token" not in text
 
 
 def test_setup_log_is_rotating():

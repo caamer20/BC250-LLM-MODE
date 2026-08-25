@@ -21,7 +21,6 @@ from .chat import benchmark, benchmark_repeat, run_chat
 from .constants import KNOWN_GOOD_LLAMACPP
 from .desktop import switch_to_desktop_mode
 from .disclaimer import require_acknowledgment
-from .download import download_model
 from .env import (
     evaluate_pin,
     llamacpp_status,
@@ -48,7 +47,6 @@ from .openwebui import (
 )
 from .optimize import kv_scale_for_settings, parallel_slots_for_settings
 from .paths import AppPaths
-from .prepare import prepare_model
 from .server import (
     ensure_server,
     health_check,
@@ -652,12 +650,21 @@ def main(argv: list[str] | None = None) -> int:
                     "lower --ctx or choose a smaller model"
                 )
             quant, fit = pick
-        downloaded = download_model(state, model, quant, runner)
-        prepare_model(state, model, quant, downloaded, runner)
-        application.model_install.register_context_change(state, args.ctx)
+        # U1.1: durable acquisition through the ONE composed command; the
+        # old synchronous download/prepare route is deleted.
+        outcome = application.model_acquisition.acquire_catalog(
+            model.id, quant, requested_by="cli"
+        )
+        if not outcome.ok:
+            print(
+                f"Acquisition did not complete: {outcome.status} "
+                f"(operation {outcome.operation_id})"
+            )
+            return 1
+        alias = outcome.detail.get("alias") or model.id
         if state.get("setup_complete"):
             # Durable activation through the ONE composed command.
-            switch_model(application, state, model.id, runner)
+            switch_model(application, state, alias, runner)
         return 0
     if args.command == "switch":
         require_acknowledgment(state)

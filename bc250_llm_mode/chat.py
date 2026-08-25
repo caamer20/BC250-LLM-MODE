@@ -290,11 +290,9 @@ def record_benchmark(store: Any, state: dict[str, Any], result: dict[str, Any]) 
 
     paths = getattr(store, "paths", None)
     if paths is not None:
-        from .repositories import BenchHistoryRepository
-        from .unit_of_work import UnitOfWorkFactory
-
-        with UnitOfWorkFactory(paths.database_path).begin() as conn:
-            BenchHistoryRepository(conn).append(entry, commit=False)
+        # U1.1 §8.6: frontends never import repositories; the composed
+        # application owns the durable write.
+        store.record_benchmark(entry)
         return
 
     history = [item for item in (state.get("bench_history") or []) if isinstance(item, dict)]

@@ -41,7 +41,8 @@ FRONTEND_COMMIT_KEYS = frozenset({
     "disclaimer_ack", "ack_timestamp", "setup_complete",
     "openwebui_installed", "https_sharing_enabled", "boot_policy",
     "model_search_paths", "selected_model", "selected_quant",
-    "selected_source", "selected_local_model", "download_dir", "models_dir",
+    "selected_source", "selected_local_model", "installed_alias",
+    "models_dir",
 })
 
 
@@ -66,7 +67,7 @@ class Application:
     component: Any = None
     openwebui: Any = None
     sharing: Any = None
-    model_install: Any = None
+    model_acquisition: Any = None
     maintenance: Any = None
     operational: bool = False
     repair_reason: str | None = None
@@ -77,6 +78,19 @@ class Application:
                 self.repair_reason or "application requires repair"
             )
         return self
+
+    def hub_client(self):
+        """Typed hub HTTP client bound to the immutable HF origin (U1.1)."""
+        from .hub_source import HubClient
+
+        return HubClient()
+
+    def record_benchmark(self, entry: dict) -> None:
+        """Durable benchmark append; frontends never touch repositories."""
+        from .repositories import BenchHistoryRepository
+
+        with self.units.begin() as conn:
+            BenchHistoryRepository(conn).append(entry, commit=False)
 
     def runner(self, callback=None) -> CommandRunner:
         return CommandRunner(self.logger, callback)
@@ -161,7 +175,14 @@ class Application:
 
         from .activation_adapter import ActivationHostAdapter
         from .activation_command import ActivationCommandService
+        from .acquisition_adapter import AcquisitionHostAdapter
+        from .acquisition_command import ModelAcquisitionCommandService
+        from .hub_source import catalog_fingerprint
         from .operations.activation import build_activation_workflow
+        from .operations.acquisition import (
+            build_acquire_workflow,
+            build_import_workflow,
+        )
         from .operations.engine import ExecutionEngine
         from .operations.workflow import EnqueueService, WorkflowRegistry
         from .queries import ApplicationQueryService
@@ -171,7 +192,6 @@ class Application:
             ComponentLifecycleService,
             HostModeService,
             MaintenanceService,
-            ModelInstallationService,
             OpenWebUIService,
             RuntimeConfigurationService,
             SetupService,
@@ -202,6 +222,32 @@ class Application:
         )
         registry = WorkflowRegistry()
         registry.register(build_activation_workflow(activation_adapter))
+
+        # U1.1 §7.3: catalog lookup + policy fingerprint helpers.
+        def _catalog_module():
+            from . import catalog as catalog_module
+
+            class _Catalog:
+                @staticmethod
+                def find(model_id: str):
+                    return next(
+                        (e for e in catalog_module.CATALOG if e.id == model_id),
+                        None,
+                    )
+
+            return _Catalog
+
+        # U1.1: the same frozen registry registers acquisition/import.
+        catalog = _catalog_module()
+        acquisition_adapter = AcquisitionHostAdapter(
+            application.paths,
+            units,
+            hub_client=application.hub_client(),
+            clock=utcnow,
+            catalog_lookup=lambda model_id: catalog.find(model_id),
+        )
+        registry.register(build_acquire_workflow(acquisition_adapter))
+        registry.register(build_import_workflow(acquisition_adapter))
         frozen_registry = registry.freeze()
         enqueue = EnqueueService(
             units,
@@ -223,9 +269,22 @@ class Application:
         application.activation = ActivationCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
         )
+
+        def _fingerprint_for(model_id: str, quantization: str) -> str:
+            entry = _catalog_module().find(model_id)
+            if entry is None:
+                return ""
+            return catalog_fingerprint(entry, quantization)
+
+        # U1.1 §7.1: ONE composed durable acquisition/import command.
+        application.model_acquisition = ModelAcquisitionCommandService(
+            units=units,
+            enqueue=enqueue,
+            engine_factory=engine_factory,
+            fingerprint_for=_fingerprint_for,
+        )
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)
         application.openwebui = OpenWebUIService(units)
         application.sharing = SharingService(units)
-        application.model_install = ModelInstallationService(units)
         application.maintenance = MaintenanceService(units)

@@ -19,7 +19,7 @@ from .optimize import (
     parallel_slots_for_settings,
     validate_settings,
 )
-from .prepare import prepare_local_model
+from .acquisition_adapter import sanitize_alias
 
 
 def _activation(store: Any) -> Any:
@@ -126,12 +126,23 @@ def register_and_switch_local(
     )
     if fit.verdict == "NO-FIT":
         raise ValueError(fit.detail)
-    prepare_local_model(state, LocalModel.from_dict(model.to_dict()), runner)
+    # U1.1 §8.2: local "use" = durable import into managed storage, then a
+    # separate durable activation. The external file is never activated.
+    outcome = store.model_acquisition.import_local(
+        str(model.path),
+        alias=sanitize_alias(model.id),
+        requested_by=_requested_by(runner),
+    )
+    if not outcome.ok:
+        raise ValueError(
+            f"Import failed: {outcome.status} "
+            f"(operation {outcome.operation_id})"
+        )
     _run_activation(
         store,
         runner,
         {
-            "model_alias": local_id,
+            "model_alias": sanitize_alias(model.id),
             "requested_by": _requested_by(runner),
         },
         f"Switching to {model.display_name}",

@@ -12,7 +12,6 @@ from tkinter import messagebox, ttk
 
 from ..catalog import model_by_id
 from ..disclaimer import DISCLAIMER_TEXT, acknowledge, acknowledgment_valid
-from ..download import download_model
 from ..env import setup_environment
 from ..hardware import detect_hardware
 from ..llmmode import apply_llm_mode
@@ -42,11 +41,6 @@ from ..optimize import (
     kv_scale_for_settings,
     normalized_settings,
     validate_settings,
-)
-from ..prepare import (
-    cleanup_conversion_intermediates,
-    prepare_local_model,
-    prepare_model,
 )
 from ..server import (
     health_check,
@@ -225,32 +219,55 @@ class StepsMixin:
         elif step == 6:
             def action() -> None:
                 runner = self.runner()
+                # U1.1 §8.3: ONE durable acquisition/import operation replaces
+                # the mutable download handoff. Foreground only until U1.3.
+                acquisition = self.application.model_acquisition
                 if self.state_data.get("selected_source") == "local":
                     local = LocalModel.from_dict(self.state_data["selected_local_model"])
-                    self.downloaded_path = Path(local.path)
-                    self.state_data["download_dir"] = str(self.downloaded_path.parent)
-                    self.state_data["setup_phase"] = max(int(self.state_data.get("setup_phase", 0)), 7)
-                    runner.emit(f"Download skipped; using existing GGUF {self.downloaded_path}")
+                    outcome = acquisition.import_local(
+                        str(local.path), requested_by="wizard"
+                    )
+                    runner.emit(
+                        "Importing a managed copy of your model; the original "
+                        "file stays unchanged."
+                    )
                 else:
                     model = model_by_id(self.state_data["selected_model"])
-                    self.downloaded_path = download_model(
-                        self.state_data, model, self.state_data["selected_quant"], runner
+                    outcome = acquisition.acquire_catalog(
+                        str(model.id),
+                        str(self.state_data["selected_quant"]),
+                        requested_by="wizard",
                     )
-                self.state_data["downloaded_path"] = str(self.downloaded_path)
+                    runner.emit(f"Downloading {model.display_name} into managed storage")
+                if not outcome.ok:
+                    raise RuntimeError(
+                        f"Acquisition failed: {outcome.status} "
+                        f"(operation {outcome.operation_id})"
+                    )
+                self.state_data["installed_alias"] = (
+                    outcome.detail.get("alias") or self.state_data.get("selected_model")
+                )
                 self.commit_narrow()
             self._work(action, self._advance)
         elif step == 7:
             def action() -> None:
                 runner = self.runner()
-                if self.state_data.get("selected_source") == "local":
-                    local = LocalModel.from_dict(self.state_data["selected_local_model"])
-                    prepare_local_model(self.state_data, local, runner)
-                else:
-                    model = model_by_id(self.state_data["selected_model"])
-                    downloaded = self.state_data.get("downloaded_path") or self.state_data.get("download_dir")
-                    prepare_model(
-                        self.state_data, model, self.state_data["selected_quant"], downloaded, runner
+                # Durable validation/install outcome: query installation
+                # truth instead of trusting prior method returns.
+                alias = self.state_data.get("installed_alias")
+                model_view = self.application.read_model()
+                installed = {
+                    item.get("id") for item in model_view.get("installed_models", [])
+                }
+                if alias not in installed:
+                    raise RuntimeError(
+                        "The model is not recorded as installed; reopen the "
+                        f"wizard to resume operation {alias!r}."
                     )
+                self.state_data["setup_phase"] = max(
+                    int(self.state_data.get("setup_phase", 0)), 7
+                )
+                del runner
                 self.commit_narrow()
             self._work(action, self._advance)
         elif step == 8:
@@ -260,13 +277,10 @@ class StepsMixin:
                 switch_model(
                     self.application,
                     self.state_data,
-                    str(self.state_data.get("selected_model")),
+                    str(self.state_data.get("installed_alias")
+                        or self.state_data.get("selected_model")),
                     runner,
                 )
-                if self.state_data.get("selected_source") != "local":
-                    cleanup_conversion_intermediates(
-                        self.state_data, model_by_id(self.state_data["selected_model"]), runner
-                    )
                 self.commit_narrow()
             self._work(action, self._advance)
         elif step == 9:

@@ -70,11 +70,6 @@ def optimization_settings_from_values(
     if fit.verdict == "NO-FIT":
         raise ValueError(f"Selected runtime settings do not fit: {fit.detail}")
     return checked
-from ..prepare import (
-    cleanup_conversion_intermediates,
-    prepare_local_model,
-    prepare_model,
-)
 from ..server import (
     health_check,
     install_service,

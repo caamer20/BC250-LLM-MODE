@@ -67,6 +67,10 @@ class NativeApp:
         with self.units.begin() as conn:
             BenchHistoryRepository(conn).append(entry, commit=False)
 
+    def record_benchmark(self, entry: dict) -> None:
+        """U1.1 §8.6: frontends reach durable writes only via the app."""
+        self.application.record_benchmark(entry)
+
     def append_autotune(self, entry: dict) -> None:
         from bc250_llm_mode.repositories import AutotuneHistoryRepository
 

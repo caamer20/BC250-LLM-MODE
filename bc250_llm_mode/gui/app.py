@@ -43,11 +43,6 @@ from ..optimize import (
     normalized_settings,
     validate_settings,
 )
-from ..prepare import (
-    cleanup_conversion_intermediates,
-    prepare_local_model,
-    prepare_model,
-)
 from ..server import (
     health_check,
     install_service,
@@ -105,7 +100,6 @@ class GuiBase(tk.Tk):
                 self.current_step = 2
         self.busy = False
         self.hardware_report: HardwareReport | None = None
-        self.downloaded_path: Path | None = None
         self.optimization_return_to_complete = False
         self._build_shell()
         self.show_step(self.current_step)

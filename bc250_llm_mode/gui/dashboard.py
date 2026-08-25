@@ -17,7 +17,6 @@ from typing import Any
 from ..catalog import catalog_rows, model_by_id
 from ..chat import benchmark
 from ..desktop import switch_to_desktop_mode
-from ..download import download_model
 from ..hardware import detect_hardware
 from ..llmmode import apply_llm_mode, stage_desktop_boot
 from ..local_models import (
@@ -47,11 +46,6 @@ from ..optimize import (
     kv_scale_for_settings,
     normalized_settings,
     validate_settings,
-)
-from ..prepare import (
-    cleanup_conversion_intermediates,
-    prepare_local_model,
-    prepare_model,
 )
 from ..server import (
     health_check,
@@ -474,25 +468,51 @@ class DashboardMixin:
         model = model_by_id(model_id)
         if not messagebox.askyesno(
             "Install model",
-            f"Download and activate {model.display_name} ({quant})?\n"
-            "The model server restarts when the download and preparation complete.",
+            f"Acquire and activate {model.display_name} ({quant})?\n"
+            "The model downloads into app-managed storage; the server "
+            "restarts when activation completes.",
         ):
             return
 
         def action() -> None:
-            runner = self.runner()
-            downloaded = download_model(self.state_data, model, quant, runner)
-            prepare_model(self.state_data, model, quant, downloaded, runner)
+            # U1.1 §8.4: catalog install = durable acquire, then a separate
+            # durable activation. Distinct outcomes render distinct messages.
+            outcome = self.application.model_acquisition.acquire_catalog(
+                str(model.id), str(quant), requested_by="dashboard"
+            )
+            if outcome.status == "BUSY":
+                messagebox.showinfo(
+                    "Install model",
+                    "Another model operation is already running; try again "
+                    "when it finishes.",
+                )
+                return
+            if outcome.status == "RECOVERY_REQUIRED":
+                messagebox.showerror(
+                    "Install model",
+                    f"Operation {outcome.operation_id} needs recovery before "
+                    "continuing. Run repair from the maintenance menu.",
+                )
+                return
+            if not outcome.ok:
+                messagebox.showerror(
+                    "Install model",
+                    f"Acquisition ended with {outcome.status} "
+                    f"(operation {outcome.operation_id}).",
+                )
+                return
+            alias = outcome.detail.get("alias") or str(model.id)
             if self.state_data.get("setup_complete"):
                 # Durable activation through the ONE composed command.
                 switch_model(
                     self.application,
                     self.state_data,
-                    str(model.id),
-                    runner,
+                    alias,
+                    self.runner(),
                 )
                 self.state_data.update(self.application.read_model())
-            self.commit_narrow()
+            else:
+                self.state_data.update(self.application.read_model())
 
         self._work(action, self._populate_dashboard_models)
 

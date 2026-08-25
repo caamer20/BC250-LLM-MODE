@@ -60,24 +60,11 @@ def test_real_gguf_reader_self_heals_block_and_nextn(tmp_path):
     assert any("nextn_predict_layers" in message for message in result["messages"])
 
 
-def test_local_prepare_preserves_container_visible_symlink_path(tmp_path, monkeypatch):
-    real_home = tmp_path / "var" / "roothome"
-    real_home.mkdir(parents=True)
-    root_link = tmp_path / "root"
-    root_link.symlink_to(real_home, target_is_directory=True)
-    target = root_link / "model-Q5_K_M.gguf"
-    target.write_bytes(b"placeholder")
-    monkeypatch.setattr(
-        prepare_module,
-        "verify_and_heal_gguf",
-        lambda _path, _runner: {"architecture": "qwen35"},
-    )
-    model = LocalModel(
-        "local-test", "model", str(target), "Q5_K_M", 6.0, "qwen35", 9.7, 72.0
-    )
-    state = {"installed_models": [], "setup_phase": 7}
+def test_synchronous_prepare_bypasses_stay_deleted():
+    """U1.1 §8.5: production orchestration lives only in the durable
+    acquisition command; the old entry points must remain absent."""
+    import bc250_llm_mode.prepare as prepare_module
 
-    prepared = prepare_module.prepare_local_model(state, model, runner=QuietRunner())
-
-    assert str(prepared) == str(target.absolute())
-    assert state["installed_models"][0]["path"] == str(target.absolute())
+    assert not hasattr(prepare_module, "prepare_model")
+    assert not hasattr(prepare_module, "prepare_local_model")
+    assert not hasattr(prepare_module, "cleanup_conversion_intermediates")

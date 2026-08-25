@@ -354,29 +354,6 @@ class SharingService:
         return result
 
 
-class ModelInstallationService:
-    """Synchronous download/prepare/register flow (Phase-B operation later)."""
-
-    def __init__(self, units) -> None:
-        self._units = units
-
-    def download_and_prepare(self, view, model, quant, runner, *,
-                             downloaded=None) -> Path:
-        from .download import download_model
-        from .prepare import prepare_model
-
-        before = dict(view)
-        artifact = downloaded or download_model(view, model, quant, runner)
-        prepare_model(view, model, quant, Path(str(artifact)), runner)
-        persist_state_diff(self._units, before, view)
-        return Path(str(artifact))
-
-    def register_context_change(self, view, ctx: int) -> int:
-        before = dict(view)
-        view["current_ctx"] = ctx
-        return persist_state_diff(self._units, before, view)
-
-
 class MaintenanceService:
     """Uninstall/desktop-safe teardown with exact destructive targets."""
 
