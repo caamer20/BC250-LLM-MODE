@@ -21,7 +21,10 @@ module layout and the invariants that keep the hardware safe.
 | `catalog.py` | Curated model metadata, forbidden-artifact rejection, VRAM fit math (`calculate_fit`), `best_quant`, `search_catalog`, `recommend_models` |
 | `local_models.py` | Bounded GGUF discovery and catalog matching for files already on disk |
 | `download.py` / `prepare.py` | Space-checked resumable downloads (SHA-256 manifest support), guarded GGUF verification/repair, local safetensors→GGUF conversion |
-| `env.py` | Containerized llama.cpp/Vulkan build, plus the pinned update flow (`llamacpp status/update/rollback`) with staging-dir atomic swap |
+| `operations/runtime_lifecycle.py` + `runtime_lifecycle_adapter.py` + `runtime_lifecycle_command.py` | Durable `RUNTIME_UPDATE v1` / `RUNTIME_ROLLBACK v1`: immutable source resolution, bounded typed-argv builds, content-derived build IDs, atomic exchange, live verification, generation-CAS promotion/restoration; one composed command for every frontend |
+| `runtime_builds.py` | Immutable build manifests/IDs (migration 005) and the build/verification/tree/component repositories |
+| `runtime_process.py` / `runtime_exchange_helper.py` | Bounded, cancellable typed-argv process execution; the fixed digest-checked `renameat2(RENAME_EXCHANGE)` helper |
+| `env.py` | Container/venv/toolchain provisioning ONLY — llama.cpp is never cloned or built here |
 | `server.py` | Launcher + `bc250-llm.service` generation, health checks, self-healing `ensure_server`, log diagnosis |
 | `model_manager.py` | Transactional model/context/slot activation with automatic rollback |
 | `optimize.py` | Bounded, reversible host/runtime tuning; governor profiles; `apply_gpu_clock_limit` for the watchdog |
@@ -37,14 +40,18 @@ module layout and the invariants that keep the hardware safe.
    and chat code never start processes directly.
 2. **Fit math is the gate.** Model, context, and slot changes must pass
    `calculate_fit`; `NO-FIT` is never overridden at runtime.
-3. **Transactional activation.** Every change that restarts the server saves a
-   candidate, health-checks it, and restores the previous configuration on
-   failure (`restart_with_rollback`).
-4. **Staged builds, atomic swaps.** llama.cpp updates build in a separate
-   staging clone (`llama.cpp-staging`) without touching the active checkout,
-   then swap source+binaries as one unit (`llama.cpp ↔ llama.cpp-backup`) and
-   revert on unhealthy restart. Recorded history never claims more rollback
-   targets than physically exist on disk.
+3. **Transactional operations.** Model and runtime changes are durable
+   operations (`MODEL_ACTIVATE v1`, `RUNTIME_UPDATE v1`,
+   `RUNTIME_ROLLBACK v1`) driven by the shared fenced engine: intent
+   before effect, checkpoint after, probes on takeover, closed terminal
+   meanings, and RECOVERY_REQUIRED whenever reality cannot be proven.
+4. **Immutable runtimes, one atomic exchange.** A candidate build gets a
+   content-derived ID over a canonical manifest (source commit, recipe,
+   image/toolchain identity, per-binary sha256). Cutover is exactly one
+   `renameat2(RENAME_EXCHANGE)` through a digest-verified helper — never
+   a move dance — and promotion happens only after the seven-link live
+   identity chain agrees. Rollback toggles verified lineage instead of
+   trusting backup directories.
 5. **Thermal safety is latching and restorative.** The watchdog saves the
    user's GPU profile before its first throttle, restores that exact profile
    on recovery, and a thermal stop latches until an explicit, safe-temperature
@@ -69,8 +76,15 @@ module layout and the invariants that keep the hardware safe.
 
 ## Update policy
 
-llama.cpp follows a **pinned known-good channel**: the pin ships with each
-application release, drift is reported by `doctor` and `llamacpp status`, and
-updates are explicit user actions with automatic rollback. The model catalog
-follows the same philosophy — new entries are compatibility candidates until
-they pass an on-card Vulkan load test.
+llama.cpp follows a **pinned known-good channel** realized as a durable
+operation: the pin ships with each release, `bc250-llm-mode llamacpp status`
+reports the promoted immutable build, retained rollback target, recovery
+barriers, and any in-flight foreground operation, and updates are explicit
+user actions. Every update resolves the ref to an exact commit first,
+builds away from the active tree, exchanges atomically, verifies the new
+process end-to-end, and only then promotes — with the prior build retained
+as a verified rollback target. Operations run in the foreground today;
+closing a frontend pauses them safely for resume (supervised background
+workers arrive with U1.3). The model catalog follows the same philosophy —
+new entries are compatibility candidates until they pass an on-card Vulkan
+load test.

@@ -5,6 +5,48 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+## [0.9.0.dev0] — unreleased development line
+
+### Added (Session 6B / U1.2: durable llama.cpp runtime lifecycle)
+
+- Durable `RUNTIME_UPDATE v1` / `RUNTIME_ROLLBACK v1`: immutable ref→commit
+  resolution before any mutation, operation-owned bounded builds with
+  typed-argv processes (no shell), content-derived build IDs over a
+  canonical manifest (source commit + recipe + image/toolchain identity +
+  per-binary sha256), one no-gap `renameat2(RENAME_EXCHANGE)` cutover via
+  a digest-verified fixed helper (initial installs publish no-replace),
+  seven-link live verification (manifest → binary digest → handoff v2 →
+  start receipt → new systemd invocation → model/config observation →
+  bounded inference) before one generation-CAS promotion that also
+  advances known-good identity.
+- Rollback selects the repository's current retained target, revalidates
+  identities, and toggles lineage so an accidental rollback is itself
+  reversible without rebuilding.
+- Phase-scoped resource leasing (ADR 002 §17): builds hold only
+  `runtime-installation`; `runtime-active` joins at the activation
+  boundary through promotion; conflicts refuse/pause before any work;
+  recovery barriers retain leases.
+- Handoff schema v2 binding configuration to the exact runtime component,
+  plus a launcher-published 0600 start receipt; stale receipts and
+  swapped binaries refuse startup.
+- Migration 005 (schema v5): immutable `runtime_builds`, append-only
+  `runtime_build_verifications`, operation-owned `runtime_trees`, and the
+  single generation-checked `runtime_component_state` row with
+  deterministic legacy backfill.
+- `RuntimeLifecycleCommandService`: one composed entry for CLI, wizard,
+  dashboard, and setup (`update/rollback/resume/status`); honest
+  foreground-only reporting with durable resume.
+
+### Removed (Session 6B / U1.2)
+
+- The synchronous llama.cpp lifecycle: `env.update_llamacpp`,
+  `env.rollback_llamacpp`, `record_llamacpp_build`, `llamacpp_status`,
+  mutable `llamacpp_history`, the fixed `-staging/-backup/-rolled`
+  directory dance, `ComponentLifecycleService.update/rollback`, and the
+  direct setup clone/build — deleted with hard architecture guards.
+  Setup provisioning never touches llama.cpp; fresh installs obtain their
+  first runtime from the durable pinned update.
+
 ### Added (Session 6A / U1.1: durable model acquisition & import)
 
 - Durable `MODEL_ACQUIRE v1` / `MODEL_IMPORT v1`: immutable hub revision

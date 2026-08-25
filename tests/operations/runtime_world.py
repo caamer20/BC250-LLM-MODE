@@ -690,7 +690,11 @@ class FakeRuntimeHost:
         # Crash surface BEFORE the intent marker: dying here leaves a
         # RUNNING step with reality untouched, so takeover classifies ABSENT
         # and performs the ORIGINAL exchange exactly once.
+        # BOTH pre-syscall surfaces fire BEFORE the intent marker: dying
+        # here leaves reality untouched, so takeover re-executes the
+        # ORIGINAL exchange exactly once.
         self._crash_point("exchange_active_tree", "before_swap")
+        self._crash_point("exchange_active_tree", "before_syscall")
         # Idempotent completion: the same effect id never swaps twice.
         if not self._record_effect(external_effect_id, "exchange"):
             return self._classify_exchange(snapshot, mode)
@@ -710,12 +714,13 @@ class FakeRuntimeHost:
 
         # Managed exchange: rotate active -> retained-next, staged -> active.
         staged = self.root / smoke.locator
-        self._crash_point("exchange_active_tree", "before_syscall")
         prior_slot = self.retained_root / f"tree-{external_effect_id[:16]}"
         if prior_slot.exists():
             shutil.rmtree(prior_slot)
+        # NOTE: with the real renameat2(RENAME_EXCHANGE) primitive there is
+        # NO observable interior state between "not swapped" and "swapped";
+        # the fake therefore exposes no mid-swap crash surface either.
         shutil.move(str(active), str(prior_slot))
-        self._crash_point("exchange_active_tree", "mid_swap")
         shutil.move(str(staged), str(active))
         self._crash_point("exchange_active_tree", "after_swap")
         # Promote the displaced tree to the standard retained slot.
