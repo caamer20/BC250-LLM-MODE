@@ -259,7 +259,8 @@ def export_conversation(
 ) -> Path:
     if not conversation:
         raise ValueError("Nothing to export; the conversation is empty")
-    path = conversations_dir(state) / f"{re.sub(r'\W', '_', name.strip()) or 'default'}.md"
+    safe_name = re.sub(r"\W", "_", name.strip()) or "default"
+    path = conversations_dir(state) / f"{safe_name}.md"
     lines = [f"# BC250 LLM MODE — {name}", ""]
     if system_prompt:
         lines += ["> **System:** " + system_prompt.replace("\n", "\n> "), ""]

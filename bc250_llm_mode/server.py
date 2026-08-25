@@ -43,7 +43,9 @@ if [ ! -f "$HANDOFF" ]; then
   exit 78
 fi
 FAST_SYNC=$(python3 -c 'import json, sys; h=json.load(open(sys.argv[1])); print(1 if h.get("fast_sync") else 0)' "$HANDOFF")
-append_argv < <(python3 - "$HANDOFF" <<'PYH'
+ARGV_FILE=$(mktemp)
+trap 'rm -f "$ARGV_FILE"' EXIT
+if ! python3 - "$HANDOFF" >"$ARGV_FILE" <<'PYH'
 import json
 import os
 import sys
@@ -148,7 +150,12 @@ argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
 for item in argv:
     print(item)
 PYH
-)
+then
+  exit 78
+fi
+append_argv < "$ARGV_FILE"
+rm -f "$ARGV_FILE"
+trap - EXIT
 # U1.2 (ADR 004 D5/§14.2): before exec, bind the handoff to the ACTIVE
 # runtime component. A v2 handoff MUST match the active tree manifest and
 # the real server binary; a 0600 start receipt is published on success.
