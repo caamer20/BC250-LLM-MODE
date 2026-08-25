@@ -276,6 +276,7 @@ class RuntimeBuildRepository:
             """,
             (
                 legacy_id,
+                COMPONENT,
                 blob[:MAX_MANIFEST_BYTES],
                 digest,
                 source_commit if source_commit and _COMMIT_RE.fullmatch(source_commit) else None,

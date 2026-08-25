@@ -98,6 +98,9 @@ class ProcessCommandSpec:
     operation_id: str = ""
     step_key: str = ""
     redaction_tokens: tuple[str, ...] = ()
+    # Bounded stdin text fed to the child right after spawn (used to
+    # transfer fixed resources like the exchange helper without shells).
+    stdin_payload: str = ""
 
     def __post_init__(self) -> None:
         if not self.argv or any(
@@ -196,6 +199,16 @@ class RuntimeProcessRunner:
             raise ProcessFailure(
                 "PROCESS_SPAWN_FAILED", str(exc)[:200]
             ) from exc
+
+        if spec.stdin_payload and proc.stdin is not None:
+            try:
+                proc.stdin.write(spec.stdin_payload.encode("utf-8"))
+                proc.stdin.close()
+            except OSError as exc:
+                self._terminate_group(proc, spec.termination_grace_seconds)
+                raise ProcessFailure(
+                    "PROCESS_STDIN_FAILED", str(exc)[:120]
+                ) from exc
 
         stdout_buf = bytearray()
         stderr_buf = bytearray()
