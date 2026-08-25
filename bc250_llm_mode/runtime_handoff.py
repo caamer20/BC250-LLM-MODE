@@ -72,6 +72,30 @@ def runtime_fingerprint(state: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()[:16]
 
 
+def _identity_from_state(state: dict) -> "RuntimeIdentityV2 | None":
+    """Derive the bound identity from a query snapshot when present.
+
+    §14.1: regeneration from a stable promoted state uses the
+    repository's promoted build (never mutable settings provenance), so
+    any state that carries the durable lineage fields renders schema v2
+    automatically. ``runtime_operation_id`` is empty for regeneration.
+    """
+    component = str(state.get("runtime_component_id") or "").strip()
+    manifest_digest = str(state.get("runtime_manifest_digest") or "").strip()
+    if not component or len(manifest_digest) != 64:
+        return None
+    server = str(state.get("runtime_server_sha256") or "").strip()
+    if len(server) != 64:
+        return None
+    return RuntimeIdentityV2(
+        component_id=component,
+        source_commit=str(state.get("runtime_source_commit") or ""),
+        server_sha256=server,
+        manifest_digest=manifest_digest,
+        operation_id=str(state.get("runtime_operation_id") or ""),
+    )
+
+
 def build_payload(
     state: dict,
     *,
@@ -80,10 +104,12 @@ def build_payload(
 ) -> dict:
     """Render the launcher-consumption snapshot.
 
-    Without ``runtime_identity`` the LEGACY v1 shape is rendered (schema
-    stays 1). With identity, the artifact becomes schema v2 and binds the
-    exact immutable component (ADR 004 §14.1).
+    Identity resolution order: explicit ``runtime_identity`` parameter,
+    then durable lineage fields projected into ``state`` (§14.1
+    regeneration), otherwise the LEGACY v1 shape.
     """
+    if runtime_identity is None:
+        runtime_identity = _identity_from_state(state)
     opts = state.get("optimizations") or {}
     effective = opts if opts.get("runtime_enabled", True) else {}
     current_id = state.get("current_model")
@@ -203,10 +229,17 @@ class RuntimeHandoffRenderer:
             if not isinstance(value, str) or not value.strip():
                 return None
         if schema == HANDOFF_SCHEMA_VERSION_V2:
-            for key in RUNTIME_IDENTITY_KEYS:
-                if key not in payload or not isinstance(payload[key], str) \
-                        or not payload[key].strip():
+            required_nonempty = ("runtime_component_id",
+                                 "runtime_source_commit",
+                                 "runtime_server_sha256",
+                                 "runtime_manifest_digest")
+            for key in required_nonempty:
+                value = payload.get(key)
+                if not isinstance(value, str) or not value.strip():
                     return None
+            if "runtime_operation_id" not in payload \
+                    or not isinstance(payload["runtime_operation_id"], str):
+                return None
             digest = payload["runtime_manifest_digest"]
             server = payload["runtime_server_sha256"]
             if len(digest) != 64 or any(c not in "0123456789abcdef"

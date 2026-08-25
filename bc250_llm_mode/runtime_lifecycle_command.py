@@ -15,9 +15,12 @@ continues in the background until U1.3.
 
 from __future__ import annotations
 
+import json
+
 from dataclasses import dataclass, field
 from typing import Any
 
+from .operations.engine import ExecutionOutcome
 from .operations.model import (
     OperationState,
     OperationType,
@@ -137,7 +140,7 @@ class RuntimeLifecycleCommandService:
             payload=payload,
             surface=requested_by,
         )
-        outcome = self._engine_factory().execute_one(record.id)
+        outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="UPDATE")
 
     def rollback(self, *, requested_by: str = "cli") -> RuntimeLifecycleOutcome:
@@ -164,13 +167,49 @@ class RuntimeLifecycleCommandService:
             payload=payload,
             surface=requested_by,
         )
-        outcome = self._engine_factory().execute_one(record.id)
+        outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="ROLLBACK")
 
     def resume(self, operation_id: str) -> RuntimeLifecycleOutcome:
         """Explicit foreground resume of an interrupted operation."""
-        outcome = self._engine_factory().execute_one(operation_id)
+        outcome = self._drive(operation_id)
         return self._map(operation_id, outcome, action="RESUME")
+
+    def _drive(self, operation_id: str, *, max_resumes: int = 8):
+        """Foreground execution honoring Ctrl-C as DURABLE cancellation.
+
+        §15.3: the first Ctrl-C requests cancellation through the durable
+        row and KEEPS DRIVING with the SAME worker identity — the engine
+        honors the request at safe checkpoints and defers inside
+        swap/restart/compensation, so nothing is ever killed mid-effect.
+        A second Ctrl-C (or an exhausted resume budget) re-raises; the CLI
+        then reports the paused, resumable operation honestly.
+        """
+        with self._units.read() as conn:
+            row = OperationRepository(conn).require(operation_id)
+        if row.state in (
+            OperationState.SUCCEEDED,
+            OperationState.CANCELLED,
+            OperationState.FAILED_SAFE,
+            OperationState.FAILED_ROLLED_BACK,
+            OperationState.RECOVERY_REQUIRED,
+        ):
+            # Terminal rows need no engine pass; mapping reads durable truth.
+            return ExecutionOutcome("SKIPPED_TERMINAL", operation_id)
+
+        engine = self._engine_factory()
+        interrupts = 0
+        resumes = 0
+        while True:
+            try:
+                return engine.execute_one(operation_id)
+            except KeyboardInterrupt:
+                interrupts += 1
+                if interrupts > 1 or resumes >= max_resumes:
+                    raise
+                resumes += 1
+                with self._units.begin() as conn:
+                    OperationRepository(conn).request_cancel(operation_id)
 
     def status(self) -> dict[str, Any]:
         """Read-only lineage/progress snapshot; never mutates anything."""
@@ -333,4 +372,24 @@ class RuntimeLifecycleCommandService:
                 "The runtime operation could not be proven safe; repair is "
                 "required. Every potentially useful tree was retained."
             )
+            # §11.5: surface the persisted remediation evidence verbatim
+            # (step / classification / probe) so users can act on it.
+            # Callers may pass either a mapping (engine path) or
+            # pre-serialized JSON (tests/tools) — decode defensively.
+            remediation = record.error_detail or "{}"
+            try:
+                for _ in range(2):
+                    remediation = json.loads(remediation)
+                    if not isinstance(remediation, str):
+                        break
+            except ValueError:
+                remediation = {}
+            if not isinstance(remediation, dict):
+                remediation = {}
+            if isinstance(remediation, dict) and remediation:
+                detail["remediation"] = {
+                    "step": remediation.get("step"),
+                    "classification": remediation.get("classification"),
+                    "probe": remediation.get("probe"),
+                }
         return RuntimeLifecycleOutcome(operation_id, status, action, detail)

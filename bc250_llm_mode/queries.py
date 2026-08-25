@@ -117,7 +117,10 @@ class ApplicationQueryService:
             state["known_good_runtime"] = known_good
         if component_row and component_row.get("promoted_build_id"):
             try:
-                promoted = builds.require(component_row["promoted_build_id"])
+                from .runtime_builds import RuntimeTreeRepository
+
+                promoted = builds.require(
+                    component_row["promoted_build_id"])
                 state["llamacpp_build"] = {
                     "describe":
                         promoted.get("requested_ref")
@@ -127,6 +130,21 @@ class ApplicationQueryService:
                     "generation": component_row.get("generation"),
                     "provenance_class": promoted.get("provenance_class"),
                 }
+                # §14.1 regeneration binding: the snapshot carries the
+                # durable lineage so handoff renders bind the exact
+                # immutable component (schema v2) automatically.
+                trees = RuntimeTreeRepository(conn)
+                tree_row = None
+                tree_id = component_row.get("promoted_tree_id")
+                if tree_id:
+                    tree_row = trees.get(tree_id)
+                state["runtime_component_id"] = promoted["build_id"]
+                state["runtime_manifest_digest"] = promoted[
+                    "manifest_digest"]
+                state["runtime_source_commit"] = (
+                    promoted.get("source_commit") or "")
+                state["runtime_server_sha256"] = (tree_row or {}).get(
+                    "server_binary_digest") or ""
             except Exception:  # noqa: BLE001 - snapshot stays best-effort
                 pass
         if llamacpp_history:

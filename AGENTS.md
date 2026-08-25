@@ -51,8 +51,8 @@ Verification (this sandbox kills processes at ~20 s CPU, so the default
 suite cannot run single-shot HERE; it runs as four deterministic chunks
 whose counts reconcile to one authoritative collection — on target
 hardware `PYTHONPATH=. .venv/bin/pytest -q` is the command):
-authoritative collection **644**; chunked default execution green
-(54+75+53+153+53+39+107+82 = **616 passed**, 1 Linux-gated skip);
+authoritative collection **651**; chunked default execution green
+(623 executed passes across eight alphabetical chunks, 1 Linux-gated skip);
 slow gates explicit: runtime stress/canaries **6/6**
 (`-m slow tests/test_runtime_security_stress.py`), acquisition stress
 **41/41**, clean-wheel incl. runtime workflow execution **2/2**;
@@ -206,8 +206,8 @@ launcher tests need only bash ≥3.2 and python3 on PATH.
   and launcher fail-closed tests; the reconciled baseline is now **330**,
   printed automatically by `tests/conftest.py` in every run's summary.
 - Source (`PYTHONPATH=.`) and editable-install invocation collect identically.
-- Session 6B closeout: collection is **644** (default 595 executed green +
-  49 slow-marked). This sandbox's ~20 s CPU kill prevents single-shot full
+- Session 6B closeout (+follow-through): collection is **651**
+  (default executed green + slow-marked gates). This sandbox's ~20 s CPU kill prevents single-shot full
   runs; evidence comes from eight alphabetical chunk runs whose pass sums
   equal the executed total, plus explicit slow-gate runs (runtime 6/6,
   acquisition 41/41, packaging 2/2). Never quote a count without naming

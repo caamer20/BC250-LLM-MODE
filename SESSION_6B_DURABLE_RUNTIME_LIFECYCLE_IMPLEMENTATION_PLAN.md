@@ -1891,3 +1891,27 @@ Exact next task:
   close the frontend after a safe checkpoint, and prove one profile-scoped
   supervised worker resumes it without duplicate effects or changing reboot
   policy.
+
+
+### 24.1 Follow-through additions (same session, post-Commit-10 audit)
+
+Closing three §15/§14 contract items found during self-audit:
+- §15.3 Ctrl-C: `RuntimeLifecycleCommandService._drive` converts the FIRST
+  Ctrl-C into durable `request_cancel` and keeps driving with the SAME
+  worker identity (engine defers inside critical sections); second Ctrl-C
+  re-raises and the CLI prints an honest PAUSED payload with resume
+  instructions (exit 130).
+- §15.4 gating: pure `llamacpp_button_states`/`llamacpp_card_text` helpers;
+  Update AND Rollback disable during recovery barriers or any active
+  operation; rollback stays gated on verified retained targets.
+- §14.1 regeneration: query snapshots project the promoted lineage
+  (component id / manifest digest / source commit / server digest) and
+  `build_payload` auto-binds schema v2 with an EMPTY `runtime_operation_id`
+  for stable regeneration; observation accepts empty op-id while still
+  rejecting missing identity keys.
+- §11.5 UX: RECOVERY_REQUIRED outcomes surface the persisted remediation
+  `{step, classification, probe}` verbatim.
+- §16.4 isolation regression: settings writes cannot clobber runtime
+  lineage tables.
+New tests: tests/test_runtime_command_followthrough.py (6) + handoff
+regeneration case (collection 644 -> 651). All chunks green.

@@ -471,15 +471,29 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(lifecycle.status(), indent=2, default=str))
             return 0
         require_acknowledgment(state)
-        if args.action == "update":
-            outcome = lifecycle.update(
-                requested_ref=getattr(args, "tag", None),
-                requested_by="cli",
-            )
-        elif args.action == "rollback":
-            outcome = lifecycle.rollback(requested_by="cli")
-        else:
-            outcome = lifecycle.resume(args.operation_id)
+        try:
+            if args.action == "update":
+                outcome = lifecycle.update(
+                    requested_ref=getattr(args, "tag", None),
+                    requested_by="cli",
+                )
+            elif args.action == "rollback":
+                outcome = lifecycle.rollback(requested_by="cli")
+            else:
+                outcome = lifecycle.resume(args.operation_id)
+        except KeyboardInterrupt:
+            # §15.3: second Ctrl-C — the operation is durably PAUSED and
+            # resumable; nothing was killed mid-effect.
+            print(json.dumps({
+                "status": "PAUSED",
+                "operation_id": lifecycle.status().get("active_operation", {})
+                .get("operation_id"),
+                "foreground_only": True,
+                "reason": "Interrupted by Ctrl-C; the durable operation is "
+                          "paused safely. Resume with: bc250-llm-mode "
+                          "llamacpp resume --operation-id <id>",
+            }, indent=2))
+            return 130
         exit_code = _lifecycle_exit_code(outcome)
         print(json.dumps(outcome.to_dict(), indent=2, default=str))
         return exit_code

@@ -304,6 +304,14 @@ def test_v2_observation_rejects_malformed_digests_or_missing_fields(tmp_path):
     (tmp_path / HANDOFF_FILENAME).write_text(json.dumps(bad))
     assert renderer.observe(require_v2=True) is None
 
+    # An empty operation id is the STABLE REGENERATION case (§14.1) and
+    # must be accepted; a MISSING key is still malformed.
+    regenerated = dict(good)
+    regenerated["runtime_operation_id"] = ""
+    (tmp_path / HANDOFF_FILENAME).write_text(json.dumps(regenerated))
+    accepted = renderer.observe(require_v2=True)
+    assert accepted is not None
+    assert accepted["runtime_operation_id"] == ""
     missing = dict(good)
     missing.pop("runtime_operation_id")
     (tmp_path / HANDOFF_FILENAME).write_text(json.dumps(missing))
@@ -398,3 +406,33 @@ def test_launcher_refuses_stale_manifest_build_id(receipt_world):
     result = _bash_launcher(receipt_world["launcher"], receipt_world["handoff"])
     assert result.returncode == 78
     assert "build id" in result.stderr
+
+
+def test_regeneration_binds_promoted_identity_without_operation(tmp_path):
+    """§14.1: regeneration from a stable promoted state uses the durable
+    lineage fields — schema v2 with an EMPTY operation id, never v1."""
+    state = _v2_base_state()
+    state.update({
+        "runtime_component_id": "llamacpp:sha256:" + "9" * 64,
+        "runtime_source_commit": "d" * 40,
+        "runtime_server_sha256": "b" * 64,
+        "runtime_manifest_digest": "c" * 64,
+        "runtime_operation_id": "",
+    })
+    payload = build_payload(state, config_revision=7)
+    assert payload["schema_version"] == 2
+    assert payload["runtime_component_id"].endswith("9" * 64)
+    assert payload["runtime_operation_id"] == ""
+
+    renderer = RuntimeHandoffRenderer(tmp_path)
+    renderer.publish(state, config_revision=7)  # no explicit identity!
+    observed = renderer.observe(require_v2=True)
+    assert observed is not None
+    assert observed["runtime_component_id"] == state["runtime_component_id"]
+    # Same path + changed component still regenerates (fingerprint keys).
+    other = build_payload(
+        {**state, "runtime_component_id": "llamacpp:sha256:" + "f" * 64,
+         "runtime_manifest_digest": "e" * 64},
+        config_revision=7,
+    )
+    assert other["runtime_fingerprint"] != payload["runtime_fingerprint"]

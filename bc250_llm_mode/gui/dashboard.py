@@ -67,6 +67,49 @@ from ..tailscale import (
 )
 
 
+def llamacpp_button_states(report: dict) -> dict[str, str]:
+    """§15.4 gating: buttons reflect durable truth, never optimism.
+
+    - recovery barrier present  -> both disabled;
+    - any active runtime op     -> both disabled (foreground only);
+    - otherwise Update enabled; Rollback only with a VERIFIED retained
+      target.
+    """
+    barrier = bool(report.get("recovery_barrier"))
+    active = bool(report.get("active_operation"))
+    rollback_ok = bool(report.get("rollback_available"))
+    blocked = barrier or active
+    return {
+        "update": "disabled" if blocked else "normal",
+        "rollback": "normal" if (rollback_ok and not blocked) else "disabled",
+    }
+
+
+def llamacpp_card_text(report: dict) -> str:
+    """Single source for the card's human text (pure)."""
+    promoted = report.get("promoted") or {}
+    short = promoted.get("short")
+    barrier = report.get("recovery_barrier")
+    if barrier:
+        text = f"RECOVERY REQUIRED (operation {barrier['operation_id'][:12]})"
+    elif short:
+        text = f"promoted build {short}"
+        if report.get("rollback_available"):
+            text += "; prior build retained for rollback"
+    else:
+        text = "not recorded yet; run setup or update"
+    op = report.get("active_operation")
+    if op:
+        text += (
+            f" | {op['type']} {op['state']}"
+            + (f" {op['phase']} {op['current']}/{op['total']}"
+               if op.get("total") else "")
+            + " (foreground only)"
+        )
+    return f"llama.cpp: {text}"
+
+
+
 class DashboardMixin:
 
     def _complete(self) -> None:
@@ -158,10 +201,11 @@ class DashboardMixin:
         ttk.Button(
             llama_buttons, text="Refresh status", command=self._dashboard_llamacpp_status
         ).pack(side="left")
-        ttk.Button(
+        self.llamacpp_update_btn = ttk.Button(
             llama_buttons, text="Update to pinned release",
             command=self._dashboard_llamacpp_update,
-        ).pack(side="left", padx=5)
+        )
+        self.llamacpp_update_btn.pack(side="left", padx=5)
         self.llamacpp_rollback_btn = ttk.Button(
             llama_buttons, text="Roll back", command=self._dashboard_llamacpp_rollback,
             state="disabled",
@@ -543,36 +587,15 @@ class DashboardMixin:
     def _refresh_llamacpp_card(self) -> None:
         try:
             report = self.application.runtime_lifecycle.status()
-            promoted = report.get("promoted") or {}
-            short = promoted.get("short")
-            rollback_ok = report.get("rollback_available")
-            barrier = report.get("recovery_barrier")
-            if barrier:
-                state_text = (
-                    f"RECOVERY REQUIRED (operation {barrier['operation_id'][:12]})"
-                )
-            elif short:
-                state_text = f"promoted build {short}"
-                if rollback_ok:
-                    state_text += "; prior build retained for rollback"
-            else:
-                state_text = "not recorded yet; run setup or update"
-            op = report.get("active_operation")
-            if op:
-                state_text += (
-                    f" | {op['type']} {op['state']}"
-                    + (f" {op['phase']} {op['current']}/{op['total']}"
-                       if op.get("total") else "")
-                    + " (foreground only)"
-                )
-            self.llamacpp_status_var.set(f"llama.cpp: {state_text}")
-            # Rollback availability gates the button honestly.
-            if hasattr(self, "llamacpp_rollback_btn"):
-                self.llamacpp_rollback_btn.configure(
-                    state="normal" if rollback_ok and not barrier else "disabled"
-                )
         except (OSError, RuntimeError, ValueError) as exc:
             self.llamacpp_status_var.set(f"Status unavailable: {exc}")
+            return
+        self.llamacpp_status_var.set(llamacpp_card_text(report))
+        states = llamacpp_button_states(report)
+        if hasattr(self, "llamacpp_rollback_btn"):
+            self.llamacpp_rollback_btn.configure(state=states["rollback"])
+        if hasattr(self, "llamacpp_update_btn"):
+            self.llamacpp_update_btn.configure(state=states["update"])
 
     def _dashboard_llamacpp_status(self) -> None:
         self._refresh_llamacpp_card()
