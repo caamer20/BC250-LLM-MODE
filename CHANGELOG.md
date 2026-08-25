@@ -5,6 +5,26 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Added (Session 6A / U1.1: durable model acquisition & import)
+
+- Durable `MODEL_ACQUIRE v1` / `MODEL_IMPORT v1`: immutable hub revision
+  pinning, bounded range-resumable transfer with credential stripping on
+  cross-origin redirects, descriptor-stable local import that never
+  modifies the source, no-replace content-addressed publication,
+  quarantine for invalid candidates (no alias), digest deduplication,
+  lease-fenced logical reservations, forward-only recovery, and
+  cancellation that retains a labeled resumable partial.
+- One composed `ModelAcquisitionCommandService`; install-and-use surfaces
+  run acquisition then the existing durable activation as separate
+  operations.
+
+### Removed
+
+- The synchronous download/prepare route: `download_model`,
+  `prepare_model`, `prepare_local_model`, conversion cleanup helpers from
+  production, and `ModelInstallationService`. Frontends may not import
+  download/prepare/hub/storage/repository modules (AST guards).
+
 ### Changed (Road to 1.0 — Phase A: Session 3 frontend sweep)
 
 - **Frontends can no longer persist whole-state dictionaries.** All ten
