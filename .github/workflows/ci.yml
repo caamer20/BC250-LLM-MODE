@@ -40,7 +40,44 @@ jobs:
           PY
 
       - name: Unit and component tests
-        run: PYTHONPATH=. pytest -q
+        # The supported CI/sandbox environments enforce a short per-process
+        # CPU ceiling. Keep one authoritative collection, then execute the
+        # exact default suite in deterministic alphabetical chunks so a killed
+        # monolithic pytest process cannot masquerade as a test failure.
+        run: |
+          PYTHONPATH=. pytest tests --collect-only -q
+          PYTHONPATH=. pytest -q \
+            tests/test_acquisition*.py tests/test_activation*.py \
+            tests/test_architecture.py tests/test_artifact_storage.py \
+            tests/test_bootstrap.py tests/test_catalog.py
+          PYTHONPATH=. pytest -q \
+            tests/test_chat_features.py tests/test_composition.py \
+            tests/test_db_contract.py tests/test_desktop.py \
+            tests/test_disclaimer.py tests/test_download.py tests/test_fsops.py \
+            tests/test_gui*.py tests/test_hardware.py tests/test_hub_source.py
+          PYTHONPATH=. pytest -q \
+            tests/test_import_cli.py tests/test_legacy_schema.py \
+            tests/test_llmmode.py tests/test_local_models.py \
+            tests/test_management.py tests/test_memory_profile.py \
+            tests/test_migration*.py tests/test_model_artifact.py
+          PYTHONPATH=. pytest -q tests/test_operation*.py tests/test_optimize.py
+          PYTHONPATH=. pytest -q \
+            tests/test_packaging.py tests/test_phase*.py tests/test_prepare.py \
+            tests/test_production*.py tests/test_repair_mode.py
+          PYTHONPATH=. pytest -q \
+            tests/test_round*.py tests/test_runtime_adapter.py \
+            tests/test_runtime_architecture.py \
+            tests/test_runtime_command_followthrough.py
+          PYTHONPATH=. pytest -q \
+            tests/test_runtime_crash_matrix.py \
+            tests/test_runtime_exchange_death.py \
+            tests/test_runtime_handoff.py tests/test_runtime_migration.py \
+            tests/test_runtime_process.py tests/test_runtime_repositories.py \
+            tests/test_runtime_service.py tests/test_runtime_workflow.py
+          PYTHONPATH=. pytest -q \
+            tests/test_server.py tests/test_session*.py tests/test_setup_service.py \
+            tests/test_sharing.py tests/test_sqlite*.py tests/test_state*.py \
+            tests/test_thermal_service.py tests/test_worker_lifecycle.py
 
       - name: CLI smoke from installed package
         run: |
