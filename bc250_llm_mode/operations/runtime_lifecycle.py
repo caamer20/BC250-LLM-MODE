@@ -259,6 +259,7 @@ class PriorRuntimeSnapshotV1:
     handoff_fingerprint: str | None = None
     handoff_payload: dict[str, Any] | None = None
     invocation_count: int | None = None
+    invocation_marker: str | None = None
     observed_model_alias: str | None = None
     observed_context_total: int | None = None
     observed_slots: int | None = None

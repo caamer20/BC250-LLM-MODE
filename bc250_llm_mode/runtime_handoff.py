@@ -17,13 +17,17 @@ import hashlib
 import json
 from pathlib import Path
 
+from dataclasses import dataclass
+
 from .fsops import atomic_write_text
 
 HANDOFF_FILENAME = "runtime-handoff.json"
+HANDOFF_SCHEMA_VERSION_V2 = 2
 
 # The subset of committed state whose change requires a re-render. Generic
 # settings writes (disclaimers, sharing flags, chat prefs...) must not
-# regenerate the artifact.
+# regenerate the artifact. U1.2: the runtime COMPONENT identity participates
+# so swapping content at the same path regenerates the artifact (F6B.1.4).
 RUNTIME_FINGERPRINT_KEYS = (
     "current_model",
     "current_ctx",
@@ -31,7 +35,30 @@ RUNTIME_FINGERPRINT_KEYS = (
     "llama_cpp_path",
     "installed_models",
     "optimizations",
+    "runtime_component_id",
+    "runtime_manifest_digest",
 )
+
+# Required v2-only fields (ADR 004 D5): the handoff binds configuration to
+# the exact immutable runtime component that must serve it.
+RUNTIME_IDENTITY_KEYS = (
+    "runtime_component_id",
+    "runtime_source_commit",
+    "runtime_server_sha256",
+    "runtime_manifest_digest",
+    "runtime_operation_id",
+)
+
+
+@dataclass(frozen=True)
+class RuntimeIdentityV2:
+    """Immutable component identity bound into a v2 handoff."""
+
+    component_id: str          # llamacpp:sha256:<hex> or legacy:<id>
+    source_commit: str         # full commit or "" for legacy adoption
+    server_sha256: str
+    manifest_digest: str
+    operation_id: str = ""     # empty only for stable regeneration
 
 
 class HandoffPublicationError(RuntimeError):
@@ -45,8 +72,18 @@ def runtime_fingerprint(state: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()[:16]
 
 
-def build_payload(state: dict, *, config_revision: int) -> dict:
-    """Render the launcher-consumption snapshot."""
+def build_payload(
+    state: dict,
+    *,
+    config_revision: int,
+    runtime_identity: "RuntimeIdentityV2 | None" = None,
+) -> dict:
+    """Render the launcher-consumption snapshot.
+
+    Without ``runtime_identity`` the LEGACY v1 shape is rendered (schema
+    stays 1). With identity, the artifact becomes schema v2 and binds the
+    exact immutable component (ADR 004 §14.1).
+    """
     opts = state.get("optimizations") or {}
     effective = opts if opts.get("runtime_enabled", True) else {}
     current_id = state.get("current_model")
@@ -67,7 +104,7 @@ def build_payload(state: dict, *, config_revision: int) -> dict:
             break
     slots = int(effective.get("parallel_slots", 4))
     payload = {
-        "schema_version": 1,
+        "schema_version": 2 if runtime_identity is not None else 1,
         "config_revision": int(config_revision),
         "runtime_fingerprint": runtime_fingerprint(state),
         "model_id": current_id,
@@ -85,6 +122,14 @@ def build_payload(state: dict, *, config_revision: int) -> dict:
         "fast_sync": bool(effective.get("fast_sync")),
     }
     payload.update(sampling)
+    if runtime_identity is not None:
+        payload.update({
+            "runtime_component_id": runtime_identity.component_id,
+            "runtime_source_commit": runtime_identity.source_commit,
+            "runtime_server_sha256": runtime_identity.server_sha256,
+            "runtime_manifest_digest": runtime_identity.manifest_digest,
+            "runtime_operation_id": runtime_identity.operation_id,
+        })
     return payload
 
 
@@ -107,13 +152,14 @@ class RuntimeHandoffRenderer:
             return None
         return payload.get("runtime_fingerprint")
 
-    def observe(self) -> dict | None:
+    def observe(self, *, require_v2: bool = False) -> dict | None:
         """Strict read-only observation (Session 5C plan §10.2).
 
-        Returns the full payload ONLY when it is a valid, complete,
-        bounded handoff object; ``None`` when absent or malformed.
-        Partial/malformed content is the caller's UNCERTAIN signal unless
-        it is provably this operation's own replaceable candidate.
+        Returns the full payload ONLY when it is valid and complete for its
+        declared schema. ``require_v2=True`` additionally rejects legacy
+        schema-1 artifacts — managed runtime starts demand the bound
+        component identity (ADR 004 §14.1). Malformed content is the
+        caller's UNCERTAIN signal.
         """
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
@@ -130,8 +176,7 @@ class RuntimeHandoffRenderer:
         if any(key not in payload for key in required):
             return None
         try:
-            if int(payload["schema_version"]) != 1:
-                return None
+            schema = int(payload["schema_version"])
             revision = int(payload["config_revision"])
             port = int(payload["port"])
             slots = int(payload["parallel_slots"])
@@ -139,6 +184,10 @@ class RuntimeHandoffRenderer:
             batch = int(payload["batch_size"])
             ubatch = int(payload["ubatch_size"])
         except (TypeError, ValueError):
+            return None
+        if schema not in (1, HANDOFF_SCHEMA_VERSION_V2):
+            return None
+        if require_v2 and schema != HANDOFF_SCHEMA_VERSION_V2:
             return None
         if revision < 1 or not 1024 <= port <= 65535:
             return None
@@ -153,16 +202,39 @@ class RuntimeHandoffRenderer:
             value = payload[key]
             if not isinstance(value, str) or not value.strip():
                 return None
+        if schema == HANDOFF_SCHEMA_VERSION_V2:
+            for key in RUNTIME_IDENTITY_KEYS:
+                if key not in payload or not isinstance(payload[key], str) \
+                        or not payload[key].strip():
+                    return None
+            digest = payload["runtime_manifest_digest"]
+            server = payload["runtime_server_sha256"]
+            if len(digest) != 64 or any(c not in "0123456789abcdef"
+                                        for c in digest):
+                return None
+            if len(server) != 64 or any(c not in "0123456789abcdef"
+                                        for c in server):
+                return None
         return payload
 
     def needs_update(self, fingerprint: str) -> bool:
         return self.stored_fingerprint() != fingerprint
 
-    def publish(self, state: dict, *, config_revision: int | None = None) -> Path:
+    def publish(
+        self,
+        state: dict,
+        *,
+        config_revision: int | None = None,
+        runtime_identity: "RuntimeIdentityV2 | None" = None,
+    ) -> Path:
         """Durably render the artifact for ``state``'s committed revision."""
         if config_revision is None:
             config_revision = int(state.get("revision", 0))
-        payload = build_payload(state, config_revision=int(config_revision))
+        payload = build_payload(
+            state,
+            config_revision=int(config_revision),
+            runtime_identity=runtime_identity,
+        )
         try:
             atomic_write_text(self.path, json.dumps(payload, indent=2))
         except OSError as exc:

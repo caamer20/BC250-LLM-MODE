@@ -61,8 +61,24 @@ REQUIRED = (
 missing = [key for key in REQUIRED if key not in h]
 if missing:
     sys.exit("handoff invalid: missing fields: " + ", ".join(missing))
-if int(h["schema_version"]) != 1:
+SCHEMA = int(h["schema_version"])
+if SCHEMA not in (1, 2):
     sys.exit("handoff invalid: unsupported schema_version")
+IDENTITY_KEYS = (
+    "runtime_component_id", "runtime_source_commit",
+    "runtime_server_sha256", "runtime_manifest_digest",
+    "runtime_operation_id",
+)
+if SCHEMA == 2:
+    missing_identity = [key for key in IDENTITY_KEYS if key not in h]
+    if missing_identity:
+        sys.exit("handoff invalid: missing component identity fields: "
+                 + ", ".join(missing_identity))
+    for key in ("runtime_server_sha256", "runtime_manifest_digest"):
+        value = str(h[key])
+        if len(value) != 64 or any(c not in "0123456789abcdef"
+                                   for c in value):
+            sys.exit("handoff invalid: " + key + " is not a sha256 hex")
 rev = h["config_revision"]
 if not isinstance(rev, int) or rev < 1:
     sys.exit("handoff invalid: config_revision")
@@ -133,6 +149,62 @@ for item in argv:
     print(item)
 PYH
 )
+# U1.2 (ADR 004 D5/§14.2): before exec, bind the handoff to the ACTIVE
+# runtime component. A v2 handoff MUST match the active tree manifest and
+# the real server binary; a 0600 start receipt is published on success.
+python3 - "$HANDOFF" <<'PYRECEIPT' >&2
+import hashlib, json, os, sys, time
+
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+if int(h.get("schema_version", 1)) < 2:
+    sys.exit(0)  # legacy artifact: no component binding to verify
+
+
+def die(msg):
+    sys.stderr.write("bc250-llm-mode: " + msg + chr(10))
+    sys.exit(78)
+
+
+component = str(h.get("runtime_component_id", "")).strip()
+manifest_digest = str(h.get("runtime_manifest_digest", ""))
+server_sha = str(h.get("runtime_server_sha256", ""))
+if not component or len(manifest_digest) != 64 or len(server_sha) != 64:
+    die("runtime handoff v2 has an incomplete component identity")
+root = h["llama_cpp_path"]
+manifest_path = os.path.join(root, "manifest.json")
+if not os.path.isfile(manifest_path):
+    die("active runtime manifest missing at " + manifest_path)
+manifest = json.load(open(manifest_path, encoding="utf-8"))
+if manifest.get("build_id") != component:
+    die("active runtime manifest does not match the expected build id")
+if manifest.get("manifest_digest") != manifest_digest:
+    die("runtime manifest digest mismatch")
+binary_path = os.path.join(root, "build", "bin", "llama-server")
+digest = hashlib.sha256()
+with open(binary_path, "rb") as handle:
+    for chunk in iter(lambda: handle.read(1 << 20), b""):
+        digest.update(chunk)
+if digest.hexdigest() != server_sha:
+    die("llama-server binary digest mismatch")
+entry = next((e for e in (manifest.get("manifest", {}).get("binaries") or [])
+              if str(e.get("path", "")).endswith("llama-server")), None)
+if entry and entry.get("sha256") != server_sha:
+    die("manifest binary entry mismatch")
+receipt_dir = os.path.dirname(os.path.abspath(sys.argv[1]))
+receipt = {
+    "build_id": component,
+    "server_sha256": server_sha,
+    "manifest_digest": manifest_digest,
+    "operation_id": str(h.get("runtime_operation_id", "")),
+    "nonce": str(os.getpid()) + "-" + str(int(time.time() * 1000)),
+}
+tmp_path = os.path.join(receipt_dir, ".start-receipt.tmp")
+with open(tmp_path, "w", encoding="utf-8") as handle:
+    json.dump(receipt, handle, indent=2, sort_keys=True)
+os.chmod(tmp_path, 0o600)
+os.replace(tmp_path, os.path.join(receipt_dir, "start-receipt.json"))
+sys.exit(0)
+PYRECEIPT
 export GGML_VK_DISABLE_F16=1
 if [ "$FAST_SYNC" != "1" ]; then
   export GGML_VK_FORCE_SYNC=1
@@ -281,6 +353,30 @@ def _unit_property(runner: CommandRunner, service: str, prop: str) -> str:
         ["systemctl", "show", service, f"--property={prop}", "--value"], check=False
     )
     return result.stdout.strip()
+
+
+def invocation_marker(state: dict[str, Any], runner: CommandRunner) -> str | None:
+    """The current systemd invocation identity (start timestamp).
+
+    A NEW successful invocation after a swap must present a DIFFERENT
+    marker than the one captured before it (ADR 004 D5 item 5).
+    """
+    service = str(state.get("service_name", "bc250-llm.service"))
+    load = _unit_property(runner, service, "LoadState")
+    if load == "not-found":
+        return None
+    return _unit_property(runner, service, "ExecMainStartTimestamp") or None
+
+
+def capture_service_state(
+    state: dict[str, Any], runner: CommandRunner,
+) -> dict[str, Any]:
+    """Read-only ``(active, invocation_marker)`` facts for the port."""
+    status = service_status(state, runner)
+    return {
+        "active": bool(status.get("active")),
+        "invocation_marker": invocation_marker(state, runner),
+    }
 
 
 def service_status(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
