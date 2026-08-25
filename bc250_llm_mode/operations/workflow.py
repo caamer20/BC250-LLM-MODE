@@ -169,6 +169,13 @@ class WorkflowDefinition:
     # published/quarantined artifacts. When absent, the engine keeps the
     # activation rollback behavior unchanged.
     cancel_finalizer: Callable[[Any], dict[str, Any]] | None = None
+    # ADR 002 §17 (U1.2): phase-scoped leasing. When False (compatibility),
+    # every declared resource is acquired at claim time exactly as before.
+    # When True, resources are acquired when a step first needs them and a
+    # resumed ROLLING_BACK row additionally acquires the declared barrier
+    # set before running any compensation effect.
+    phase_scoped_resources: bool = False
+    recovery_barrier_resources: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         seen_keys: set[str] = set()
@@ -196,6 +203,42 @@ class WorkflowDefinition:
             for key in sorted(step.resources):
                 if key not in ordered:
                     ordered.append(key)
+        return tuple(ordered)
+
+    def initial_resources(self) -> tuple[str, ...]:
+        """Resources acquired at claim time (ADR 002 §17).
+
+        Compatibility workflows acquire everything up front; phase-scoped
+        workflows start with only the first step's requirements.
+        """
+        if not self.phase_scoped_resources:
+            return self.all_resources()
+        if not self.steps:
+            return ()
+        return tuple(sorted(set(self.steps[0].resources)))
+
+    def barrier_resources(self) -> tuple[str, ...]:
+        """Extra resources a resumed ROLLING_BACK row must hold before any
+        compensation effect. Compatibility workflows already hold every
+        resource at claim time, so they declare nothing here."""
+        if not self.phase_scoped_resources:
+            return ()
+        return tuple(sorted(set(self.recovery_barrier_resources)))
+
+    def resources_pending_from(self, step_key: str) -> tuple[str, ...]:
+        """Suffix union (ADR 002 §17.2): resources required by ``step_key``
+        and every remaining step — the no-lease-gap acquisition set."""
+        ordered: list[str] = []
+        seen = False
+        for step in self.steps:
+            if step.step_key == step_key:
+                seen = True
+            if seen:
+                for key in sorted(step.resources):
+                    if key not in ordered:
+                        ordered.append(key)
+        if not seen:
+            raise WorkflowRegistryError(f"no such step: {step_key!r}")
         return tuple(ordered)
 
 

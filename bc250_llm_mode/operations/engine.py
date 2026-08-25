@@ -208,16 +208,42 @@ class ExecutionEngine:
         with self.units.begin() as conn:
             _ops, _steps, leases, _events = self._repos(conn)
             try:
-                for key in definition.all_resources():  # sorted inside
-                    lease = leases.acquire(
-                        key,
-                        operation_id=operation_id,
-                        owner=self.worker_id,
-                        ttl_seconds=self.lease_ttl_seconds,
+                # Advisory early refusal (ADR 002 §17.6): when any resource
+                # this workflow will EVER need is occupied — including an
+                # expired lease kept as a RECOVERY_REQUIRED barrier — skip
+                # before doing any work. The fenced acquisition below stays
+                # authoritative for races after this check.
+                occupancy = leases.availability(definition.all_resources())
+                foreign = {
+                    key: holder
+                    for key, holder in occupancy.items()
+                    if holder is not None and holder != operation_id
+                }
+                if foreign:
+                    return ExecutionOutcome(
+                        "SKIPPED_BUSY",
+                        operation_id,
+                        reason_code="RESOURCE_HELD",
+                        detail={"resources": sorted(foreign)},
                     )
-                    held[key] = lease.lease_revision
-                    if self.on_lease_acquired is not None:
-                        self.on_lease_acquired(key)
+                # ADR 002 §17: phase-scoped workflows claim only their first
+                # phase; a resumed ROLLING_BACK row additionally acquires the
+                # declared barrier set so compensation is fenced. The full
+                # desired set is acquired atomically (sorted, all-or-none).
+                desired = list(definition.initial_resources())
+                if state is OperationState.ROLLING_BACK:
+                    desired.extend(definition.barrier_resources())
+                acquired = leases.acquire_many(
+                    sorted(set(desired)),
+                    operation_id=operation_id,
+                    owner=self.worker_id,
+                    ttl_seconds=self.lease_ttl_seconds,
+                )
+                for key in definition.all_resources():  # sorted inside
+                    if key in acquired:
+                        held[key] = acquired[key]
+                        if self.on_lease_acquired is not None:
+                            self.on_lease_acquired(key)
             except OperationConflict:
                 # Another live owner holds one of these resources; nothing to
                 # roll back (single transaction) — report busy deterministically.
@@ -302,6 +328,33 @@ class ExecutionEngine:
                 in (OperationState.RUNNING, OperationState.PREPARING, OperationState.VERIFYING)
             ):
                 return self._pause(operation_id, held, "SHUTDOWN_REQUESTED")
+
+            # ADR 002 §17: acquire this step's missing resources atomically
+            # before it starts. Once acquired, resources stay held until the
+            # terminal transition, so there is no gap between acquiring
+            # runtime-active at its boundary and the critical effects that
+            # follow it. A conflict here pauses with NO effect performed.
+            missing = [key for key in pending.resources if key not in held]
+            if missing:
+                try:
+                    with self.units.begin() as conn:
+                        ops_r, _s, leases_r, _e = self._repos(conn)
+                        ops_r.require(operation_id)
+                        acquired = leases_r.acquire_many(
+                            missing,
+                            operation_id=operation_id,
+                            owner=self.worker_id,
+                            ttl_seconds=self.lease_ttl_seconds,
+                            assert_held=held,
+                        )
+                    held.update(acquired)
+                    if self.on_lease_acquired is not None:
+                        for key in sorted(acquired):
+                            self.on_lease_acquired(key)
+                except OperationConflict:
+                    return self._pause(
+                        operation_id, held, "RESOURCE_CONFLICT"
+                    )
 
             result = self._advance_step(
                 operation_id, definition, decoded, pending,

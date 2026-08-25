@@ -897,6 +897,81 @@ class LeaseRepository:
         assert lease is not None
         return lease
 
+    def acquire_many(
+        self,
+        resource_keys,
+        *,
+        operation_id: str,
+        owner: str,
+        ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
+        assert_held: dict[str, int] | None = None,
+    ) -> dict[str, int]:
+        """Atomically acquire the FULL desired set (ADR 002 §17.3).
+
+        Runs inside the caller's ``BEGIN IMMEDIATE`` unit: every already
+        held lease is fenced first, then each missing key is acquired in
+        sorted order — all-or-none, because any conflict aborts the whole
+        transaction and leaves no partial lease state. Because
+        ``runtime-active`` sorts before ``runtime-installation``, taking
+        the lower key first inside ONE transaction is what prevents a lock
+        inversion across contenders.
+        """
+        held = dict(assert_held or {})
+        now = self.clock()
+        for key in sorted(held):
+            self.assert_owned(
+                key,
+                operation_id,
+                owner=owner,
+                lease_revision=held[key],
+                now=now,
+            )
+        acquired: dict[str, int] = {}
+        for key in sorted(set(resource_keys)):
+            if key in held:
+                continue
+            lease = self.acquire(
+                key,
+                operation_id=operation_id,
+                owner=owner,
+                ttl_seconds=ttl_seconds,
+            )
+            acquired[key] = lease.lease_revision
+        return acquired
+
+    def availability(self, resource_keys) -> dict[str, str | None]:
+        """Read-only occupancy view: ``resource -> holding operation id``.
+
+        Advisory only (TOCTOU): the authoritative check remains the fenced
+        ``acquire``/``acquire_many`` inside a write transaction. Executors
+        use this to refuse work BEFORE spending effort when any future
+        resource is already occupied or is a recovery barrier.
+        """
+        result: dict[str, str | None] = {}
+        now = self.clock()
+        for key in sorted(set(resource_keys)):
+            row = self.conn.execute(
+                """
+                SELECT l.operation_id AS op, l.expires_at AS expires_at,
+                       o.state AS state
+                FROM operation_leases l
+                LEFT JOIN operations o ON o.id = l.operation_id
+                WHERE l.resource_key = ?
+                """,
+                (key,),
+            ).fetchone()
+            if row is None:
+                result[key] = None
+                continue
+            # An expired lease is not occupancy unless it is a barrier.
+            if row["expires_at"] <= now and row["state"] != (
+                OperationState.RECOVERY_REQUIRED.value
+            ):
+                result[key] = None
+            else:
+                result[key] = row["op"]
+        return result
+
     def heartbeat(
         self,
         resource_key: str,
