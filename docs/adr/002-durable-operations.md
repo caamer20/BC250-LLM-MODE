@@ -311,3 +311,36 @@ Two corrections, both red-tested before adoption; no schema change.
    rollback. Every other existing activation and lease-fencing rule is
    unchanged.
 
+
+## 17. Session 6B amendments (U1.2 — phase-scoped resource leasing)
+
+1. **Phase-scoped acquisition.** A workflow MAY declare
+   `phase_scoped_resources=True`. Such workflows acquire resources when a
+   step first requires them instead of holding every declared resource
+   from `_claim()`: before each step the executor computes the union of
+   resources required by that step and all remaining normal/compensation
+   work, and acquires exactly the missing keys inside ONE transaction,
+   sorted lexicographically, all-or-none, asserting every already-held
+   lease in the same unit. Workflows that do not declare the flag keep
+   today's all-at-claim behavior unchanged (compatibility declaration).
+2. **No lease gap.** Between acquiring `runtime-active`, capturing the
+   authoritative prior snapshot, and an atomic exchange there may be no
+   moment at which the executor holds fewer than the union of remaining
+   requirements; the suffix-union rule guarantees this.
+3. **Conflict before a critical effect** resolves deterministically: the
+   operation pauses (`PAUSED`, reason `RESOURCE_CONFLICT`) or reports busy
+   with NO effect performed and no partial lease state (single
+   transaction).
+4. **Recovery barrier retention.** Resuming a `ROLLING_BACK` row acquires
+   the workflow-declared recovery-barrier resources before running any
+   compensation effect, so reverse effects are fenced exactly like forward
+   ones.
+5. **Runtime resource phases (U1.2).** `runtime-installation` is held for
+   source resolution/fetch/configure/build/smoke;
+   `runtime-active` joins it from the activation boundary through
+   verification and promotion. `RUNTIME_ROLLBACK v1` holds both resources
+   from its capture boundary onward.
+6. **Cancellation deferral at the runtime boundary.** Once a runtime
+   workflow enters tree-exchange intent (critical steps), cancellation is
+   deferred until the update succeeds or restores the prior runtime, per
+   ADR 004 §9.
