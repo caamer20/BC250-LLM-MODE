@@ -31,8 +31,8 @@ def test_fresh_schema_reaches_v4_with_constraints(tmp_path):
         applied = conn.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
-        assert [r["version"] for r in applied] == [1, 2, 3, 4]
-        assert SCHEMA_VERSION == 4
+        assert [r["version"] for r in applied] == [1, 2, 3, 4, 5]
+        assert SCHEMA_VERSION == 5
         with pytest.raises(sqlite3.IntegrityError):
             conn.execute(
                 "INSERT INTO model_artifacts (id, canonical_path, "
@@ -62,6 +62,42 @@ def test_v3_to_v4_backfill_is_deterministic_and_file_free(tmp_path):
             VALUES ('alpha', '/models/a.gguf', '2026-01-01T00:00:00Z');
         INSERT INTO model_installations (alias, path, imported_at)
             VALUES ('beta', '/models/b.gguf', '2026-01-02T00:00:00Z');
+        CREATE TABLE component_provenance (component TEXT PRIMARY KEY,
+            describe TEXT, commit_sha TEXT, recorded_at TEXT NOT NULL);
+        CREATE TABLE operations (
+            id TEXT PRIMARY KEY, operation_type TEXT NOT NULL,
+            request_version INTEGER NOT NULL,
+            recovery_policy_version INTEGER NOT NULL DEFAULT 1,
+            request_json TEXT NOT NULL, state TEXT NOT NULL,
+            state_revision INTEGER NOT NULL DEFAULT 1, progress_phase TEXT,
+            progress_current INTEGER NOT NULL DEFAULT 0,
+            progress_total INTEGER, progress_unit TEXT,
+            progress_summary TEXT, surface TEXT NOT NULL DEFAULT 'unknown',
+            cancel_requested_at TEXT, result_code TEXT, result_detail TEXT,
+            error_code TEXT, error_detail TEXT, parent_operation_id TEXT,
+            created_at TEXT NOT NULL, started_at TEXT, updated_at TEXT NOT NULL,
+            finished_at TEXT);
+        CREATE TABLE operation_steps (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+            step_key TEXT NOT NULL, sequence INTEGER NOT NULL,
+            implementation_version INTEGER NOT NULL DEFAULT 1,
+            state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+            input_json TEXT, output_json TEXT, external_effect_id TEXT,
+            failure_code TEXT, failure_detail TEXT, started_at TEXT,
+            checkpointed_at TEXT, finished_at TEXT,
+            UNIQUE (operation_id, step_key), UNIQUE (operation_id, sequence));
+        CREATE TABLE operation_events (
+            cursor INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+            ts TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info', code TEXT,
+            summary TEXT NOT NULL, detail_json TEXT, progress_json TEXT);
+        CREATE TABLE operation_leases (
+            resource_key TEXT PRIMARY KEY,
+            operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE CASCADE,
+            owner TEXT NOT NULL, lease_revision INTEGER NOT NULL DEFAULT 1,
+            acquired_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL);
         PRAGMA user_version = 3;
         CREATE TABLE schema_migrations (
             version INTEGER PRIMARY KEY, name TEXT, applied_at TEXT);

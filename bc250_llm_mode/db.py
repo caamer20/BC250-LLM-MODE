@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -360,6 +360,156 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
                 updated_at TEXT NOT NULL,
                 released_at TEXT
             )
+            """,
+        ),
+    ),
+    (
+        5,
+        "immutable-runtime-lifecycle",
+        (
+            # ADR 004 (U1.2): immutable content-derived runtime builds,
+            # append-only verification facts, operation-owned tree registry,
+            # and one authoritative promoted/rollback component row.
+            # Filesystem-free: no host, Git, container, or service access.
+            """
+            CREATE TABLE runtime_builds (
+                build_id TEXT PRIMARY KEY
+                    CHECK (
+                        (length(build_id) = 80 AND build_id GLOB
+                         'llamacpp:sha256:[0-9a-f]*')
+                        OR build_id LIKE 'legacy:%'
+                    ),
+                component TEXT NOT NULL CHECK (component = 'llamacpp'),
+                manifest_version INTEGER NOT NULL
+                    CHECK (manifest_version >= 1),
+                manifest_json TEXT NOT NULL CHECK (length(manifest_json) <= 65536),
+                manifest_digest TEXT NOT NULL
+                    CHECK (length(manifest_digest) = 64
+                           AND manifest_digest GLOB '[0-9a-f]*'),
+                source_commit TEXT
+                    CHECK (source_commit IS NULL OR length(source_commit) = 40),
+                requested_ref TEXT
+                    CHECK (requested_ref IS NULL OR length(requested_ref) <= 128),
+                recipe_version INTEGER NOT NULL CHECK (recipe_version >= 1),
+                provenance_class TEXT NOT NULL
+                    CHECK (provenance_class IN
+                        ('LEGACY_UNVERIFIED', 'IMMUTABLE_SOURCE')),
+                created_by_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX idx_runtime_builds_component
+                ON runtime_builds(component, created_at)
+            """,
+            """
+            CREATE TABLE runtime_build_verifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                build_id TEXT NOT NULL REFERENCES runtime_builds(build_id)
+                    ON DELETE RESTRICT,
+                operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                kind TEXT NOT NULL
+                    CHECK (kind IN
+                        ('SMOKE', 'ACTIVE_HEALTH', 'ACTIVE_INFERENCE',
+                         'RESTORED_HEALTH', 'RESTORED_INFERENCE')),
+                evidence_json TEXT NOT NULL
+                    CHECK (length(evidence_json) <= 4096),
+                observed_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX idx_runtime_verifications_build
+                ON runtime_build_verifications(build_id, observed_at)
+            """,
+            """
+            CREATE TABLE runtime_trees (
+                tree_id TEXT PRIMARY KEY,
+                build_id TEXT NOT NULL REFERENCES runtime_builds(build_id)
+                    ON DELETE RESTRICT,
+                container_profile TEXT NOT NULL
+                    CHECK (length(container_profile) <= 128),
+                locator TEXT NOT NULL
+                    CHECK (
+                        length(locator) BETWEEN 1 AND 256
+                        AND locator NOT LIKE '/%'
+                        AND locator NOT LIKE '%..%'
+                    ),
+                role TEXT NOT NULL
+                    CHECK (role IN
+                        ('ACTIVE_OBSERVED', 'CANDIDATE', 'ROLLBACK',
+                         'RETAINED', 'QUARANTINED')),
+                manifest_digest TEXT NOT NULL
+                    CHECK (length(manifest_digest) = 64
+                           AND manifest_digest GLOB '[0-9a-f]*'),
+                server_binary_digest TEXT NOT NULL
+                    CHECK (length(server_binary_digest) = 64
+                           AND server_binary_digest GLOB '[0-9a-f]*'),
+                ownership_class TEXT NOT NULL
+                    CHECK (ownership_class IN
+                        ('OPERATION_OWNED', 'LEGACY_ADOPTED')),
+                created_by_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                last_observed_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX idx_runtime_trees_role
+                ON runtime_trees(role, build_id)
+            """,
+            """
+            CREATE INDEX idx_runtime_trees_operation
+                ON runtime_trees(created_by_operation_id)
+            """,
+            """
+            CREATE TABLE runtime_component_state (
+                component TEXT PRIMARY KEY CHECK (component = 'llamacpp'),
+                promoted_build_id TEXT REFERENCES runtime_builds(build_id)
+                    ON DELETE RESTRICT,
+                rollback_build_id TEXT REFERENCES runtime_builds(build_id)
+                    ON DELETE RESTRICT,
+                generation INTEGER NOT NULL CHECK (generation >= 1),
+                promoted_tree_id TEXT REFERENCES runtime_trees(tree_id)
+                    ON DELETE SET NULL,
+                rollback_tree_id TEXT REFERENCES runtime_trees(tree_id)
+                    ON DELETE SET NULL,
+                last_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                updated_at TEXT NOT NULL
+            )
+            """,
+            # Deterministic legacy backfill: when pre-migration provenance
+            # exists for llama.cpp, record ONE synthetic LEGACY_UNVERIFIED
+            # build. It never claims an active or rollback tree; the first
+            # managed preflight may adopt the legacy active tree only after
+            # exact host observation. A missing/malformed value inserts no
+            # row and never blocks migration. The digest is a deterministic
+            # truncation of the bounded metadata hex — clearly synthetic,
+            # never claimed cryptographic for a legacy row. Old settings
+            # bytes stay untouched for downgrade/forensic compatibility.
+            """
+            INSERT INTO runtime_builds (
+                build_id, component, manifest_version, manifest_json,
+                manifest_digest, source_commit, requested_ref,
+                recipe_version, provenance_class, created_by_operation_id,
+                created_at
+            )
+            SELECT 'legacy:llamacpp', 'llamacpp', 1,
+                   json_object('describe', p.describe, 'commit_sha',
+                               p.commit_sha, 'recorded_at', p.recorded_at),
+                   substr(lower(hex(cast(json_object(
+                       'describe', p.describe, 'commit_sha', p.commit_sha
+                   ) AS BLOB)) || '0000000000000000000000000000000000000000000000000000000000000000'), 1, 64),
+                   CASE WHEN length(p.commit_sha) = 40 THEN p.commit_sha END,
+                   substr(COALESCE(p.describe, ''), 1, 128),
+                   1,
+                   'LEGACY_UNVERIFIED',
+                   NULL,
+                   COALESCE(p.recorded_at, datetime('now'))
+            FROM component_provenance p
+            WHERE p.component = 'llamacpp'
+              AND p.recorded_at IS NOT NULL
             """,
         ),
     ),
