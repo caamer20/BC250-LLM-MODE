@@ -12,7 +12,6 @@ from tkinter import messagebox, ttk
 
 from ..catalog import model_by_id
 from ..disclaimer import DISCLAIMER_TEXT, acknowledge, acknowledgment_valid
-from ..env import setup_environment
 from ..hardware import detect_hardware
 from ..llmmode import apply_llm_mode
 from ..local_models import (
@@ -180,7 +179,29 @@ class StepsMixin:
             mask_desktop = self.mask_desktop.get()
             self._work(lambda: (apply_llm_mode(self.state_data, self.runner(), mask_desktop_services=mask_desktop), self.commit_narrow()), self._after_llm_mode)
         elif step == 3:
-            self._work(lambda: (setup_environment(self.state_data, self.runner()), self.commit_narrow()), self._advance)
+            def provision_and_install_runtime() -> dict:
+                # §15.5: provisioning stays synchronous; the FIRST runtime
+                # comes from durable RUNTIME_UPDATE v1 at the shipped pin.
+                application = self.application
+                result = application.component.provision_environment(
+                    self.state_data, self.runner()
+                )
+                outcome = application.runtime_lifecycle.update(
+                    requested_by="setup"
+                )
+                result["runtime_operation"] = outcome.to_dict()
+                if not outcome.ok:
+                    raise RuntimeError(
+                        "runtime install failed "
+                        f"({outcome.status}); operation {outcome.operation_id}"
+                    )
+                self.state_data.update(application.read_model())
+                return result
+
+            self._work(
+                lambda: (provision_and_install_runtime(), self.commit_narrow()),
+                self._advance,
+            )
         elif step == 4:
             selected_iid = self.model_tree.selection()[0]
             source, selected = self.model_choices[selected_iid]

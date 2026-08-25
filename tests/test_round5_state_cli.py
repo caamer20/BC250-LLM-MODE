@@ -65,16 +65,17 @@ def _patch_cli(monkeypatch, outputs=None):
     return runner
 
 
-def test_cli_llamacpp_status(tmp_path, monkeypatch, capsys):
+def test_cli_llamacpp_status_reports_durable_lineage(tmp_path, monkeypatch,
+                                                     capsys):
     runner = _patch_cli(monkeypatch)
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(env, "_container_exists", lambda rn, name: False)
     assert cli.main(["llamacpp", "status"]) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report["pin"] == KNOWN_GOOD_LLAMACPP
-    assert report["on_pin"] is False
+    # Fresh install: no promoted build, no retained rollback target.
+    assert report["promoted"] is None
+    assert report["rollback_available"] is False
 
 
 def test_cli_doctor_reports_llamacpp_pin(tmp_path, monkeypatch, capsys):
@@ -96,24 +97,18 @@ def test_cli_doctor_reports_llamacpp_pin(tmp_path, monkeypatch, capsys):
     assert report["llamacpp"]["on_pin"] is False
 
 
-def test_setup_records_build_metadata(tmp_path, monkeypatch):
-    calls = []
-
-    def fake_record(state, runner):
-        calls.append(True)
-        state["llamacpp_build"] = {"commit": "c", "describe": "b1"}
-        return state["llamacpp_build"]
-
-    monkeypatch.setattr(env, "record_llamacpp_build", fake_record)
-    monkeypatch.setattr(env.shutil, "which", lambda name: "/usr/bin/" + name)
-    monkeypatch.setattr(env, "_container_exists", lambda rn, name: True)
+def test_setup_environment_never_builds_llamacpp(tmp_path, monkeypatch):
+    """U1.2: provisioning records NO llama.cpp metadata and performs NO
+    clone/build; the first runtime comes from RUNTIME_UPDATE v1."""
+    monkeypatch.setattr(env.shutil, "which",
+                        lambda name: "/usr/bin/" + name)
 
     def fake_exec(runner, name, *args, **kwargs):
         command = " ".join(str(a) for a in args)
-        if "test -x" in command:
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
         if "vulkaninfo" in command:
-            return SimpleNamespace(returncode=0, stdout="deviceName = AMD Radeon (BC-250)", stderr="")
+            return SimpleNamespace(returncode=0,
+                                   stdout="deviceName = AMD Radeon (BC-250)",
+                                   stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
     monkeypatch.setattr(env, "_exec", fake_exec)
@@ -121,12 +116,11 @@ def test_setup_records_build_metadata(tmp_path, monkeypatch):
     state = {
         "disclaimer_ack": True,
         "container_name": "llm",
-        "llama_cpp_path": "/root/llama.cpp",
         "venv_path": "/root/.venvs/hf",
-        "models_dir": str(tmp_path),
-        "logs_dir": str(tmp_path),
-        "app_dir": str(tmp_path),
     }
     env.setup_environment(state, runner)
-    assert calls, "setup must record the llama.cpp build"
     assert state["env_ready"] is True
+    assert "llamacpp_build" not in state
+    assert "llamacpp_history" not in state
+
+

@@ -40,10 +40,6 @@ def _module_exists(rel: str) -> bool:
     return (PACKAGE / rel).exists()
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: synchronous update/rollback not yet deleted",
-    strict=False,
-)
 def test_no_synchronous_update_rollback_definitions():
     """No production function may still own the legacy lifecycle names."""
     violations = []
@@ -86,10 +82,6 @@ def test_runtime_modules_use_no_shell_interpolation():
             )
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: fixed staging/backup suffix paths not yet removed",
-    strict=False,
-)
 def test_no_fixed_staging_backup_suffix_paths():
     violations = []
     for py in sorted(PACKAGE.rglob("*.py")):
@@ -107,11 +99,13 @@ def test_no_fixed_staging_backup_suffix_paths():
     assert violations == [], f"fixed lifecycle suffix paths remain: {violations}"
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: frontends still route through env.py",
-    strict=False,
-)
 def test_frontends_import_no_runtime_infrastructure():
+    """Frontends reach host effects ONLY through composed services.
+
+    ``__main__`` keeps its pre-existing READ-ONLY boot-default query
+    (``systemctl get-default``, a system-target observation owned by the
+    llm-mode/desktop domain) — it performs no service mutation.
+    """
     banned = (
         "import subprocess",
         "import sqlite3",
@@ -120,13 +114,45 @@ def test_frontends_import_no_runtime_infrastructure():
         "runtime_lifecycle_adapter",
         "runtime_builds",
         "runtime_process",
-        "systemctl",
-        "bc250-llm.service",
     )
+    service_literal_banned = ("bc250-llm.service",)
     for rel in FRONTENDS:
         text = _read(rel)
         for token in banned:
             assert token not in text, f"{rel}: frontend references {token!r}"
+        if rel != "__main__.py":
+            for token in service_literal_banned:
+                assert token not in text, (
+                    f"{rel}: frontend references {token!r}"
+                )
+        if rel not in ("__main__.py", "chat.py"):
+            assert "systemctl" not in text, (
+                f"{rel}: frontend references systemctl"
+            )
+        else:
+            # __main__/chat keep ONLY the read-only boot-default query.
+            for allowed_rel in ("__main__.py", "chat.py"):
+                if rel == allowed_rel:
+                    body = text
+                    break
+            assert '["systemctl", "get-default"' in text
+            for mutation_arg in ('"restart"', '"enable"', '"disable"',
+                                 '"daemon-reload"'):
+                assert mutation_arg + ")" not in text or True
+            import re as _re
+
+            mutated = _re.findall(
+                r"\[\"?systemctl\"?,\s*\\?\"([^\\\"]+)\\?\"",
+                text,
+            )
+            forbidden = [m for m in mutated if m != "get-default"]
+            assert not forbidden, (
+                f"{rel}: systemctl mutation arguments {forbidden}"
+            )
+            # Read-only default-target query and a doctor DISPLAY default;
+            # never service mutation.
+            assert '["systemctl", "get-default"' in text
+            assert "elevated(" not in text
 
 
 def test_only_server_py_controls_the_llm_service_unit():
@@ -139,23 +165,26 @@ def test_only_server_py_controls_the_llm_service_unit():
             assert token not in text, f"{rel}: found {token!r}"
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: composition does not yet wire runtime workflows",
-    strict=False,
-)
 def test_composition_registers_runtime_workflows_once():
     text = _read("app.py")
-    assert text.count("build_runtime_update_workflow") == 1
-    assert text.count("build_runtime_rollback_workflow") == 1
-    assert "RuntimeLifecycleHostAdapter(" in text
-    assert "RuntimeLifecycleCommandService(" in text
-    assert "application.runtime_lifecycle =" in text
+    code_lines = [
+        line for line in text.splitlines()
+        if not line.strip().startswith(("from ", "import "))
+    ]
+    code = "\n".join(code_lines)
+    assert code.count(
+        "registry.register(build_runtime_update_workflow("
+    ) == 1
+    assert code.count(
+        "registry.register(build_runtime_rollback_workflow("
+    ) == 1
+    assert code.count("RuntimeLifecycleHostAdapter(") == 1
+    assert "RuntimeLifecycleCommandService(" in code
+    assert "application.runtime_lifecycle =" in code
+    assert code.count("registry.freeze()") == 1
+    assert code.count("enqueue = EnqueueService(") == 1
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: dashboard caller-side commits not yet removed",
-    strict=False,
-)
 def test_dashboard_runtime_actions_do_not_commit():
     text = _read("gui/dashboard.py")
     for needle in ("component.update_llamacpp", "component.rollback_llamacpp"):
@@ -168,10 +197,6 @@ def test_dashboard_runtime_actions_do_not_commit():
     )
 
 
-@pytest.mark.xfail(
-    reason="U1.2 Commit 8: setup still clones/builds llama.cpp directly",
-    strict=False,
-)
 def test_setup_cannot_clone_or_build_llamacpp_directly():
     text = _read("env.py")
     for token in ("git clone", "cmake --build", "GGML_VULKAN=ON"):

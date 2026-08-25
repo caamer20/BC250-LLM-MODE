@@ -68,6 +68,7 @@ class Application:
     openwebui: Any = None
     sharing: Any = None
     model_acquisition: Any = None
+    runtime_lifecycle: Any = None
     maintenance: Any = None
     operational: bool = False
     repair_reason: str | None = None
@@ -184,10 +185,20 @@ class Application:
             build_import_workflow,
         )
         from .operations.engine import ExecutionEngine
+        from .operations.runtime_lifecycle import (
+            build_runtime_rollback_workflow,
+            build_runtime_update_workflow,
+        )
         from .operations.workflow import EnqueueService, WorkflowRegistry
         from .queries import ApplicationQueryService
         from .legacy_import import utcnow
         from .runtime_handoff import RuntimeHandoffRenderer
+        from .runtime_lifecycle_adapter import (
+            RuntimeLifecycleHostAdapter,
+            RuntimeLocations,
+        )
+        from .runtime_lifecycle_command import RuntimeLifecycleCommandService
+        from .runtime_process import RuntimeProcessRunner
         from .services import (
             ComponentLifecycleService,
             HostModeService,
@@ -237,7 +248,7 @@ class Application:
 
             return _Catalog
 
-        # U1.1: the same frozen registry registers acquisition/import.
+        # U1.1: the same registry registers acquisition/import.
         catalog = _catalog_module()
         acquisition_adapter = AcquisitionHostAdapter(
             application.paths,
@@ -248,6 +259,83 @@ class Application:
         )
         registry.register(build_acquire_workflow(acquisition_adapter))
         registry.register(build_import_workflow(acquisition_adapter))
+
+        def _fingerprint_for(model_id: str, quantization: str) -> str:
+            entry = _catalog_module().find(model_id)
+            if entry is None:
+                return ""
+            return catalog_fingerprint(entry, quantization)
+
+        # U1.2 §15.2: ONE durable runtime lifecycle path — the same frozen
+        # registry, enqueue service, and engine factory as activation and
+        # acquisition, with ONE production adapter.
+        class _RuntimeServerPort:
+            """Typed server seams; commands stay inside ``server.py``."""
+
+            def capture(self, view):
+                from .server import capture_service_state
+
+                return capture_service_state(view, application.runner())
+
+            def restart(self, view):
+                from .server import restart_service
+
+                restart_service(view, application.runner())
+
+            def stop(self, view):
+                from .server import stop_service
+
+                return stop_service(view, application.runner())
+
+            def health(self, view, *, timeout: int = 120):
+                from .server import health_check
+
+                return health_check(view, timeout=timeout)
+
+            def inference(self, view, *, timeout: float = 20.0):
+                from .server import minimal_inference_probe
+
+                return minimal_inference_probe(view, timeout=timeout)
+
+        def _runtime_locations() -> RuntimeLocations:
+            snapshot = application.read_model()
+            active_root = str(
+                snapshot.get("llama_cpp_path") or "/root/llama.cpp"
+            )
+            parent = active_root.rsplit("/", 1)[0] or "/root"
+            return RuntimeLocations(
+                container_name=str(snapshot.get("container_name") or "llm"),
+                active_root=active_root,
+                managed_root=f"{active_root}-managed",
+                sources_root=f"{active_root}-sources",
+                runtime_parent=parent,
+            )
+
+        def _thermal_ok() -> bool:
+            try:
+                with units.read() as conn:
+                    latch = ThermalStateRepository(conn).get().get(
+                        "latch_state"
+                    )
+                    return latch != "stopped"
+            except Exception:  # noqa: BLE001 - doubt is unsafe
+                return False
+
+        runtime_adapter = RuntimeLifecycleHostAdapter(
+            units=units,
+            locations=_runtime_locations(),
+            process_runner=RuntimeProcessRunner(),
+            server_port=_RuntimeServerPort(),
+            renderer=RuntimeHandoffRenderer(application.paths.app_dir),
+            state_supplier=lambda: application.read_model(),
+            clock=utcnow,
+            thermal_supplier=_thermal_ok,
+        )
+        registry.register(build_runtime_update_workflow(runtime_adapter))
+        registry.register(build_runtime_rollback_workflow(runtime_adapter))
+
+        # ONE freeze point for ALL five durable workflows; exactly one
+        # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
         enqueue = EnqueueService(
             units,
@@ -269,20 +357,16 @@ class Application:
         application.activation = ActivationCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
         )
-
-        def _fingerprint_for(model_id: str, quantization: str) -> str:
-            entry = _catalog_module().find(model_id)
-            if entry is None:
-                return ""
-            return catalog_fingerprint(entry, quantization)
-
-        # U1.1 §7.1: ONE composed durable acquisition/import command.
         application.model_acquisition = ModelAcquisitionCommandService(
             units=units,
             enqueue=enqueue,
             engine_factory=engine_factory,
             fingerprint_for=_fingerprint_for,
         )
+        application.runtime_lifecycle = RuntimeLifecycleCommandService(
+            units=units, enqueue=enqueue, engine_factory=engine_factory
+        )
+
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)
         application.openwebui = OpenWebUIService(units)

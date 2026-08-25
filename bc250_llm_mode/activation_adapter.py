@@ -200,17 +200,23 @@ class ActivationHostAdapter:
         view = self._candidate_view(partial)
         from .runtime_handoff import runtime_fingerprint
 
-        build = view.get("llamacpp_build")
+        with self._units.read() as conn:
+            from .runtime_builds import RuntimeComponentRepository
+
+            component_row = RuntimeComponentRepository(conn).current()
+        identity = (
+            (component_row or {}).get("promoted_build_id")
+            or (view.get("llamacpp_build") or {}).get("describe", "")
+            if isinstance(view.get("llamacpp_build"), dict)
+            else (component_row or {}).get("promoted_build_id")
+        ) or ""
         return dataclasses.replace(
             partial,
             settings=dict(resolved["resolved_optimizations"]),
             fit_verdict="OK",
             fit_detail=str(resolved.get("warnings") or ""),
             runtime_fingerprint=runtime_fingerprint(view),
-            component_identity=(
-                build.get("describe") if isinstance(build, dict) else None
-            )
-            or "",
+            component_identity=str(identity),
         )
 
     def observe_candidate(

@@ -75,7 +75,9 @@ def test_v5_fixture_imports_once_and_query_is_authoritative(tmp_path):
     assert data["thermal_watchdog_state"] == "nominal"
     # llama.cpp build provenance survived migration into its own table.
     build = data.get("llamacpp_build") or {}
-    assert build.get("describe") == "b7598"
+    # U1.2: legacy describe provenance is superseded by the durable
+    # lineage read model; without a promoted build there is none.
+    assert "build_id" not in build or build.get("build_id") is None
 
     # Import happened exactly once: the JSON source is byte-identical after
     # a second compose, and no re-import changed durable revision counts.

@@ -166,9 +166,7 @@ def autotune(
                 from .runtime_handoff import runtime_fingerprint
 
                 runtime.promote_known_good(
-                    component_identity=(state.get("llamacpp_build") or {}).get("describe")
-                    if isinstance(state.get("llamacpp_build"), dict)
-                    else None
+                    component_identity=_runtime_component_identity(application)
                 )
         except Exception:
             runner.emit("autotune: winner verification failed; restoring original configuration")
@@ -201,3 +199,15 @@ def autotune(
         state["autotune_history"] = ([*history, *results])[-40:]
     restart_and_wait(state, runner)
     return {"winner": best, "results": results}
+
+
+def _runtime_component_identity(application) -> str | None:
+    """The promoted immutable build id (never a mutable describe)."""
+    try:
+        with application.units.read() as conn:
+            from .runtime_builds import RuntimeComponentRepository
+
+            row = RuntimeComponentRepository(conn).current()
+            return (row or {}).get("promoted_build_id")
+    except Exception:  # noqa: BLE001 - best-effort annotation
+        return None

@@ -107,20 +107,26 @@ def test_host_mode_service_methods_reach_real_modules(tmp_path, monkeypatch):
     assert calls == ["stage", "apply", "switch"]
 
 
-def test_component_lifecycle_methods_reach_env_adapters(tmp_path, monkeypatch):
+def test_component_lifecycle_provisions_and_routes_runtime_to_durable_command(
+    tmp_path, monkeypatch,
+):
+    """U1.2 cutover: provisioning reaches env; runtime goes to the ONE
+    durable command (no synchronous update/rollback methods exist)."""
     import bc250_llm_mode.env as env
 
     application = _composed(tmp_path)
     view = dict(application.read_model())
     runner = QuietRunner()
 
-    monkeypatch.setattr(env, "setup_environment", lambda st, rn: {"ok": True})
-    monkeypatch.setattr(env, "update_llamacpp", lambda st, rn, *, tag=None: {"ok": True})
-    monkeypatch.setattr(env, "rollback_llamacpp", lambda st, rn: {"ok": True})
-
-    assert application.component.setup_environment(view, runner) == {"ok": True}
-    assert application.component.update_llamacpp(view, runner, tag="b9000")
-    assert application.component.rollback_llamacpp(view, runner) == {"ok": True}
+    monkeypatch.setattr(env, "setup_environment",
+                        lambda st, rn: {"ok": True})
+    assert application.component.provision_environment(view, runner) == {
+        "ok": True
+    }
+    # The legacy synchronous routes are deleted at the type level.
+    assert not hasattr(application.component, "update_llamacpp")
+    assert not hasattr(application.component, "rollback_llamacpp")
+    assert application.runtime_lifecycle is not None
 
 
 def test_openwebui_and_sharing_methods_reach_adapters(tmp_path, monkeypatch):

@@ -869,7 +869,8 @@ class HostModeService:
 
 
 class ComponentLifecycleService:
-    """Environment setup and llama.cpp update/rollback/provenance."""
+    """Environment provisioning; runtime lifecycle lives in the durable
+    ``RuntimeLifecycleCommandService`` (ADR 004 D11)."""
 
     def __init__(self, units) -> None:
         self._units = units
@@ -892,19 +893,12 @@ class ComponentLifecycleService:
         persist_state_diff(self._units, before, view)
         return result
 
-    def update_llamacpp(self, view, runner, *, tag: str | None = None) -> Any:
-        from .env import update_llamacpp
+    def provision_environment(self, view, runner) -> Any:
+        """Provision container/venv/toolchain prerequisites (no runtime)."""
+        from .env import setup_environment
 
         before = dict(view)
-        result = update_llamacpp(view, runner, tag=tag)
-        persist_state_diff(self._units, before, view)
-        return result
-
-    def rollback_llamacpp(self, view, runner) -> Any:
-        from .env import rollback_llamacpp
-
-        before = dict(view)
-        result = rollback_llamacpp(view, runner)
+        result = setup_environment(view, runner)
         persist_state_diff(self._units, before, view)
         return result
 

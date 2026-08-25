@@ -162,9 +162,11 @@ class DashboardMixin:
             llama_buttons, text="Update to pinned release",
             command=self._dashboard_llamacpp_update,
         ).pack(side="left", padx=5)
-        ttk.Button(
-            llama_buttons, text="Roll back", command=self._dashboard_llamacpp_rollback
-        ).pack(side="left")
+        self.llamacpp_rollback_btn = ttk.Button(
+            llama_buttons, text="Roll back", command=self._dashboard_llamacpp_rollback,
+            state="disabled",
+        )
+        self.llamacpp_rollback_btn.pack(side="left")
         self._refresh_llamacpp_card()
         ttk.Button(quick, text="Server log", command=lambda: self._dashboard_tail("server")).pack(side="right")
         ttk.Button(quick, text="Setup log", command=lambda: self._dashboard_tail("setup")).pack(side="right", padx=5)
@@ -539,19 +541,36 @@ class DashboardMixin:
         self._work(work, done)
 
     def _refresh_llamacpp_card(self) -> None:
-        from ..env import llamacpp_status
-
         try:
-            report = llamacpp_status(self.state_data, self.runner())
-            build = report.get("installed") or {}
-            describe = build.get("describe") if isinstance(build, dict) else None
-            state_text = "on the pinned release" if report.get("on_pin") else (
-                f"drifted from pin {report.get('pin')}"
-                if describe else "not recorded yet; run setup or update"
-            )
-            self.llamacpp_status_var.set(
-                f"Installed: {describe or 'unknown'} — {state_text}"
-            )
+            report = self.application.runtime_lifecycle.status()
+            promoted = report.get("promoted") or {}
+            short = promoted.get("short")
+            rollback_ok = report.get("rollback_available")
+            barrier = report.get("recovery_barrier")
+            if barrier:
+                state_text = (
+                    f"RECOVERY REQUIRED (operation {barrier['operation_id'][:12]})"
+                )
+            elif short:
+                state_text = f"promoted build {short}"
+                if rollback_ok:
+                    state_text += "; prior build retained for rollback"
+            else:
+                state_text = "not recorded yet; run setup or update"
+            op = report.get("active_operation")
+            if op:
+                state_text += (
+                    f" | {op['type']} {op['state']}"
+                    + (f" {op['phase']} {op['current']}/{op['total']}"
+                       if op.get("total") else "")
+                    + " (foreground only)"
+                )
+            self.llamacpp_status_var.set(f"llama.cpp: {state_text}")
+            # Rollback availability gates the button honestly.
+            if hasattr(self, "llamacpp_rollback_btn"):
+                self.llamacpp_rollback_btn.configure(
+                    state="normal" if rollback_ok and not barrier else "disabled"
+                )
         except (OSError, RuntimeError, ValueError) as exc:
             self.llamacpp_status_var.set(f"Status unavailable: {exc}")
 
@@ -561,32 +580,95 @@ class DashboardMixin:
     def _dashboard_llamacpp_update(self) -> None:
         if not messagebox.askyesno(
             "llama.cpp update",
-            "Rebuild llama.cpp from the pinned known-good release?\n"
-            "The model server restarts after an atomic build switch;\n"
-            "a failed health check rolls everything back automatically.",
+            "Build the pinned known-good release as an immutable, "
+            "verified runtime?\n\n"
+            "Runs in the FOREGROUND: keep this window open. Closing it "
+            "pauses the operation safely for resume (background workers "
+            "arrive in a later release).\n"
+            "The server restarts after an atomic, verified switch; any "
+            "unproven failure restores the previous build.",
         ):
             return
 
-        def action() -> None:
-            application = self.application
-            application.component.update_llamacpp(self.state_data, application.runner())
-            self.commit_narrow()
+        def action() -> dict:
+            return self.application.runtime_lifecycle.update(
+                requested_by="gui"
+            ).to_dict()
 
-        self._work(action, self._refresh_llamacpp_card)
+        def done() -> None:
+            outcome = self._last_outcome.get("runtime", {})
+            status = outcome.get("status")
+            if status == "SUCCEEDED" and outcome.get("already_active"):
+                messagebox.showinfo("llama.cpp", "Already on the requested "
+                                    "verified build — nothing to do.")
+            elif status == "SUCCEEDED":
+                messagebox.showinfo("llama.cpp", "Runtime updated and "
+                                    "live-verified.")
+            elif status == "RECOVERY_REQUIRED":
+                messagebox.showerror(
+                    "llama.cpp",
+                    "The operation needs manual recovery. Operation id:\n"
+                    f"{outcome.get('operation_id')}\n"
+                    "Every retained tree was preserved.",
+                )
+            elif status == "BUSY":
+                messagebox.showinfo("llama.cpp",
+                                    "Another runtime operation is active.")
+            else:
+                messagebox.showwarning("llama.cpp",
+                                       f"Update ended with {status}.")
+            self._refresh_llamacpp_card()
+
+        def work_and_capture() -> dict:
+            result = action()
+            self._last_outcome["runtime"] = result
+            return result
+
+        self._work(work_and_capture, done)
 
     def _dashboard_llamacpp_rollback(self) -> None:
+        status_report = self.application.runtime_lifecycle.status()
+        target = (status_report.get("rollback") or {}).get("short")
+        if not target:
+            messagebox.showinfo("llama.cpp rollback",
+                                "No verified prior runtime is retained yet.")
+            return
         if not messagebox.askyesno(
             "llama.cpp rollback",
-            "Restore the previous llama.cpp build and restart the server?",
+            f"Restore retained build {target} and restart the "
+            "server?\n\nForeground operation; closing this window pauses "
+            "it safely for resume.",
         ):
             return
 
-        def action() -> None:
-            application = self.application
-            application.component.rollback_llamacpp(self.state_data, application.runner())
-            self.commit_narrow()
+        def work() -> dict:
+            result = self.application.runtime_lifecycle.rollback(
+                requested_by="gui"
+            ).to_dict()
+            self._last_outcome["runtime"] = result
+            return result
 
-        self._work(action, self._refresh_llamacpp_card)
+        def done() -> None:
+            outcome = self._last_outcome.get("runtime", {})
+            status = outcome.get("status")
+            if status == "SUCCEEDED":
+                messagebox.showinfo("llama.cpp", "Rollback complete and "
+                                    "live-verified.")
+            elif status == "RECOVERY_REQUIRED":
+                messagebox.showerror(
+                    "llama.cpp",
+                    "Rollback could not be proven safe; repair is required."
+                    f"\nOperation {outcome.get('operation_id')}",
+                )
+            elif status == "BUSY":
+                messagebox.showinfo("llama.cpp",
+                                    "Another runtime operation is active.")
+            else:
+                messagebox.showwarning("llama.cpp",
+                                       f"Rollback ended with {status}.")
+            self._refresh_llamacpp_card()
+
+        self._work(work, done)
 
     def _dashboard_change_context(self) -> None:
         try:

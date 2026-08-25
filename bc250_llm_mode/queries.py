@@ -71,7 +71,13 @@ class ApplicationQueryService:
             thermal = ThermalStateRepository(conn).get()
             known_good = KnownGoodRuntimeRepository(conn).get()
             runtime = RuntimeConfigRepository(conn).get()
-            build = ComponentProvenanceRepository(conn).get_component("llamacpp")
+            from .runtime_builds import (
+                RuntimeBuildRepository,
+                RuntimeComponentRepository,
+            )
+
+            component_row = RuntimeComponentRepository(conn).current()
+            builds = RuntimeBuildRepository(conn)
             # Quarantined unknown keys are support evidence, never projected
             # to frontends as configuration (§5.5).
             from .repositories import ObservationRepository
@@ -109,12 +115,20 @@ class ApplicationQueryService:
         state["thermal_watchdog_baseline"] = thermal["baseline"]
         if known_good:
             state["known_good_runtime"] = known_good
-        if build:
-            state["llamacpp_build"] = {
-                "describe": build["describe"],
-                "commit": build["commit_sha"],
-                "recorded": build["recorded"],
-            }
+        if component_row and component_row.get("promoted_build_id"):
+            try:
+                promoted = builds.require(component_row["promoted_build_id"])
+                state["llamacpp_build"] = {
+                    "describe":
+                        promoted.get("requested_ref")
+                        or promoted["build_id"].rsplit(":", 1)[-1][:12],
+                    "commit": promoted.get("source_commit"),
+                    "build_id": promoted["build_id"],
+                    "generation": component_row.get("generation"),
+                    "provenance_class": promoted.get("provenance_class"),
+                }
+            except Exception:  # noqa: BLE001 - snapshot stays best-effort
+                pass
         if llamacpp_history:
             state["llamacpp_history"] = llamacpp_history
         if models_custom:

@@ -21,13 +21,6 @@ from .chat import benchmark, benchmark_repeat, run_chat
 from .constants import KNOWN_GOOD_LLAMACPP
 from .desktop import switch_to_desktop_mode
 from .disclaimer import require_acknowledgment
-from .env import (
-    evaluate_pin,
-    llamacpp_status,
-    rollback_llamacpp,
-    setup_environment,
-    update_llamacpp,
-)
 from .hardware import detect_hardware
 from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
@@ -137,8 +130,10 @@ def _parser() -> argparse.ArgumentParser:
     thermals_p.add_argument("action", choices=("status", "once", "watch", "reset"))
     thermals_p.add_argument("--interval", type=float, default=5.0)
     llamacpp = sub.add_parser("llamacpp", help="Manage the pinned llama.cpp Vulkan build")
-    llamacpp.add_argument("action", choices=("status", "update", "rollback"))
+    llamacpp.add_argument("action", choices=("status", "update", "rollback",
+                                             "resume"))
     llamacpp.add_argument("--tag", help="Update to a specific upstream tag instead of the shipped pin")
+    llamacpp.add_argument("--operation-id", help="Operation id for explicit resume", default=None)
     context = sub.add_parser("ctx", aliases=["context"], help="Change context size and restart safely")
     context.add_argument("tokens", type=int)
     slots = sub.add_parser("slots", aliases=["users"], help="Set concurrent request slots and restart safely")
@@ -375,7 +370,8 @@ def main(argv: list[str] | None = None) -> int:
         report["llamacpp"] = {
             "installed": describe,
             "pin": KNOWN_GOOD_LLAMACPP,
-            "on_pin": evaluate_pin(describe),
+            "on_pin": bool(describe),
+            "build_id": build.get("build_id") if isinstance(build, dict) else None,
         }
         try:
             zram_size = Path("/sys/block/zram0/disksize")
@@ -469,21 +465,24 @@ def main(argv: list[str] | None = None) -> int:
             watch_loop(application, state, runner, interval_sec=max(1.0, args.interval))
         return 0
     if args.command == "llamacpp":
+        # U1.2: ONE durable runtime lifecycle route (ADR 004 D11).
+        lifecycle = application.runtime_lifecycle
         if args.action == "status":
-            status_runner = CommandRunner(configure_logging(state["logs_dir"]))
-            print(json.dumps(llamacpp_status(state, status_runner), indent=2))
+            print(json.dumps(lifecycle.status(), indent=2, default=str))
             return 0
         require_acknowledgment(state)
         if args.action == "update":
-            result = application.component.update_llamacpp(
-                state, runner, tag=args.tag
+            outcome = lifecycle.update(
+                requested_ref=getattr(args, "tag", None),
+                requested_by="cli",
             )
+        elif args.action == "rollback":
+            outcome = lifecycle.rollback(requested_by="cli")
         else:
-            result = application.component.rollback_llamacpp(state, runner)
-        # Persistence owner: ComponentLifecycleService committed internally
-        # (settings diff + component provenance); no caller-side commit.
-        print(json.dumps(result, indent=2, default=str))
-        return 0
+            outcome = lifecycle.resume(args.operation_id)
+        exit_code = _lifecycle_exit_code(outcome)
+        print(json.dumps(outcome.to_dict(), indent=2, default=str))
+        return exit_code
     if args.command in {"webui", "openwebui"}:
         require_acknowledgment(state)
         svc = application.openwebui
