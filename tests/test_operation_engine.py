@@ -273,3 +273,73 @@ def test_effect_exception_with_probe_absent_is_failed_safe(tmp_path):
     outcome = _engine(harness, "w1").execute_one("op-safe")
     assert outcome.reason_code == "FAILED_SAFE"
     assert harness.world.read_active()["application_count"] == 0
+
+def test_failure_classification_probe_crash_fails_operation_safely(tmp_path):
+    """P0 finding (worker entry gate): the classification probe re-observes
+    reality and can raise for exactly the condition that failed the step.
+    That exception must not escape ``execute_one``; the operation ends
+    FAILED_SAFE and previously verified steps still drive compensation."""
+    harness = Harness(tmp_path)
+    harness.set_desired("v1")
+
+    def exploding_probe(ctx):
+        raise RuntimeError("probe observes the same broken condition")
+
+    def exploding_execute(ctx):
+        raise RuntimeError("step condition broken")
+
+    harness.registry = _rebuild_registry(
+        harness,
+        {
+            "capture_prior": {
+                "probe": exploding_probe,
+                "execute": exploding_execute,
+            }
+        },
+    )
+    harness.enqueue(desired_value="v1", operation_id="op-probe-crash")
+
+    outcome = _engine(harness, "w1").execute_one("op-probe-crash")
+
+    assert outcome.kind == "COMPLETED"
+    assert outcome.reason_code == "FAILED_SAFE"
+    with harness.units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        record = ops.get("op-probe-crash")
+        assert record.state == OperationState.FAILED_SAFE
+        assert record.error_code == "STEP_FAILED_SAFE"
+
+
+def test_probe_crash_after_verified_effects_still_compensates(tmp_path):
+    """An unreadable classification probe proves nothing: a checkpointed,
+    reversible mutation whose probe crashes is still compensated (or
+    escalated), never silently reported failed-safe while applied."""
+    harness = Harness(tmp_path)
+    harness.set_desired("v1")
+
+    def exploding_probe(ctx):
+        raise RuntimeError("verification target unreadable")
+
+    def breaking_verify(ctx):
+        raise RuntimeError("verify exploded after the effect landed")
+
+    harness.registry = _rebuild_registry(
+        harness,
+        {
+            "apply_effect": {
+                "probe": exploding_probe,
+                "verify": breaking_verify,
+            }
+        },
+    )
+    harness.enqueue(desired_value="v1", operation_id="op-late-probe")
+
+    outcome = _engine(harness, "w1").execute_one("op-late-probe")
+
+    assert outcome.reason_code == "FAILED_ROLLED_BACK"
+    with harness.units.begin() as conn:
+        ops = OperationRepository(conn, clock=FakeClock())
+        state = ops.get("op-late-probe").state
+    assert state is OperationState.FAILED_ROLLED_BACK
+    # The applied effect was actually reversed by compensation.
+    assert harness.world.read_active()["compensated"] is True

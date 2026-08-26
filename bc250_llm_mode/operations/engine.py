@@ -34,6 +34,7 @@ from .repositories import (
 from .validation import sanitize_payload
 from .workflow import (
     EffectContext,
+    ProbeResult,
     StepDefinition,
     WorkflowDefinition,
     WorkflowVersionUnavailable,
@@ -974,7 +975,19 @@ class ExecutionEngine:
         Raw exception text is never persisted — only the class name and a
         bounded generic summary.
         """
-        probe = step.probe(ctx)
+        try:
+            probe = step.probe(ctx)
+        except Exception:  # noqa: BLE001 - classification must not escape
+            # P0 finding: the classification probe re-observes reality and
+            # may raise for exactly the condition that failed the step.
+            # An unreadable probe proves NOTHING: classify this step as
+            # UNCERTAIN so the durable compensation set decides — verified
+            # mutations are still reversed or escalated to
+            # RECOVERY_REQUIRED, while a step that provably never mutated
+            # fails safely through the existing no-compensation rules.
+            probe = ProbeResult(
+                RecoveryClass.UNCERTAIN_MANUAL, "PROBE_UNAVAILABLE"
+            )
         # Durable reconstruction (§3.3) EXCLUDING the failing step itself:
         # an intent that never mutated (probe ABSENT) is not evidence.
         durable_pairs = [
