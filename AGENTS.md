@@ -2,16 +2,18 @@
 
 ## Current state
 
-**P3 OPENED — bounded-execution migration inventory landed
-(`837610c`, `test(P3)`): an AST census freezing all nine production
-external-effect files with per-file target dispositions; shell=True is
-forbidden outright and chat's two `timeout=None` HTTP calls are pinned
-so their count can only fall. Next: implement the bounded process port
-v2 (promote runtime_process machinery), migrate CommandRunner +
-bootstrap + hardware + app-terminal onto it, then the bounded HTTP
-transport (chat/hub_source/__main__), then §9.5 exit gates
-(hung/noisy child, half-open socket, secret canaries, 20-cycle
-stress).**
+**P3 IN PROGRESS — DEF-003 core closed (`f1c0e48`): CommandRunner is
+bounded. All 28 production call sites (server/systemd, GUI, chat /llm,
+maintenance) inherit watchdog-enforced timeouts (default 600 s), 8 MiB
+output caps with truncation markers, and whole-process-group TERM→KILL;
+signatures unchanged so no feature shifts. Real-child gates prove the
+silent-hang stop, group-grandchild reaping, single truncation marker,
+and env-secret canary absence. Inventory census stays green.**
+
+P3 remaining: bounded HTTP transport for chat/hub_source/__main__
+(§9.4 — drive chat's two pinned `timeout=None` calls to zero),
+app-terminal-launcher policy note, §9.5 exit gates (half-open socket,
+20-cycle stress, secret canaries across SQLite/events/bundles).
 
 P2 landed:
 
