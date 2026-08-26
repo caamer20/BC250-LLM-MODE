@@ -354,6 +354,44 @@ def test_live_lock_elsewhere_refuses_second_child_exit_3(tmp_path):
 # -- clean-wheel gate ---------------------------------------------------------------
 
 
+def test_real_detached_child_through_command_api_completes_operation(
+    tmp_path,
+):
+    """P1 §7.5 exit gate: `OperationCommandService.detach` with the
+    PRODUCTION spawner hands a queued operation to ONE real detached
+    child, which finishes it exactly once after the parent moves on."""
+    from bc250_llm_mode.operations.command_service import OperationCommandService
+
+    world = Profile(tmp_path)
+    source = tmp_path / "api-src.gguf"
+    source.write_bytes(tiny_standard_gguf())
+    record = world.enqueue_import(source)
+
+    commands = OperationCommandService(
+        world.units,
+        engine_factory=lambda: None,  # detached path never drives here
+        enqueue=None,
+        worker_profile_dir=world.paths.app_dir,  # §7.5: same database
+    )
+    result = commands.detach(record.id)  # no injected spawner: production
+    assert result.outcome == "DETACHED"
+    assert result.detail["continues_after_close"] is True
+    assert int(result.detail["pid"]) > 0
+
+    deadline = 60.0
+    import time as _time
+
+    waited = 0.0
+    while waited < deadline:
+        if world.op_state(record.id) is OperationState.SUCCEEDED:
+            break
+        _time.sleep(0.25)
+        waited += 0.25
+    assert world.op_state(record.id) is OperationState.SUCCEEDED
+    published = list(world.paths.model_artifacts_dir.rglob("*.gguf"))
+    assert len(published) == 1  # exactly-once through the API handoff
+
+
 @pytest.mark.slow
 def test_installed_wheel_runs_worker_module_without_repository_root(tmp_path):
     """P0 exit gate: build the wheel, install it away from the source tree,

@@ -26,6 +26,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 import threading
 import time
@@ -185,6 +186,17 @@ def main(argv: list[str] | None = None) -> int:
             f"no database at {database}; run setup before detaching work",
             EXIT_REPAIR_REQUIRED,
         )
+
+    # Startup receipt (observability §18): proves this specific pid started
+    # with which arguments, even when stdout/stderr are detached.
+    try:
+        paths.logs_dir.mkdir(parents=True, exist_ok=True)
+        (paths.logs_dir / "worker-startup.txt").write_text(
+            json.dumps({"pid": os.getpid(), "argv": sys.argv[1:]})
+            + "\n",
+        )
+    except OSError:
+        pass
 
     logger = logging.getLogger("bc250.worker_main")
     try:
