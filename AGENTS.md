@@ -17,9 +17,13 @@ dead/half-open connection is cut at its bound. The inventory census now
 enforces ZERO `timeout=None` production sites forever and pins the
 typed constants.
 
-P3 remaining (§9.5 exit battery): half-open socket + 20-cycle
-timeout/cancel stress gate, cross-surface secret canaries, then P4
-authenticated gateway ADR.
+**§9.5 stress gate green (`bace791`): twenty consecutive
+timeout/stop cycles — every stop within bound, runner functional
+afterwards, no temp residue.**
+
+P3 remaining: half-open-socket probe for the HTTP side (the typed
+timeouts already bound it), a cross-surface secret canary sweep, then
+close P3 and open P4 with the gateway threat-model ADR.
 
 P2 landed:
 
