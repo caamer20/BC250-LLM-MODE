@@ -212,6 +212,7 @@ class DashboardMixin:
         )
         self.llamacpp_rollback_btn.pack(side="left")
         self._refresh_llamacpp_card()
+        ttk.Button(quick, text="Activity Center", command=self._open_activity_center).pack(side="right", padx=5)
         ttk.Button(quick, text="Server log", command=lambda: self._dashboard_tail("server")).pack(side="right")
         ttk.Button(quick, text="Setup log", command=lambda: self._dashboard_tail("setup")).pack(side="right", padx=5)
 
@@ -733,3 +734,15 @@ class DashboardMixin:
 
     def _launch_chat_terminal(self) -> None:
         self.application.open_chat_terminal()
+
+    def _open_activity_center(self) -> None:
+        """U1.5: open the Activity Center over the shared control plane."""
+        from tkinter import ttk as _ttk
+
+        from .activity import ActivityCenterFrame
+
+        window = _ttk.Toplevel(self)
+        window.title("Activity Center")
+        frame = ActivityCenterFrame(window, self.application)
+        frame.pack(fill="both", expand=True)
+        frame.start_polling()
