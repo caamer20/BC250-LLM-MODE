@@ -312,6 +312,8 @@ class Application:
             )
 
         def _thermal_ok() -> bool:
+            from .repositories import ThermalStateRepository
+
             try:
                 with units.read() as conn:
                     latch = ThermalStateRepository(conn).get().get(
