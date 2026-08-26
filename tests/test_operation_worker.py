@@ -25,10 +25,6 @@ from bc250_llm_mode.operations.worker import Worker
 from fakes import FakeClock
 from helpers import Harness
 
-import faulthandler
-
-faulthandler.dump_traceback_later(20, exit=True)
-
 
 class Wake:
     """Deterministic injected wake primitive (threading.Event-like)."""
