@@ -70,6 +70,8 @@ class Application:
     model_acquisition: Any = None
     runtime_lifecycle: Any = None
     maintenance: Any = None
+    operation_query: Any = None
+    operation_commands: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -371,6 +373,22 @@ class Application:
         # U1.3: exposed read-only for the explicitly-started worker host;
         # composition itself NEVER constructs or starts one.
         application.registry = frozen_registry
+
+        # U1.4: ONE operation control plane over the same frozen registry —
+        # read-only queries plus fenced commands. No new engine graph is
+        # created: the command service reuses the shared engine factory.
+        from .operations.command_service import OperationCommandService
+        from .operations.query_service import OperationQueryService
+
+        application.operation_query = OperationQueryService(
+            units, clock=utcnow
+        )
+        application.operation_commands = OperationCommandService(
+            units,
+            engine_factory=engine_factory,
+            enqueue=enqueue,
+            worker_profile_dir=application.paths.app_dir,
+        )
 
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)

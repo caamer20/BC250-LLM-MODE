@@ -19,14 +19,17 @@ WORKER_MAIN_ARGV = (sys.executable, "-m", "bc250_llm_mode.worker_main")
 
 def spawn_detached(
     *,
+    extra_argv: tuple[str, ...] | list[str] = (),
     spawner: Callable[[list[str]], Any] | None = None,
 ) -> int:
     """Start one detached worker process; returns its pid.
 
     The default spawner uses a fresh process group with stdio detached so
     the worker outlives the frontend cleanly. Tests inject a recorder.
+    ``extra_argv`` extends the fixed base argv (e.g. ``--profile DIR``
+    for U1.4 generic detach); it never replaces it.
     """
-    argv = list(WORKER_MAIN_ARGV)
+    argv = list(WORKER_MAIN_ARGV) + [str(a) for a in extra_argv]
     if spawner is not None:
         result = spawner(argv)
         return int(result)
