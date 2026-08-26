@@ -2,8 +2,65 @@
 
 ## Current state
 
-**U1.3 COMPLETE — explicit worker lifecycle landed on top of the closed
-Session 6B / U1.2 durable llama.cpp runtime lifecycle gate.**
+**P0 (foundation correction) COMPLETE — executing
+`FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md` (now the sequencing
+authority after U1.3).**
+
+P0 landed three boundaries:
+
+- **P0.2** — the process-wide `faulthandler.dump_traceback_later(20,
+  exit=True)` import-time watchdog in `tests/test_operation_worker.py`
+  is DELETED. `tests/support_diagnostics.py` provides
+  `ScopedTracebackDiagnostics` (dumps stacks for ONE block/wait without
+  exiting, always cancels) and `wait_with_diagnostics` (bounded child
+  wait → structured `(returncode, timed_out)`, kills the child's whole
+  process group). Guards: AST scan over `tests/` forbids
+  `exit=True`/`os._exit`; a child-interpreter probe proves importing the
+  previously poisoned module arms nothing.
+- **P0.1** — DEF-001 closed: `bc250_llm_mode/worker_main.py` is a REAL
+  thin entry (`main(argv)->int`, argparse `--profile/--quiet-period/
+  --lease-ttl` with bounded ranges, absolute-path + symlink refusal,
+  missing-database → exit 4 with stable codes; 0 idle-exit / 2 usage /
+  3 already-running / 4 repair / 5 run-failed / 130 interrupted).
+  `worker_service.run_worker_main` now delegates (dead `json_safe`
+  removed). Mandatory gates: a session-detached child completes a REAL
+  production MODEL_IMPORT v1 of a tiny valid GGUF exactly once after
+  parent handoff (artifact+alias exactly once, staging cleaned, boot
+  policy untouched); no-work/paused/cancelled/poisoned/lock-conflict/
+  malformed-policy cases covered; slow clean-wheel gate runs
+  `python -m bc250_llm_mode.worker_main --help` and the repair path from
+  an installed wheel with repo root off sys.path.
+- **P0 findings fixed in production code**: (a) engine failure
+  classification is now exception-safe — a step's classification probe
+  that itself raises classifies that step UNCERTAIN so durable
+  compensation still decides (previously the exception escaped
+  `execute_one`, leaving operations RUNNING under live leases);
+  regression tests added for both fail-safe and compensate branches;
+  (b) `app.py _wire_services` bound `ThermalStateRepository` (latent
+  NameError on the composed runtime thermal barrier), pinned by a new
+  symtable composition-hygiene guard (`tests/test_composition_hygiene.py`)
+  proving every referenced name in `app.py` resolves through some
+  enclosing scope.
+- **P0.3** — baseline reconciled (see Verification); CHANGELOG P0 section
+  added; user-owned untracked files preserved untouched.
+
+Verification (this sandbox still requires chunked execution):
+authoritative collection **689** (`pytest tests --collect-only -q`);
+default suite green across nine deterministic alphabetical chunks:
+688 passed + 1 Linux-gated skip = 689 reconciled; slow gates explicit:
+runtime stress/canaries **6/6**, acquisition stress **41/41**,
+clean-wheel incl. runtime workflow execution **2/2** plus the NEW
+worker-module clean-wheel gate (**3/3** in `-m slow tests/test_packaging.py
+tests/test_worker_main_entry.py::test_installed_wheel_runs_worker_module_without_repository_root`);
+compileall + `git diff --check` clean.
+
+Next: **P1 Operation command/query API (U1.4)** — typed view models,
+`OperationQueryService`, fenced `OperationCommandService`,
+`bc250 operations …` CLI, generic detach contract; then P2 Activity
+Center.
+
+Previous checkpoint (U1.3): explicit worker lifecycle landed on top of
+the closed Session 6B / U1.2 durable llama.cpp runtime lifecycle gate.
 
 - One durable runtime path: CLI (`llamacpp update|rollback|resume|
   status`), wizard step 3, dashboard buttons, and initial setup all reach
@@ -52,20 +109,15 @@ Session 6B / U1.2 durable llama.cpp runtime lifecycle gate.**
   (hard guards). Foreground remains the default; second Ctrl-C pauses
   durably with exit 130 and resume instructions.
 
-Verification (this sandbox kills processes at ~20 s CPU, so the default
-suite cannot run single-shot HERE; it runs as four deterministic chunks
-whose counts reconcile to one authoritative collection — on target
-hardware `PYTHONPATH=. .venv/bin/pytest -q` is the command):
-authoritative collection **662**; chunked default execution green
-across eight deterministic alphabetical chunks (single-shot runs are CPU-
-capped here), 1 Linux-gated skip; slow gates explicit: runtime
-stress/canaries **6/6** (`-m slow tests/test_runtime_security_stress.py`),
-acquisition stress **41/41**, clean-wheel incl. runtime workflow execution
-**2/2**; compile/diff-check clean.
+Verification record for the U1.3 checkpoint (superseded by the P0 record
+above; kept for count provenance): authoritative collection **662**;
+chunked default execution green across eight deterministic alphabetical
+chunks, 1 Linux-gated skip; slow gates explicit: runtime stress/canaries
+**6/6**, acquisition stress **41/41**, clean-wheel incl. runtime workflow
+execution **2/2**; compile/diff-check clean.
 
-Next: **U1.4 Operation command/query API** (`operations list|show|events|
-wait|cancel|resume|retry|recover`) sharing one typed truth with the
-Activity Center (U1.5).
+~~Next: U1.4 Operation command/query API~~ → now **P1** of
+`FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`.
 
 The application is a `llama.cpp` Vulkan server behind a single systemd
 service, with a resumable native tkinter wizard/dashboard and a terminal
@@ -80,8 +132,12 @@ v1`, and Session 6B durable `RUNTIME_UPDATE/RUNTIME_ROLLBACK v1`
 
 ## Where we are in the master plan
 
-Executing `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md` (sequencing authority;
-the master plan remains requirements authority). **Phase 0 (Session 4.1) is
+**Sequencing authority is now `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`
+(U1.3 checkpoint → defensible 1.0.0). P0 foundation correction is DONE;
+next boundary P1 Operation command/query API (U1.4), then P2 Activity
+Center v1.** Historical context: `POST_R2_PRODUCTION_IMPLEMENTATION_PLAN.md`
+drove Sessions 4–6B; the master plan remains requirements authority.
+**Phase 0 (Session 4.1) is
 DONE**: one SQLite connection policy (`db.open_database`) with test-proven
 FK/query-only contracts and deterministic composition close; production
 wiring repaired (host-mode imports, composed-activation single sequence,

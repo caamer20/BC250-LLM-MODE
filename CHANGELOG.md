@@ -5,6 +5,40 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Added (P0: foundation correction — FINAL_PRODUCTION_READINESS plan)
+
+- Real detached-worker entry point `bc250_llm_mode/worker_main.py`
+  (closes DEF-001): strict profile/policy argument parsing, explicit
+  `AppPaths` resolution with no import-time home leakage, one
+  application composition, and stable exit codes (0 idle-exit, 2 usage,
+  3 worker-already-running, 4 repair-required, 5 run-failed,
+  130 interrupted). A detached child now provably completes a real
+  production operation (MODEL_IMPORT v1) exactly once from a clean
+  session-detached process, including from an installed wheel with the
+  repository root off `sys.path`.
+- Scoped test diagnostics (`tests/support_diagnostics.py`) replacing the
+  process-wide `faulthandler.dump_traceback_later(…, exit=True)` watchdog
+  (closes DEF-002): diagnostics wrap one block or subprocess wait, dump
+  stacks without killing the parent, always cancel, and hard kills apply
+  to child process groups only with a structured timeout result.
+- Composition hygiene guard: a symtable walk of `app.py` proves every
+  referenced name binds in some enclosing scope (caught the latent
+  `ThermalStateRepository` NameError on the composed runtime thermal
+  barrier).
+
+### Fixed (P0)
+
+- Engine failure classification is exception-safe: a step's
+  classification probe that itself raises now classifies that step
+  UNCERTAIN so durable compensation still decides, instead of escaping
+  `execute_one` and leaving operations RUNNING under live leases.
+- `_wire_services` binds `ThermalStateRepository` for the runtime
+  thermal barrier (latent NameError on the composed update path).
+- Removed dead `json_safe` from `worker_service.py`; `run_worker_main`
+  delegates to the single entry in `worker_main.py`.
+
+## [0.9.0.dev0] — unreleased development line
+
 ### Added (Session 6B+ / U1.3: explicit worker lifecycle)
 
 - One bounded, profile-scoped `WorkerHost`: survives frontend closure by
