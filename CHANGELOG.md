@@ -5,6 +5,28 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Added (P2/U1.5: Activity Center v1)
+
+- Activity Center (`gui/activity.py`) reachable from a dashboard button:
+  live operation list with severity-ordered rows, plain-language state
+  labels with exact semantics ("Waiting to start", "Paused safely",
+  "ATTENTION REQUIRED"…), bounded progress that never renders 100%
+  before terminal verification, action buttons derived ONLY from the
+  durable `OperationSummary` flags (stop/resume/retry/recover/dismiss),
+  "what happened / what is safe / what can I do now" copy, a status
+  strip for working/paused/recovery counts plus worker ownership, and a
+  redacted copy-support-details control.
+- The presentation contract (state labels, severity ordering, progress
+  clamp, action plan, support text) is pure and headless-tested over
+  every durable state; the widget layer is constructed under stubbed
+  tkinter against a REAL composed application and routes actions through
+  `operation_commands` only. A static guard forbids sqlite/subprocess/
+  repository/engine/worker imports in the GUI module forever.
+- Refreshing is coalesced on a bounded timer and never blocks the GUI
+  thread; closing the window never cancels work.
+
+## [0.9.0.dev0] — unreleased development line
+
 ### Added (P1/U1.4: operation command/query API)
 
 - Typed, versioned operation view models (`operations/views.py`):

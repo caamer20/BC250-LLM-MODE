@@ -2,10 +2,44 @@
 
 ## Current state
 
-**P1 (Operation command/query API, U1.4) COMPLETE on top of P0 —
-executing `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`
-(sequencing authority after U1.3). Next boundary: P2 Activity Center
-v1.**
+**P2 (Activity Center v1, U1.5) COMPLETE on top of P1/U1.4 and P0 —
+executing `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`. Next
+boundary: P3 Bounded execution platform (process + HTTP ports).**
+
+P2 landed:
+
+- `gui/activity.py`: Activity Center reachable from a dashboard button
+  (`_open_activity_center`, Toplevel + bounded polling that never blocks
+  the GUI thread and never cancels work on close). The §8.2 presentation
+  contract is PURE: `headline/message_copy/progress_text/severity_of/
+  severity_rank/action_plan/support_text` — plain-language labels for
+  every durable state, progress clamped to 99% until terminal
+  verification, recovery-required rendered as prominent attention with
+  "nothing deleted" safety copy, actions derived ONLY from
+  OperationSummary flags, support text reusing view redaction.
+- Widget layer is thin (Treeview + labels + action bar) over
+  `operation_query`/`operation_commands` from composition; status strip
+  shows working/paused/recovery counts and worker-lock ownership.
+- Headless gates: the full state matrix (QUEUED/RUNNING/PAUSED/
+  SUCCEEDED/FAILED_SAFE/RECOVERY_REQUIRED) rendered over REAL durable
+  rows; action availability per state; routing through operation_commands
+  verified by mutating durable state from a frame action; AST guard
+  forbids sqlite/subprocess/repository/engine/worker imports in the
+  module forever. Existing frozen Wizard surface untouched.
+
+Verification: authoritative collection **722**; default suite green
+across nine deterministic chunks: 721 passed + 1 Linux-gated skip = 722
+reconciled; compileall + diff-check clean. (Slow gates unchanged from P1:
+runtime 6/6, acquisition 41/41, clean-wheel 4/4.)
+
+Next: **P3 — one bounded process port (`ProcessCommandSpec` v2) and a
+bounded HTTP transport policy; migrate every production caller of raw
+subprocess/HTTP; AST guards against regressions; secret canaries.**
+
+---
+
+Previous checkpoint: **P1 (Operation command/query API, U1.4)
+COMPLETE on top of P0**
 
 P1 landed:
 
