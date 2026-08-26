@@ -10,10 +10,16 @@ signatures unchanged so no feature shifts. Real-child gates prove the
 silent-hang stop, group-grandchild reaping, single truncation marker,
 and env-secret canary absence. Inventory census stays green.**
 
-P3 remaining: bounded HTTP transport for chat/hub_source/__main__
-(§9.4 — drive chat's two pinned `timeout=None` calls to zero),
-app-terminal-launcher policy note, §9.5 exit gates (half-open socket,
-20-cycle stress, secret canaries across SQLite/events/bundles).
+**DEF-004 closed (`6242581`): both chat HTTP calls (SSE stream +
+non-stream POST) now share one typed `httpx.Timeout` — connect 10 s,
+write 30 s, read 120 s PER CHUNK — so slow tokens stream fine while a
+dead/half-open connection is cut at its bound. The inventory census now
+enforces ZERO `timeout=None` production sites forever and pins the
+typed constants.
+
+P3 remaining (§9.5 exit battery): half-open socket + 20-cycle
+timeout/cancel stress gate, cross-surface secret canaries, then P4
+authenticated gateway ADR.
 
 P2 landed:
 
