@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import httpx
 import json
 import re
 import time
@@ -12,6 +13,20 @@ from .llmmode import stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
 from .model_manager import change_context, change_parallel_slots, switch_model
+
+# P3 §9.4 (DEF-004): every HTTP call is bounded. Streaming generation uses
+# per-operation timeouts — a connect bound, and a read bound that applies
+# to EACH chunk, so slow tokens are fine but a dead/half-open connection
+# can never hang the desktop forever.
+CHAT_CONNECT_TIMEOUT_S = 10.0
+CHAT_READ_TIMEOUT_S = 120.0
+CHAT_WRITE_TIMEOUT_S = 30.0
+CHAT_HTTP_TIMEOUT = httpx.Timeout(
+    CHAT_READ_TIMEOUT_S,
+    connect=CHAT_CONNECT_TIMEOUT_S,
+    write=CHAT_WRITE_TIMEOUT_S,
+    read=CHAT_READ_TIMEOUT_S,
+)
 from .optimize import kv_scale_for_settings
 from .openwebui import (
     open_webui_status,
@@ -72,7 +87,7 @@ def stream_completion(
         payload.update({key: value for key, value in overrides.items() if value is not None})
     chunks: list[str] = []
     with httpx.stream(
-        "POST", f"http://127.0.0.1:{port}/v1/chat/completions", json=payload, timeout=None
+        "POST", f"http://127.0.0.1:{port}/v1/chat/completions", json=payload, timeout=CHAT_HTTP_TIMEOUT
     ) as response:
         response.raise_for_status()
         for line in response.iter_lines():
@@ -112,7 +127,7 @@ def benchmark(
         "max_tokens": max_tokens,
         "cache_prompt": True,
     }
-    response = httpx.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=payload, timeout=None)
+    response = httpx.post(f"http://127.0.0.1:{port}/v1/chat/completions", json=payload, timeout=CHAT_HTTP_TIMEOUT)
     response.raise_for_status()
     data = response.json()
     timings = data.get("timings") if isinstance(data.get("timings"), dict) else {}

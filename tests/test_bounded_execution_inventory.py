@@ -103,7 +103,7 @@ FROZEN_BASELINE = {
     "bootstrap.py": {"proc_calls": 1, "http_module": False,
                      "shell_kwargs": 0, "timeout_none": 0},
     "chat.py": {"proc_calls": 0, "http_module": True,
-                "shell_kwargs": 0, "timeout_none": 2},
+                "shell_kwargs": 0, "timeout_none": 0},
     "hardware.py": {"proc_calls": 1, "http_module": False,
                     "shell_kwargs": 0, "timeout_none": 0},
     "hub_source.py": {"proc_calls": 0, "http_module": True,
@@ -143,10 +143,23 @@ def test_no_shell_invocation_anywhere_in_production():
     assert not offenders, f"shell=True is forbidden: {offenders}"
 
 
-def test_known_timeout_none_defects_never_increase():
-    """DEF-004 tracking: chat currently holds TWO unbounded HTTP calls
-    (the non-stream POST and the SSE stream); P3 §9.4 must drive this
-    to zero without ever letting it grow."""
+def test_no_unbounded_http_timeout_remains():
+    """DEF-004 closed (P3 §9.4): zero ``timeout=None`` HTTP calls in
+    production, forever. Chat now uses typed per-operation timeouts."""
     actual = actual_census()
-    total = sum(r["timeout_none"] for r in actual.values())
-    assert total <= 2
+    offenders = {f: r["timeout_none"] for f, r in actual.items()
+                 if r["timeout_none"]}
+    assert not offenders, f"unbounded HTTP calls: {offenders}"
+
+
+def test_chat_declares_finite_typed_timeouts():
+    """The chat transport bounds connect/read/write explicitly; the read
+    bound is per-chunk so slow tokens are fine but a dead connection
+    cannot hang the client."""
+    from bc250_llm_mode import chat
+
+    assert chat.CHAT_CONNECT_TIMEOUT_S == 10.0
+    assert 0 < chat.CHAT_READ_TIMEOUT_S < 600
+    assert 0 < chat.CHAT_WRITE_TIMEOUT_S < 120
+    assert chat.CHAT_HTTP_TIMEOUT.connect == chat.CHAT_CONNECT_TIMEOUT_S
+    assert chat.CHAT_HTTP_TIMEOUT.read == chat.CHAT_READ_TIMEOUT_S
