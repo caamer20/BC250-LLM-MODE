@@ -2,9 +2,16 @@
 
 ## Current state
 
-**P2 (Activity Center v1, U1.5) COMPLETE on top of P1/U1.4 and P0 —
-executing `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`. Next
-boundary: P3 Bounded execution platform (process + HTTP ports).**
+**P3 OPENED — bounded-execution migration inventory landed
+(`837610c`, `test(P3)`): an AST census freezing all nine production
+external-effect files with per-file target dispositions; shell=True is
+forbidden outright and chat's two `timeout=None` HTTP calls are pinned
+so their count can only fall. Next: implement the bounded process port
+v2 (promote runtime_process machinery), migrate CommandRunner +
+bootstrap + hardware + app-terminal onto it, then the bounded HTTP
+transport (chat/hub_source/__main__), then §9.5 exit gates
+(hung/noisy child, half-open socket, secret canaries, 20-cycle
+stress).**
 
 P2 landed:
 
