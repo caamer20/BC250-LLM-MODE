@@ -5,6 +5,35 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Added (P1/U1.4: operation command/query API)
+
+- Typed, versioned operation view models (`operations/views.py`):
+  summaries, details, steps, events, leases, wait results, active
+  summary — path-label redacted, bounded, JSON-serializable.
+- `OperationQueryService`: read-only `list/show/steps/events/leases/
+  wait/active_summary` over one read unit each; mandatory pagination
+  bounds; stale leases reported truthfully; bounded condition-injectable
+  wait (never zero-timeout polling).
+- Fenced `OperationCommandService`: cancel (durable intent, no false
+  success), resume (paused work re-armed through the shared engine),
+  retry (NEW operation from the immutable request with lineage),
+  recover (real takeover of expired-lease work behind `--confirm`;
+  RECOVERY_REQUIRED barriers refused with kind-specific guidance, exit
+  78), dismiss (durable visibility flag via migration 007; audit
+  history never deleted), and §7.5 generic detach bound to THE ONE
+  worker entry point with an explicit profile argument.
+- `bc250-llm-mode operations …` CLI group: list/show/steps/events/wait/
+  cancel/resume/retry/recover/dismiss with `--json` schema-versioned
+  stdout and stable exit codes (0 ok, 1 refused, 78 recovery gating,
+  130 interrupted).
+- Migration 007 (`operation-dismissal`) advancing DATABASE_SCHEMA_VERSION
+  to 7: `operations.dismissed_at` plus a default-view partial index;
+  ordered, atomic, refusal-based like its predecessors.
+- `worker_main` writes a bounded startup receipt into the profile logs
+  dir so detached handoffs are diagnosable even with stdio cut off.
+
+## [0.9.0.dev0] — unreleased development line
+
 ### Added (P0: foundation correction — FINAL_PRODUCTION_READINESS plan)
 
 - Real detached-worker entry point `bc250_llm_mode/worker_main.py`

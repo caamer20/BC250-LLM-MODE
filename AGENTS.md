@@ -2,9 +2,57 @@
 
 ## Current state
 
-**P0 (foundation correction) COMPLETE — executing
-`FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md` (now the sequencing
-authority after U1.3).**
+**P1 (Operation command/query API, U1.4) COMPLETE on top of P0 —
+executing `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`
+(sequencing authority after U1.3). Next boundary: P2 Activity Center
+v1.**
+
+P1 landed:
+
+- **Views** (`operations/views.py`): frozen `OperationSummary/Detail/
+  StepView/EventView/LeaseView/WaitResult/Page/ActiveSummary` with
+  schema version 1 serialization; absolute paths redacted to
+  `file:<basename>` labels; closed event codes degrade to UNKNOWN.
+- **Query** (`operations/query_service.py`): list/show/steps/events/
+  leases/wait/active_summary; every method one READ unit; windowed SQL
+  (no N+1); pagination bounds (page_size ≤ 200, events ≤ 500) refused
+  with ValueError; stale leases reported expired while work stays
+  recoverable; wait is bounded with an injectable condition waiter
+  (production default: bounded-interval poller, never timeout=0).
+- **Commands** (`operations/command_service.py`): cancel/resume/retry/
+  recover/dismiss/detach, every mutation revision-fenced (CAS) and
+  audit-evented. Retry creates a NEW operation from the immutable
+  request with `parent_operation_id` lineage; recover takes over ONLY
+  interrupted work whose every lease has expired behind `--confirm`
+  and REFUSES RECOVERY_REQUIRED barriers with kind-specific guidance
+  (exit 78 per plan §7.4); dismiss flips durable `dismissed_at`
+  (migration 007) without touching history.
+- **CLI** (`operations_cli.py`, wired in `__main__.py`): the full §7.4
+  verb set; `--json` emits one schema-versioned document to stdout;
+  human output compact with next-action lines; exit codes 0/1/2/78/130.
+- **Generic detach (§7.5)**: `OperationCommandService.detach` hands a
+  QUEUED operation to THE ONE worker entry point via the ONE spawn
+  helper, now profile-bound (`--profile APP_DIR` so the child serves
+  the same database) and marked detachable per kind. Exit gate: a real
+  detached child completes a production MODEL_IMPORT exactly once
+  THROUGH this API.
+- **Migration 007**: `operations.dismissed_at` + default-view partial
+  index; DATABASE_SCHEMA_VERSION now **7**.
+
+Verification: authoritative collection **715**
+(`pytest tests --collect-only -q`); default suite green across nine
+deterministic alphabetical chunks: 714 passed + 1 Linux-gated skip =
+715 reconciled; slow gates explicit: runtime stress **6/6**, acquisition
+stress **41/41**, clean-wheel incl. runtime workflows AND worker-module
+and CLI wheel gates **4/4**; compileall + `git diff --check` clean.
+
+Next: **P2 Activity Center v1** — GUI over `operation_query` +
+`operation_commands` only (no sqlite/subprocess imports), full
+state/action matrix headless-tested, then P3 bounded execution platform.
+
+---
+
+Previous checkpoint: **P0 (foundation correction) COMPLETE**
 
 P0 landed three boundaries:
 
