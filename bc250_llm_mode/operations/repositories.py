@@ -49,7 +49,7 @@ _ROW_COLUMNS = (
     " progress_total, progress_unit, progress_summary, surface,"
     " cancel_requested_at, result_code, result_detail, error_code,"
     " error_detail, parent_operation_id, created_at, started_at, updated_at,"
-    " finished_at"
+    " finished_at, dismissed_at"
 )
 
 
@@ -78,6 +78,7 @@ def _operation_from_row(row) -> OperationRecord:
         started_at=row["started_at"],
         updated_at=row["updated_at"],
         finished_at=row["finished_at"],
+        dismissed_at=row["dismissed_at"],
     )
 
 
@@ -223,6 +224,108 @@ class OperationRepository:
             (limit,),
         ).fetchall()
         return [_operation_from_row(row) for row in rows]
+
+    # -- U1.4 query window (one SELECT per page; never N+1) -----------------
+
+    _TERMINAL_SQL = (
+        "'SUCCEEDED', 'CANCELLED', 'FAILED_SAFE', 'FAILED_ROLLED_BACK',"
+        " 'RECOVERY_REQUIRED'"
+    )
+
+    def list_window(
+        self,
+        *,
+        scope: str = "all",  # all | active | recent
+        operation_type: str | None = None,
+        include_dismissed: bool = False,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[OperationRecord]:
+        """One bounded, ordered SELECT — the query service's only listing."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if scope == "active":
+            clauses.append("finished_at IS NULL")
+        elif scope == "recent":
+            clauses.append("finished_at IS NOT NULL")
+        if operation_type is not None:
+            clauses.append("operation_type = ?")
+            params.append(operation_type)
+        if not include_dismissed:
+            clauses.append("dismissed_at IS NULL")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        order = (
+            " ORDER BY created_at, id"
+            if scope == "active"
+            else " ORDER BY created_at DESC, id DESC"
+        )
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+        rows = self.conn.execute(
+            f"SELECT {_ROW_COLUMNS} FROM operations{where}{order}"
+            " LIMIT ? OFFSET ?",
+            params,
+        ).fetchall()
+        return [_operation_from_row(row) for row in rows]
+
+    def count_window(
+        self,
+        *,
+        scope: str = "all",
+        operation_type: str | None = None,
+        include_dismissed: bool = False,
+    ) -> int:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if scope == "active":
+            clauses.append("finished_at IS NULL")
+        elif scope == "recent":
+            clauses.append("finished_at IS NOT NULL")
+        if operation_type is not None:
+            clauses.append("operation_type = ?")
+            params.append(operation_type)
+        if not include_dismissed:
+            clauses.append("dismissed_at IS NULL")
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        row = self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM operations{where}", params
+        ).fetchone()
+        return int(row["n"])
+
+    def set_dismissed(
+        self, operation_id: str, *, dismissed: bool = True
+    ) -> OperationRecord:
+        """U1.4 `dismiss`: durable visibility flag on a TERMINAL row only.
+
+        Audit history is never deleted; the timestamp is simply set or
+        cleared. Idempotent by construction.
+        """
+        record = self.require(operation_id)
+        if not is_terminal(record.state):
+            raise InvalidTransition(
+                f"only terminal operations can be dismissed;"
+                f" {operation_id} is {record.state.value}"
+            )
+        wanted: str | None = self.clock() if dismissed else None
+        if record.dismissed_at == wanted:
+            return record  # idempotent no-op
+        self.conn.execute(
+            "UPDATE operations SET dismissed_at = ?, updated_at = ?"
+            " WHERE id = ?",
+            (wanted, self.clock(), operation_id),
+        )
+        self.events.append(
+            operation_id,
+            code="OPERATION_DISMISSED" if dismissed else "OPERATION_RESTORED",
+            summary=(
+                "hidden from default views; audit history retained"
+                if dismissed
+                else "restored to default views"
+            ),
+            level="info",
+        )
+        updated = self.get(operation_id)
+        assert updated is not None
+        return updated
 
     def compare_and_transition(
         self,

@@ -241,6 +241,7 @@ class OperationRecord:
     started_at: str | None
     updated_at: str
     finished_at: str | None
+    dismissed_at: str | None = None
 
     @property
     def active(self) -> bool:

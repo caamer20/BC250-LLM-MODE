@@ -77,8 +77,8 @@ def test_fresh_schema_reaches_v5_with_runtime_tables(units):
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert applied == [1, 2, 3, 4, 5, 6]
-        assert SCHEMA_VERSION == 6
+        assert applied == [1, 2, 3, 4, 5, 6, 7]
+        assert SCHEMA_VERSION == 7
         tables = {
             row["name"]
             for row in conn.execute(
@@ -223,7 +223,7 @@ def _migrate_v4(path):
 def test_v4_to_v5_without_provenance_inserts_no_backfill(tmp_path):
     fixture = tmp_path / "v4.db"
     _v4_fixture(fixture, with_provenance=False)
-    assert _migrate_v4(fixture) == 6
+    assert _migrate_v4(fixture) == 7
     units = UnitOfWorkFactory(fixture)
     with units.begin() as conn:
         rows = conn.execute("SELECT COUNT(*) AS n FROM runtime_builds").fetchone()
@@ -235,7 +235,7 @@ def test_v4_to_v5_with_legacy_provenance_is_deterministic(tmp_path):
     for name in ("one.db", "two.db"):
         fixture = tmp_path / name
         _v4_fixture(fixture, with_provenance=True)
-        assert _migrate_v4(fixture) == 6
+        assert _migrate_v4(fixture) == 7
         conn = open_database(fixture, mode="read")
         try:
             row = conn.execute(

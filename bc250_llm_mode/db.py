@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -531,6 +531,23 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
                 heartbeat_at TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             )
+            """,
+        ),
+    ),
+    (
+        7,
+        "operation-dismissal",
+        (
+            # U1.4 §7.3 `dismiss`: hide a terminal operation from DEFAULT
+            # views without deleting any audit history. The timestamp is
+            # the durable flag; events and receipts are never touched.
+            """
+            ALTER TABLE operations ADD COLUMN dismissed_at TEXT
+            """,
+            """
+            CREATE INDEX idx_operations_default_view
+                ON operations(updated_at DESC, id DESC)
+                WHERE dismissed_at IS NULL
             """,
         ),
     ),
