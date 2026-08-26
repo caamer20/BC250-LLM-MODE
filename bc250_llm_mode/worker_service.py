@@ -41,41 +41,15 @@ def spawn_detached(
 
 
 def run_worker_main() -> int:
-    """Entry for ``python -m bc250_llm_mode.worker_main``."""
-    from .app import Application
-    from .operations.worker_host import WorkerHost, WorkerHostPolicy
+    """Compatibility alias for ``python -m bc250_llm_mode.worker_main``.
 
-    application = Application.compose()
-    application.require_operational()
-    policy = WorkerHostPolicy()
+    P0.1 moved the real entry (argument parsing, profile resolution,
+    stable exit codes) into :mod:`bc250_llm_mode.worker_main`; this alias
+    delegates so there is exactly ONE worker entry implementation.
+    """
+    from .worker_main import main
 
-    import threading
-    import time as _time
-
-    condition = threading.Condition()
-    monotonic = _time.monotonic
-
-    def waiter(timeout_seconds: float) -> bool:
-        # Bounded condition wait — never timeout=0 polling.
-        with condition:
-            return condition.wait(timeout=max(0.05, float(timeout_seconds)))
-
-    host = WorkerHost(
-        application.units,
-        application.registry,
-        policy=policy,
-        monotonic=monotonic,
-        waiter=waiter,
-    )
-    stats = host.start()
-    print(json_safe(stats))
-    return 0
-
-
-def json_safe(stats: dict[str, Any]) -> str:
-    import json
-
-    return json.dumps({"worker": "idle-exit", **stats}, sort_keys=True)
+    return main([])
 
 
 if __name__ == "__main__":  # pragma: no cover - process entry

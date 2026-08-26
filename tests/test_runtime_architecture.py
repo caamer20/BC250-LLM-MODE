@@ -241,7 +241,12 @@ def test_worker_host_is_never_started_by_composition_or_boot():
 
 
 def test_worker_waiter_is_condition_backed_not_zero_poll():
-    """The production entry waits on a bounded Condition, never timeout=0."""
-    text = _read("worker_service.py")
+    """The production entry waits on a bounded Condition, never timeout=0.
+
+    P0.1 moved the real entry implementation into ``worker_main.py``
+    (``worker_service.py`` delegates to it); the guard covers both so the
+    bounded-wait contract follows the code wherever it lives.
+    """
+    text = _read("worker_main.py") + _read("worker_service.py")
     assert "condition.wait(" in text.replace("Condition().wait(", "condition.wait(")
     assert "wait(timeout=0)" not in text
