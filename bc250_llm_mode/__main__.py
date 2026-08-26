@@ -166,6 +166,9 @@ def _parser() -> argparse.ArgumentParser:
     revert = sub.add_parser("uninstall", help="Revert LLM Mode and remove the service")
     revert.add_argument("--remove-container", action="store_true")
     revert.add_argument("--remove-models", action="store_true", help="Permanently delete downloaded model files")
+    from .operations_cli import register_operations_parser
+
+    register_operations_parser(sub)
     return parser
 
 
@@ -285,6 +288,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if not application.operational:
         return _repair_entry(args, application)
+    if args.command == "operations":
+        from .operations_cli import run_operations_command
+
+        return run_operations_command(application, args)
     state = application.read_model()
     if args.command in (None, "setup"):
         if not bootstrap_tkinter(application):
