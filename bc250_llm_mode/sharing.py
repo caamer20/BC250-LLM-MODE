@@ -7,7 +7,7 @@ import shutil
 from typing import Any
 
 from .logging_utils import CommandRunner
-from .openwebui import start_open_webui
+from .openwebui import GATEWAY_PORT, start_open_webui
 from .privilege import elevated
 from .server import start_service
 from .tailscale import start_tailscale, tailscale_status
@@ -15,7 +15,32 @@ from .tailscale import start_tailscale, tailscale_status
 WEBUI_HTTPS_PORT = 8443
 API_HTTPS_PORT = 10000
 WEBUI_TARGET = "http://127.0.0.1:3000"
-API_TARGET = "http://127.0.0.1:8080"
+# ADR 005 D2/D4: the model API is published ONLY through the authenticated
+# gateway, never the raw backend (the loopback backend address is not a
+# publishable/proxy target). Tailnet clients present the install-scoped
+# credential at the gateway, which enforces scopes/rate/size and audits.
+# This is the same loopback gateway address Open WebUI uses over the
+# container bridge.
+API_TARGET = f"http://127.0.0.1:{GATEWAY_PORT}"
+
+
+def _gateway_provision_checks(state: dict[str, Any]) -> dict[str, Any]:
+    """The §10.3 explicit status fields for the gateway + auth state.
+
+    Refuses mutation if the gateway credential is not provisioned and
+    verified (D4: 'share' says no before mutating tailscale).
+    """
+    provisioned = bool(state.get("gateway_provisioned"))
+    verified = bool(state.get("gateway_verified"))
+    return {
+        "topology": "gateway-only" if provisioned else "none",
+        "gateway_state": "verified" if (provisioned and verified) else "pending",
+        "auth_state": "scoped-credential" if provisioned else "none",
+        "backend_identity": (
+            state.get("gateway_backend_identity") or (
+                "verified" if verified else "unverified")
+        ),
+    }
 
 
 def _tailscale_cli() -> str:
@@ -78,13 +103,20 @@ def https_sharing_status(state: dict[str, Any], runner: CommandRunner) -> dict[s
     webui_enabled = webui.get("proxy") == WEBUI_TARGET
     api_enabled = api.get("proxy") == API_TARGET
     public_funnel = bool(webui.get("public_funnel") or api.get("public_funnel"))
+    gateway = _gateway_provision_checks(state)
+    verified = bool(gateway["gateway_state"] == "verified")
+    # §10.3 D4: API is only 'enabled'/usable when the gateway is verified.
+    api_safe = api_enabled and verified
     return {
+        **gateway,
         "available": True,
-        "enabled": webui_enabled and api_enabled and not public_funnel,
+        "enabled": webui_enabled and api_safe and not public_funnel,
         "webui_enabled": webui_enabled,
-        "api_enabled": api_enabled,
+        "api_enabled": api_safe,
         "public_funnel": public_funnel,
         "tailnet_connected": bool(tail.get("connected")),
+        "verified": verified,
+        "last_verified_at": state.get("gateway_last_verified_at"),
         "dns_name": dns_name or None,
         "webui_url": f"https://{dns_name}:{webui_port}/" if dns_name else None,
         "api_base_url": f"https://{dns_name}:{api_port}/v1" if dns_name else None,
@@ -93,7 +125,7 @@ def https_sharing_status(state: dict[str, Any], runner: CommandRunner) -> dict[s
         "api_proxy": api.get("proxy"),
         "status": (
             "tailnet HTTPS ready"
-            if webui_enabled and api_enabled and not public_funnel
+            if webui_enabled and api_safe and not public_funnel
             else "not fully configured"
         ),
     }
@@ -106,6 +138,17 @@ def start_https_sharing(state: dict[str, Any], runner: CommandRunner) -> dict[st
         tail = start_tailscale(runner)
     if not tail.get("connected"):
         raise RuntimeError("Tailscale is not connected. Run `bc250-llm-mode tailscale connect` first.")
+
+    # ADR 005 D4: refuse before any mutation unless the gateway is provisioned
+    # and verified. Publishing the raw backend (or the gateway before its
+    # credential is set/validated) would leak a management-reachable surface.
+    gateway = _gateway_provision_checks(state)
+    if gateway["gateway_state"] != "verified":
+        raise RuntimeError(
+            "The model API gateway is not provisioned and verified. "
+            "Publish the WebUI only, or provision+verify the gateway first. "
+            "Refusing to publish an unauthenticated model API."
+        )
 
     # A sharing start is an explicit request for usable endpoints, so ensure
     # both backends are live before publishing them.

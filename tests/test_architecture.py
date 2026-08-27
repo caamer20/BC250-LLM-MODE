@@ -178,3 +178,22 @@ def test_only_server_py_controls_the_llm_service_unit():
                 f"operations/{py.name}: host command in generic engine: "
                 f"{token!r}"
             )
+
+
+def test_gateway_is_the_only_bridge_to_the_backend():
+    """ADR 005 D2/D4: the raw llama backend is never a serve/publication
+    target for remote/container traffic. sharing/openwebui route through
+    the gateway; the raw 127.0.0.1:8080 backend address must not appear as
+    a publish/proxy target in those integration modules."""
+    _read = lambda rel: (PACKAGE / rel).read_text(encoding="utf-8")
+    for rel in ("sharing.py", "openwebui.py"):
+        text = _read(rel)
+        # no raw backend as a proxy/publish target in integration modules
+        assert "127.0.0.1:8080" not in text, (
+            f"{rel}: raw backend address must not be a serve/publication "
+            "target; route remote/container traffic through the gateway"
+        )
+    # the gateway routes to the backend (allowed, internal): gateway.py
+    # is the ONLY module that bridges to the backend proxy surface.
+    gateway_text = _read("gateway.py")
+    assert "backend_base" in gateway_text
