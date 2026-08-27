@@ -129,7 +129,7 @@ def test_v6_database_upgrades_to_v7_preserving_rows(tmp_path):
 
     migration_conn = open_database(v6, mode="migration")
     try:
-        assert initialize(migration_conn) == SCHEMA_VERSION == 8
+        assert initialize(migration_conn) == SCHEMA_VERSION
     finally:
         migration_conn.close()
 

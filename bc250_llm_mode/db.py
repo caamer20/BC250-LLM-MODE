@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -575,6 +575,35 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
                 revision INTEGER NOT NULL DEFAULT 1
                     CHECK (revision >= 1)
             )
+            """,
+        ),
+    ),
+    (
+        9,
+        "model-library-meta",
+        (
+            # P6 §12.1: per-alias library metadata that is not part of the
+            # immutable artifact identity — pinned/favorite state, usage
+            # timestamps (never prompt content), and a bounded benchmark /
+            # last-verified-inference summary. Keyed by installation alias
+            # and cascades on removal.
+            """
+            CREATE TABLE model_library_meta (
+                alias TEXT PRIMARY KEY
+                    REFERENCES model_installations(alias)
+                    ON DELETE CASCADE,
+                pinned INTEGER NOT NULL DEFAULT 0
+                    CHECK (pinned IN (0, 1)),
+                last_used_at TEXT,
+                last_verified_inference_at TEXT,
+                benchmark_summary_json TEXT NOT NULL DEFAULT '{}'
+                    CHECK (length(benchmark_summary_json) <= 65536),
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE INDEX idx_model_library_meta_pinned
+                ON model_library_meta(pinned)
             """,
         ),
     ),

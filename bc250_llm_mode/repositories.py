@@ -240,6 +240,84 @@ class ModelInstallationsRepository:
             )
 
 
+class ModelLibraryMetaRepository:
+    """P6 §12.1: per-alias library metadata (pinned, usage, benchmark).
+
+    Never stores prompt content; only timestamps and a bounded benchmark
+    summary. Cascades with the installation alias.
+    """
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def get(self, alias: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT alias, pinned, last_used_at, last_verified_inference_at, "
+            "benchmark_summary_json, updated_at FROM model_library_meta "
+            "WHERE alias = ?",
+            (alias,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "alias": row["alias"],
+            "pinned": bool(row["pinned"]),
+            "last_used_at": row["last_used_at"],
+            "last_verified_inference_at": row["last_verified_inference_at"],
+            "benchmark_summary": json.loads(row["benchmark_summary_json"] or "{}"),
+            "updated_at": row["updated_at"],
+        }
+
+    def all(self) -> dict[str, dict]:
+        rows = self.conn.execute(
+            "SELECT alias, pinned, last_used_at, last_verified_inference_at, "
+            "benchmark_summary_json, updated_at FROM model_library_meta"
+        ).fetchall()
+        return {
+            r["alias"]: {
+                "alias": r["alias"],
+                "pinned": bool(r["pinned"]),
+                "last_used_at": r["last_used_at"],
+                "last_verified_inference_at": r["last_verified_inference_at"],
+                "benchmark_summary": json.loads(r["benchmark_summary_json"] or "{}"),
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        }
+
+    def set_pin(self, alias: str, pinned: bool) -> None:
+        self.conn.execute(
+            "INSERT INTO model_library_meta(alias, pinned, updated_at) "
+            "VALUES (?, ?, ?) "
+            "ON CONFLICT(alias) DO UPDATE SET pinned=excluded.pinned, "
+            "updated_at=excluded.updated_at",
+            (alias, 1 if pinned else 0, utcnow()),
+        )
+
+    def touch_used(self, alias: str) -> None:
+        self.conn.execute(
+            "INSERT INTO model_library_meta(alias, pinned, last_used_at, updated_at) "
+            "VALUES (?, 0, ?, ?) "
+            "ON CONFLICT(alias) DO UPDATE SET last_used_at=excluded.last_used_at, "
+            "updated_at=excluded.updated_at",
+            (alias, utcnow(), utcnow()),
+        )
+
+    def record_verified_inference(self, alias: str,
+                                  benchmark_summary: dict | None = None) -> None:
+        summary_json = json.dumps(benchmark_summary or {})
+        self.conn.execute(
+            "INSERT INTO model_library_meta(alias, pinned, "
+            "last_verified_inference_at, benchmark_summary_json, updated_at) "
+            "VALUES (?, 0, ?, ?, ?) "
+            "ON CONFLICT(alias) DO UPDATE SET "
+            "last_verified_inference_at=excluded.last_verified_inference_at, "
+            "benchmark_summary_json=excluded.benchmark_summary_json, "
+            "updated_at=excluded.updated_at",
+            (alias, utcnow(), summary_json, utcnow()),
+        )
+
+
 class BenchHistoryRepository:
     MAX_ITEMS = 20
 

@@ -76,6 +76,7 @@ class Application:
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
+    model_library: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -236,6 +237,12 @@ class Application:
         application.support_bundle = SupportBundleService(
             units, application.paths,
             home=application.home, doctor=application.doctor,
+        )
+        # P6 §12.1: the Model Library read model (query-only).
+        from .model_library import ModelLibraryQueryService
+
+        application.model_library = ModelLibraryQueryService(
+            units, application.paths
         )
         application.setup = SetupService(units)
         application.safety = ThermalStateService(units)

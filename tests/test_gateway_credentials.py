@@ -40,7 +40,7 @@ def _fingerprint_in_db(unit, secret: str | None = None):
     return row
 
 
-def test_fresh_schema_is_v8_and_has_gateway_table(tmp_path):
+def test_fresh_schema_is_current_and_has_gateway_table(tmp_path):
     database = tmp_path / "state.db"
     initialize_and_close(database)
     units = UnitOfWorkFactory(database)
@@ -58,8 +58,8 @@ def test_fresh_schema_is_v8_and_has_gateway_table(tmp_path):
                 "SELECT version FROM schema_migrations ORDER BY version"
             ).fetchall()
         ]
-        assert applied[-1] == 8
-        assert SCHEMA_VERSION == 8
+        assert applied == list(range(1, SCHEMA_VERSION + 1))
+        assert applied[-1] == SCHEMA_VERSION
 
 
 def test_provision_writes_0600_file_but_never_secret_in_db(service, unit, tmp_path):
@@ -172,7 +172,7 @@ def test_v7_database_upgrades_to_v8_preserving_rows(tmp_path):
 
     migration_conn = open_database(v7, mode="migration")
     try:
-        assert initialize(migration_conn) == SCHEMA_VERSION == 8
+        assert initialize(migration_conn) == SCHEMA_VERSION
     finally:
         migration_conn.close()
 

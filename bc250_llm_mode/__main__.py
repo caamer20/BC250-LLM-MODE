@@ -137,7 +137,7 @@ def _parser() -> argparse.ArgumentParser:
         help="Do not replace model filenames with <model-N> labels",
     )
     models = sub.add_parser("models", help="List, scan, search, recommend, or select models")
-    models.add_argument("action", choices=("list", "scan", "search", "recommend", "use"))
+    models.add_argument("action", choices=("list", "scan", "search", "recommend", "use", "library"))
     models.add_argument("model_id", nargs="?")
     models.add_argument("--ctx", type=int, help="Context used for search/recommend fit projections")
     models.add_argument("--slots", type=int, help="Concurrent slots used for fit projections")
@@ -636,6 +636,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "models":
         if args.action == "list":
             print(json.dumps(state.get("installed_models", []), indent=2))
+            return 0
+        if args.action == "library":
+            # P6 §12.1: the Model Library read model (query-only).
+            ctx = args.ctx or int(state.get("current_ctx", 8192))
+            slots = args.slots or parallel_slots_for_settings(
+                state.get("optimizations"))
+            print(json.dumps(
+                application.model_library.to_dict(context=ctx, slots=slots),
+                indent=2))
             return 0
         if args.action == "search":
             ctx = args.ctx or int(state.get("current_ctx", 8192))
