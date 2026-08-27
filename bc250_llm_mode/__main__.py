@@ -176,6 +176,16 @@ def _parser() -> argparse.ArgumentParser:
     install.add_argument("model_id")
     install.add_argument("--quant")
     install.add_argument("--ctx", type=int, default=8192)
+    remove_model = sub.add_parser(
+        "remove-model",
+        help="Remove an installed model alias (dry-run by default; quarantine, never delete)",
+    )
+    remove_model.add_argument("alias")
+    remove_model.add_argument(
+        "--yes",
+        action="store_true",
+        help="Actually perform the removal (default is a dry-run impact report)",
+    )
     switch = sub.add_parser("switch", help="Switch the single server service to an installed model")
     switch.add_argument("model_id")
     desktop = sub.add_parser(
@@ -785,6 +795,16 @@ def main(argv: list[str] | None = None) -> int:
             # Durable activation through the ONE composed command.
             switch_model(application, state, alias, runner)
         return 0
+    if args.command == "remove-model":
+        # P6 §12.2: dry-run by default; --yes performs the durable removal.
+        plan = application.model_remove.dry_run(args.alias)
+        if not args.yes:
+            print(json.dumps(plan, indent=2))
+            return 0
+        require_acknowledgment(state)
+        outcome = application.model_remove.remove(args.alias, requested_by="cli")
+        print(json.dumps(outcome.to_dict(), indent=2))
+        return 0 if outcome.ok else 1
     if args.command == "switch":
         require_acknowledgment(state)
         switch_model(application, state, args.model_id, runner)

@@ -69,6 +69,7 @@ class Application:
     sharing: Any = None
     model_acquisition: Any = None
     runtime_lifecycle: Any = None
+    model_remove: Any = None
     maintenance: Any = None
     operation_query: Any = None
     operation_commands: Any = None
@@ -366,7 +367,15 @@ class Application:
         registry.register(build_runtime_update_workflow(runtime_adapter))
         registry.register(build_runtime_rollback_workflow(runtime_adapter))
 
-        # ONE freeze point for ALL five durable workflows; exactly one
+        # P6 §12.2: ONE durable model-removal path — the same frozen registry,
+        # enqueue service, and engine factory, with ONE production adapter.
+        from .model_remove_adapter import ModelRemoveHostAdapter
+        from .operations.model_remove import build_remove_workflow
+
+        remove_adapter = ModelRemoveHostAdapter(units, application.paths)
+        registry.register(build_remove_workflow(remove_adapter))
+
+        # ONE freeze point for ALL six durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
         enqueue = EnqueueService(
@@ -396,6 +405,12 @@ class Application:
             fingerprint_for=_fingerprint_for,
         )
         application.runtime_lifecycle = RuntimeLifecycleCommandService(
+            units=units, enqueue=enqueue, engine_factory=engine_factory
+        )
+        # P6 §12.2: durable model removal (dry-run + fenced remove).
+        from .model_remove_command import ModelRemoveCommandService
+
+        application.model_remove = ModelRemoveCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
         )
         # U1.3: exposed read-only for the explicitly-started worker host;
