@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -604,6 +604,70 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """
             CREATE INDEX idx_model_library_meta_pinned
                 ON model_library_meta(pinned)
+            """,
+        ),
+    ),
+    (
+        10,
+        "backup-restore-lifecycle",
+        (
+            # ADR 006 / C2.2: durable backup + restore publication state.
+            # Labels + digests + states ONLY — never passphrases, raw keys,
+            # private paths, prompts, or full archive listings. Both tables are
+            # revision-fenced for CAS updates by the repositories.
+            """
+            CREATE TABLE backup_sets (
+                backup_id TEXT PRIMARY KEY,
+                manifest_digest TEXT NOT NULL
+                    CHECK (length(manifest_digest) = 64
+                           AND manifest_digest GLOB '[0-9a-f]*'),
+                format_version INTEGER NOT NULL DEFAULT 1
+                    CHECK (format_version >= 1),
+                created_by_operation_id TEXT
+                    REFERENCES operations(id) ON DELETE SET NULL,
+                storage_path_label TEXT NOT NULL
+                    CHECK (length(storage_path_label) <= 512),
+                bytes_total INTEGER NOT NULL DEFAULT 0
+                    CHECK (bytes_total >= 0),
+                encryption_mode TEXT NOT NULL DEFAULT 'none'
+                    CHECK (encryption_mode IN ('none', 'aes-256-gcm')),
+                verification_state TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (verification_state IN
+                           ('pending', 'verified', 'failed')),
+                created_at TEXT NOT NULL,
+                verified_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (revision >= 1)
+            )
+            """,
+            """
+            CREATE TABLE restore_attempts (
+                restore_id TEXT PRIMARY KEY,
+                source_manifest_digest TEXT NOT NULL
+                    CHECK (length(source_manifest_digest) = 64
+                           AND source_manifest_digest GLOB '[0-9a-f]*'),
+                created_by_operation_id TEXT
+                    REFERENCES operations(id) ON DELETE SET NULL,
+                staging_identity TEXT,
+                prior_profile_identity TEXT,
+                candidate_profile_identity TEXT,
+                publish_state TEXT NOT NULL DEFAULT 'pending'
+                    CHECK (publish_state IN
+                           ('pending', 'staged', 'published',
+                            'rolled_back', 'recovery_required')),
+                post_verify_state TEXT
+                    CHECK (post_verify_state IN
+                           ('pending', 'passed', 'failed') OR
+                           post_verify_state IS NULL),
+                rollback_state TEXT
+                    CHECK (rollback_state IN
+                           ('not_needed', 'succeeded', 'failed') OR
+                           rollback_state IS NULL),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (revision >= 1)
+            )
             """,
         ),
     ),

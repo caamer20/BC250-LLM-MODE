@@ -85,7 +85,7 @@ def test_manifest_carries_identities_and_schema():
     doc = build_release_manifest(_state())
     assert doc["manifest_schema_version"] == RELEASE_MANIFEST_SCHEMA_VERSION
     assert doc["version"] == "0.9.0.dev0"
-    assert doc["database_schema_version"] == 9
+    assert doc["database_schema_version"] == 10
     assert doc["identities"][0]["identity"] == "llamacpp:sha256:abc"
     assert doc["may_tag_1_0_0"] is False
 

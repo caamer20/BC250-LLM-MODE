@@ -63,7 +63,7 @@ class ReleaseState:
 
     version: str
     channel: str = "dev"
-    schema_version: int = 9
+    schema_version: int = 10
     identities: tuple[ReleaseIdentity, ...] = field(default_factory=tuple)
     milestone_gates_green: bool = False
     hardware_qualification_green: bool = False
