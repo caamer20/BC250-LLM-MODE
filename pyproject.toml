@@ -35,8 +35,8 @@ test = ["pytest>=8"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q -m 'not slow and not release_gate_v2'"
+addopts = "-q -m 'not slow'"
 markers = [
   "slow: long-running verification gates run explicitly in the session battery (e.g. clean-wheel smoke)",
-  "release_gate_v2: C0 intentionally-red release-gate tests; run explicitly until C1 implements the evidence-driven evaluator, then folded into the default suite",
+  "release_gate_v2: evidence-driven release-gate tests (C0 red gates, turned green by C1 and folded into the default suite)",
 ]
