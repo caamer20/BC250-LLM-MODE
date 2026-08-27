@@ -186,6 +186,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Actually perform the removal (default is a dry-run impact report)",
     )
+    storage = sub.add_parser(
+        "storage",
+        help="Capacity/dedup report and ranked cleanup suggestions (never deletes)",
+    )
+    storage.add_argument("action", choices=("report", "cleanup"))
     switch = sub.add_parser("switch", help="Switch the single server service to an installed model")
     switch.add_argument("model_id")
     desktop = sub.add_parser(
@@ -805,6 +810,13 @@ def main(argv: list[str] | None = None) -> int:
         outcome = application.model_remove.remove(args.alias, requested_by="cli")
         print(json.dumps(outcome.to_dict(), indent=2))
         return 0 if outcome.ok else 1
+    if args.command == "storage":
+        # P6 §12.3: capacity/dedup report + ranked cleanup (never deletes).
+        if args.action == "report":
+            print(json.dumps(application.storage_capacity.report(), indent=2))
+            return 0
+        print(json.dumps(application.storage_capacity.dry_run_cleanup(), indent=2))
+        return 0
     if args.command == "switch":
         require_acknowledgment(state)
         switch_model(application, state, args.model_id, runner)

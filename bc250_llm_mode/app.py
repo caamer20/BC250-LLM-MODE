@@ -78,6 +78,7 @@ class Application:
     doctor: Any = None
     support_bundle: Any = None
     model_library: Any = None
+    storage_capacity: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -243,6 +244,12 @@ class Application:
         from .model_library import ModelLibraryQueryService
 
         application.model_library = ModelLibraryQueryService(
+            units, application.paths
+        )
+        # P6 §12.3: capacity/dedup report + ranked cleanup (query-only).
+        from .storage_capacity import StorageCapacityService
+
+        application.storage_capacity = StorageCapacityService(
             units, application.paths
         )
         application.setup = SetupService(units)
