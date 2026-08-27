@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import http.server
 import json
 import threading
 import time
@@ -534,3 +535,147 @@ class GatewayServer:
                     if total > self._max_response:
                         break
                     yield status, chunk
+
+
+# --- live HTTP server -----------------------------------------------------------
+# A real loopback/tailnet-bound HTTP/1.1 server. The exit gate exercises it over
+# live sockets (same evidence standard as the P3 process/HTTP probes), so the
+# whole path — real bytes -> policy -> bounded backend proxy -> response — is
+# proven, not just the pure core. Management is denied at the policy before any
+# forwarding; health is credential-free; oversized requests are refused before
+# the backend is contacted.
+
+class _GatewayHandler:
+    def __init__(self, server: "GatewayServer"):  # noqa: F821
+        self.gateway = server
+
+    def handle(
+        self,
+        *,
+        method: str,
+        path: str,
+        headers: dict[str, str],
+        body: bytes,
+    ) -> tuple[int, dict[str, str], bytes]:
+        gate = self.gateway
+        request_id = new_request_id()
+        header_bytes = sum(len(k) + len(v) + 2 for k, v in headers.items()) + 16
+        presented = (headers.get("authorization") or "")
+        if presented.lower().startswith("bearer "):
+            presented = presented[7:].strip()
+        # snatch client by X-Forwarded-For peer or a stable integration label
+        actor = headers.get("x-gateway-client") or headers.get("x-forwarded-for") or "unknown"
+
+        if len(body) > MAX_BODY_BYTES:
+            gate.audit.record(
+                actor=actor, scope="n/a", request_id=request_id, method=method,
+                path=path, outcome="malformed", status=413,
+            )
+            return 413, {"Content-Type": "application/json"}, json.dumps(
+                {"error": "request body too large"}).encode("utf-8")
+
+        def backend_request() -> tuple[int, bytes]:
+            # fail-closed identity already checked in handle(); here we proxy
+            return gate.proxy_request(request_id, method, path, body, presented)
+
+        status, response_body, _stream = self._route(
+            request_id, actor, method, path, header_bytes, body, presented,
+            backend_request,
+        )
+        headers_out = {
+            "Content-Type": "application/json",
+            "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "no-store",
+        }
+        return status, headers_out, response_body
+
+    def _route(self, request_id, actor, method, path, header_bytes, body,
+               presented, backend_request):
+        # delegate the whole decision chain to GatewayServer.handle (authorize,
+        # bounds, fail-closed, rate limit, audit) using the live backend proxy.
+        return self.gateway.handle(
+            request_id, actor, method, path, header_bytes, body, presented,
+            backend_request,
+        )
+
+
+def build_gateway_server(
+    *,
+    secret: str,
+    allowed_scopes: Iterable[str] = (
+        SCOPE_INFERENCE_READ, SCOPE_INFERENCE_STREAM, SCOPE_MODELS_LIST),
+    backend_base: str,
+    should_report_backend: Callable[[], bool] | None = None,
+    audit: AuditLogger | None = None,
+) -> "GatewayServer":
+    """Compose the production gateway from a provisioned secret + policy.
+
+    Only the non-secret fingerprint is retained in the store; the passed
+    ``secret`` is compared constant-time at request time and is never
+    persisted, logged, or placed in argv/container labels.
+    """
+    slot: list[str] = [fingerprint_of(secret)]
+    store = CredentialStore(
+        get_backend=lambda key: slot[0] if key.endswith("active_fingerprint") else None,
+        set_backend=lambda key, value: slot.__setitem__(0, value),
+        drop_backend=lambda key: slot.__setitem__(0, ""),
+    )
+    policy = GatewayPolicy(store, allowed_scopes=allowed_scopes)
+    return GatewayServer(
+        policy, backend_base=backend_base,
+        should_report_backend=should_report_backend, audit=audit,
+    )
+
+
+# --- real socket server for the exit gate ----------------------------------------
+
+class _SocketHandler(http.server.BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    server_version = "BC250Gateway"
+
+    def _read_body(self) -> bytes:
+        length = min(int(self.headers.get("Content-Length") or 0),
+                     MAX_BODY_BYTES + 1)
+        return self.rfile.read(length)
+
+    def _headers_dict(self) -> dict[str, str]:
+        return {k.lower(): v for k, v in self.headers.items()}
+
+    def _run(self) -> None:
+        gateway: "GatewayServer" = self.server.gateway  # type: ignore[attr-defined]
+        handler = _GatewayHandler(gateway)
+        body = self._read_body()
+        try:
+            status, headers_out, payload = handler.handle(
+                method=self.command,
+                path=self.path,
+                headers=self._headers_dict(),
+                body=body,
+            )
+        except Exception as exc:  # noqa: BLE001 - fail closed on any handler error
+            status, headers_out, payload = (502, {"Content-Type": "application/json"},
+                                            json.dumps({"error": "gateway internal"}).encode("utf-8"))
+        self.send_response(status)
+        for key, value in headers_out.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(payload)
+
+    do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = _run
+    do_OPTIONS = _run
+    do_PATCH = _run
+
+    def log_message(self, *args):  # do not leak request paths/content to stderr
+        pass
+
+
+def make_gateway_socket_server(gateway: "GatewayServer", *, host: str = "127.0.0.1",
+                               port: int = 0) -> "http.server.ThreadingHTTPServer":
+    """Bind a real loopback socket server wired to the gateway (exit gate)."""
+    server_cls = type("GatewayHTTPServer", (http.server.ThreadingHTTPServer,), {})
+    server = server_cls((host, port), _SocketHandler)
+    server.gateway = gateway  # type: ignore[attr-defined]
+    return server
