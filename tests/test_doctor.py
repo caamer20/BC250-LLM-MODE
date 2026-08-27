@@ -116,10 +116,15 @@ def test_clean_appliance_reports_no_failures(world):
 
 
 def test_doctor_catches_seeded_db_corruption(world):
-    # Corrupt the middle of the SQLite file so the read unit cannot open.
+    # Corrupt a broad span of pages (not just the midpoint) so the damage is
+    # deterministic regardless of schema size / file layout: the sqlite_master
+    # page and other critical B-tree pages are overwritten, so either the read
+    # unit cannot open the file or PRAGMA integrity_check fails — both are the
+    # DB_INTEGRITY FAIL finding.
     data = bytearray(world.paths.database_path.read_bytes())
-    mid = len(data) // 2
-    for i in range(mid, mid + 64):
+    start = 100  # just past the SQLite header
+    span = min(len(data) - start, 16 * 4096)
+    for i in range(start, start + span):
         data[i] = 0xFF
     world.paths.database_path.write_bytes(bytes(data))
 
