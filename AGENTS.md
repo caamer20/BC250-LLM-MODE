@@ -2,6 +2,54 @@
 
 ## Current state
 
+**RELEASE CLOSURE — C0 COMPLETE (plan adopted, baseline frozen, red gates
+landed).** Sequencing authority for release closure is now
+`V1_0_RELEASE_CLOSURE_IMPLEMENTATION_PLAN.md` (committed as the adopted
+authority per its §1.1/REL-009). It supersedes the closeout portion of the
+prior plan without rewriting the P0–P9 record below. C0 made NO production
+behavior change: it froze the baseline and added the intentionally-RED
+release-gate tests that prove the current boolean `release_state.py` cannot
+enforce evidence requirements. **Next: C1 (evidence-driven release gate v2).**
+
+C0 baseline reconciliation (read-only, exact commands in §C0.1):
+
+- Starting commit `6e91dee4c62fec2594b6e78ed686f13d692a74ba` on `main`,
+  **52 commits ahead of `origin/main`** (remote not yet updated; REL-010).
+- Tracked files clean; **10 untracked files preserved** (owner-controlled,
+  untouched): the three prior plan docs, `scripts_audit/*` (5 files),
+  `tests/conftest_trace_tmp.py`, and (until C0 committed it) this release-
+  closure plan. Wording is exact: tracked-clean, NOT "strictly clean".
+- Version `0.9.0.dev0` (both `pyproject.toml` and package `__version__`).
+- Database schema **v9**; 9 migrations (initial-schema … model-library-meta).
+- Authoritative collection **949**; default suite green across deterministic
+  alphabetical chunks (947 passed + 1 Linux-gated skip + 1 tkinter-gated skip);
+  slow battery **51/51** (runtime 6/6, acquisition 41/41, clean-wheel 4/4);
+  compileall + `git diff --check` clean.
+- CI: single `ci.yml` using MUTABLE action tags (`checkout@v4`,
+  `setup-python@v5`, `upload-artifact@v4`) — REL-011 open. No `release/` or
+  `tools/` directory. No `v1.0.0` tag; no release artifact set (only a local
+  gitignored dev wheel in `dist/`).
+
+C0 red gates (`tests/test_release_gate_v2.py`, marker `release_gate_v2`,
+excluded from the default suite until C1 turns them green): **10 tests, all
+RED for the intended reasons** — 2 fail `AssertionError: assert True is False`
+(caller-supplied booleans alone currently qualify a release, and an
+unavailable mandatory capability does not block it) and 8 fail
+`ModuleNotFoundError` (the evidence-driven `release_policy`/`release_evidence`/
+`release_gate` modules do not exist yet). Run them with
+`PYTHONPATH=. .venv/bin/pytest -m release_gate_v2`.
+
+Release-closure milestone status: **C0 done**; C1 (evidence-driven gate v2),
+C2 (durable backup create/restore publish), C3 (supply-chain/SBOM/provenance),
+C7 (limitation/conversion decision) are developer-executable and next. **C4
+(physical BC250 qualification + soak), C5 (independent security review), C6
+(non-developer human acceptance), and C8 (tag/publish) are hardware/human/
+owner-gated pending evidence — never fabricated.** No `1.0.0` tag will be
+created until the §20 no-go conditions are all clear and the owner authorizes
+publication.
+
+---
+
 **P9 COMPLETE (developer-executable scope) — release engineering and 1.0
 qualification (§15).** The release state is modeled honestly: the build is NOT
 `1.0.0` and `release_state.py` keeps the known-unavailable capabilities
