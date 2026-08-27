@@ -27,6 +27,21 @@ CHAT_HTTP_TIMEOUT = httpx.Timeout(
     write=CHAT_WRITE_TIMEOUT_S,
     read=CHAT_READ_TIMEOUT_S,
 )
+
+
+def _next_request_id() -> str:
+    import uuid
+
+    return f"chat-{uuid.uuid4().hex[:12]}"
+
+
+def format_chat_error(exc: BaseException, request_id: str) -> str:
+    """P7 §13.1: a recoverable message with the request ID — never a raw
+    traceback. Shared terminal-chat semantics via chat_lifecycle."""
+    from .chat_lifecycle import classify_exception, recoverable_message
+
+    classification = classify_exception(exc)
+    return recoverable_message(classification, request_id)
 from .optimize import kv_scale_for_settings
 from .openwebui import (
     open_webui_status,
@@ -705,7 +720,7 @@ def run_chat(application) -> None:
             try:
                 generate()
             except (httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError) as exc:
-                console.print(f"\n[red]Server unavailable:[/red] {exc}. Run setup/repair or inspect the service.")
+                console.print(f"\n[red]{format_chat_error(exc, _next_request_id())}[/red]")
             continue
         if prompt == "/clear":
             conversation.clear()
@@ -719,4 +734,4 @@ def run_chat(application) -> None:
             generate()
         except (httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError) as exc:
             conversation.pop()
-            console.print(f"\n[red]Server unavailable:[/red] {exc}. Run setup/repair or inspect the service.")
+            console.print(f"\n[red]{format_chat_error(exc, _next_request_id())}[/red]")
