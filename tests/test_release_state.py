@@ -39,15 +39,36 @@ def test_current_state_is_not_1_0_ready():
     assert any("security" in g for g in gaps)
 
 
-def test_all_green_state_is_1_0_ready():
+def test_all_green_booleans_alone_are_not_1_0_ready():
+    """C1.2: the deprecated approval booleans can never qualify a release on
+    their own — an unavailable mandatory capability blocks, and evidence is
+    still required."""
     state = _state(
         milestone_gates_green=True,
         hardware_qualification_green=True,
         human_acceptance_green=True,
         security_review_signed_off=True,
     )
-    assert state.blocking_gaps() == []
-    assert state.may_tag_1_0_0() is True
+    assert state.blocking_gaps() == []  # no INFORMATIONAL gaps...
+    # ...but a mandatory capability is still unavailable...
+    assert "backup-restore-publish" in state.unavailable_mandatory_capabilities()
+    # ...and booleans never satisfy the evidence requirement.
+    assert state.evidence_satisfied is False
+    assert state.may_tag_1_0_0() is False
+
+
+def test_evidence_flag_alone_cannot_override_mandatory_unavailable():
+    """Even with evidence satisfied, an unavailable mandatory capability keeps
+    the tag blocked until the capability is implemented (C2)."""
+    state = _state(
+        milestone_gates_green=True,
+        hardware_qualification_green=True,
+        human_acceptance_green=True,
+        security_review_signed_off=True,
+        evidence_satisfied=True,
+    )
+    assert state.unavailable_mandatory_capabilities()
+    assert state.may_tag_1_0_0() is False
 
 
 def test_unavailable_capabilities_always_visible():

@@ -1,11 +1,13 @@
-"""P9 §15.1/§15.2: release state and manifest contract (pure, no I/O).
+"""Release state and manifest facade (pure, no I/O).
 
-Models the release-readiness state for 1.0 qualification. Per §15.1 the build
-must NOT be called ``1.0.0`` while a documented feature is silently routed to an
-unsafe legacy path, and any unsupported capability (model conversion, the
-hardware-gated backup-restore publish step) must be VISIBLE in the release
-state rather than implying completeness. This module is pure: it assembles a
-release manifest from declared identities and reports honest availability.
+Originally P9 §15.1/§15.2 (boolean readiness). Migrated by C1 (§C1.2 of the
+V1_0_RELEASE_CLOSURE plan): the caller-supplied approval booleans are NO LONGER
+the release authority. ``may_tag_1_0_0()`` can only become true through
+validated, candidate-bound evidence (``evidence_satisfied``), and a mandatory
+capability that is still unavailable always blocks the tag. The authoritative
+fail-closed evaluator is ``bc250_llm_mode.release_gate.evaluate_release``; this
+module remains the public manifest facade and keeps the known-unavailable
+capabilities VISIBLE rather than implying completeness.
 """
 
 from __future__ import annotations
@@ -13,7 +15,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-RELEASE_MANIFEST_SCHEMA_VERSION = 1
+from .release_policy import default_release_policy
+
+# C1.2: manifest schema v2 (evidence-driven). v1 was the boolean model.
+RELEASE_MANIFEST_SCHEMA_VERSION = 2
 
 # Capabilities that are documented but NOT available in this build. They must
 # surface in the release state (P9 §15.1 rule 5/6) — never implied complete.
@@ -47,7 +52,14 @@ class ReleaseIdentity:
 
 @dataclass(frozen=True)
 class ReleaseState:
-    """Release-readiness state (P9 §15.1)."""
+    """Release-readiness state (manifest facade).
+
+    The four ``*_green`` booleans are DEPRECATED as release authority (C1.2):
+    they are informational only and can never, on their own, make
+    ``may_tag_1_0_0()`` true. Eligibility requires validated evidence
+    (``evidence_satisfied``), which the public constructor leaves False — only
+    the evidence-driven evaluator path may set it.
+    """
 
     version: str
     channel: str = "dev"
@@ -57,9 +69,11 @@ class ReleaseState:
     hardware_qualification_green: bool = False
     human_acceptance_green: bool = False
     security_review_signed_off: bool = False
+    # C1.2: evidence authority. Defaults False; booleans cannot set it.
+    evidence_satisfied: bool = False
 
     def blocking_gaps(self) -> list[str]:
-        """Reasons this state cannot be tagged 1.0.0 yet (honest, visible)."""
+        """Informational gaps from the deprecated booleans (honest, visible)."""
         gaps: list[str] = []
         if not self.milestone_gates_green:
             gaps.append("milestone exit gates not all green/evidence-linked")
@@ -71,10 +85,21 @@ class ReleaseState:
             gaps.append("security review sign-off pending")
         return gaps
 
+    def unavailable_mandatory_capabilities(self) -> list[str]:
+        """Mandatory capabilities still listed unavailable (always block)."""
+        unavailable = {c["capability"] for c in KNOWN_UNAVAILABLE_CAPABILITIES}
+        mandatory = default_release_policy().mandatory_capabilities()
+        return sorted(unavailable & mandatory)
+
     def may_tag_1_0_0(self) -> bool:
-        """§15.1 rule 5: never 1.0.0 while gaps remain or a documented feature
-        is silently unsafe. Unavailable capabilities stay visible regardless."""
-        return not self.blocking_gaps()
+        """C1.2: never 1.0.0 from booleans alone. Requires (a) no informational
+        gaps, (b) no unavailable mandatory capability, and (c) validated
+        evidence. The public constructor cannot satisfy (c)."""
+        if self.blocking_gaps():
+            return False
+        if self.unavailable_mandatory_capabilities():
+            return False
+        return self.evidence_satisfied
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -85,7 +110,10 @@ class ReleaseState:
             "identities": [i.to_dict() for i in self.identities],
             "unavailable_capabilities": list(
                 KNOWN_UNAVAILABLE_CAPABILITIES),
+            "unavailable_mandatory_capabilities":
+                self.unavailable_mandatory_capabilities(),
             "blocking_gaps": self.blocking_gaps(),
+            "evidence_satisfied": self.evidence_satisfied,
             "may_tag_1_0_0": self.may_tag_1_0_0(),
         }
 
