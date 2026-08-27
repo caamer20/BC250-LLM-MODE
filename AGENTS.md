@@ -2,14 +2,51 @@
 
 ## Current state
 
-**RELEASE CLOSURE — C2 COMPLETE (durable backup create/restore publish).**
-C0 + C1 remain the baseline records below. C2 made backup/restore REAL durable,
-crash-recoverable operations (REL-004) instead of pure manifest/dry-run
-contracts: `BACKUP_CREATE v1` and `BACKUP_RESTORE v1` are registered in the ONE
-frozen registry (now eight workflows) and driven by the shared engine factory,
-so creation, publication, and rollback survive process death and lease takeover.
-**Next: C3 (supply-chain/SBOM/provenance), then C7 (limitation/conversion
+**RELEASE CLOSURE — C3 COMPLETE (supply-chain, SBOM, release pipeline).**
+C0 + C1 + C2 remain the baseline records below. C3 produced the developer-
+executable supply-chain tooling and the approval-gated release pipeline:
+deterministic CycloneDX SBOM generation + fail-closed validation, a hardened
+content-identity artifact inventory, least-privilege CI, and a SEPARATE release
+workflow that builds once, attests, and publishes only through an approval-gated
+environment (publication NOT performed). **Next: C7 (limitation/conversion
 decision); C4/C5/C6/C8 stay hardware/human/owner-gated pending evidence.**
+
+C3 landed (commits in order):
+
+- `584222d` `tools/release/sbom.py` — deterministic CycloneDX 1.5 SBOM generator
+  + fail-closed validator (package + direct deps + build backend + managed
+  third-party/external runtime identities; injectable serial/timestamp for a
+  reproducible digest; subject sha256 binds the built artifact; refuses missing
+  package/dependency, secret material, non-normalized paths, subject mismatch).
+  `tools/release/artifacts.py` hardened (C3.3): identity is the content sha256
+  (never the filename), canonical media type, symlink/special-file rejection.
+- `a6f5a1c` `.github/workflows/ci.yml` least privilege (contents: read) +
+  actions/checkout pinned to a verified full-length SHA (v4.1.1);
+  `.github/workflows/release.yml` — validate-candidate → build-once (wheel/
+  sdist/checksums/SBOM/inventory) → verify-artifacts (install exact wheel, smoke
+  CLI/worker, verify checksums + SBOM subject) → attest → approval-environment →
+  publish. OIDC id-token: write only on attest + publish; publish NEVER rebuilds
+  and is environment/approval-gated; publication NOT performed (publish exits
+  non-zero without owner authorization).
+
+C3 verification: authoritative collection **1053** (1036 C2 + 17 C3); SBOM +
+inventory + workflow-gate tests **17/17**; real SBOM generation smoke-tested
+against the live pyproject (4 runtime deps + setuptools, subject-bound,
+deterministic digest); both workflow files parse as valid YAML with least-
+privilege top-level permissions; release tooling + C1 gate tests re-verified
+green. **Pending evidence (never fabricated): full-length SHA pinning for the
+remaining actions (requires network verification); live attestation generation +
+verification, artifact signing, and any publication are CI/owner-gated (C3.5/
+C3.6, C8) and have NOT been performed.**
+
+---
+
+**C2 record (durable backup create/restore publish, superseded as "next" by
+C3).** C2 made backup/restore REAL durable, crash-recoverable operations
+(REL-004) instead of pure manifest/dry-run contracts: `BACKUP_CREATE v1` and
+`BACKUP_RESTORE v1` are registered in the ONE frozen registry (now eight
+workflows) and driven by the shared engine factory, so creation, publication,
+and rollback survive process death and lease takeover.
 
 C2 landed (commits in order):
 

@@ -5,6 +5,36 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release closure C3 — supply-chain, SBOM, and release pipeline
+
+- Deterministic CycloneDX 1.5 SBOM generation + fail-closed validation
+  (`tools/release/sbom.py`): covers the package itself, its direct runtime
+  dependencies (parsed from pyproject), the build backend, and managed
+  third-party / external runtime identities. Reproducible digest (injectable
+  serial/timestamp default to fixed values); the subject sha256 binds the built
+  artifact. Validation refuses a missing package/required dependency, secret-
+  like material, non-normalized paths, and a subject-digest mismatch.
+- Hardened artifact inventory (`tools/release/artifacts.py`): identity is the
+  content sha256 (never the filename), canonical media type per artifact, and
+  rejection of symlinks/special files.
+- Least-privilege CI: top-level `permissions: contents: read` so CI and any
+  pull-request run never receive publish credentials or OIDC publication
+  rights; `actions/checkout` pinned to a verified full-length commit SHA.
+- A SEPARATE approval-gated release workflow (`.github/workflows/release.yml`):
+  validate-candidate → build-once (wheel/sdist/checksums/SBOM/inventory) →
+  verify-artifacts (install the exact wheel from the job artifact, smoke
+  CLI/worker, verify checksums + SBOM subject) → attest → approval-environment
+  → publish. OIDC `id-token: write` exists only on the attest + publish jobs;
+  the publish job NEVER rebuilds (it retrieves the exact previously built
+  artifacts and re-verifies digests) and is environment/approval-gated.
+- Publication has NOT been performed and remains owner-gated (C8); the publish
+  step documents the intended Trusted Publishing path and exits non-zero without
+  explicit owner authorization.
+- Pending evidence (never fabricated): full-length SHA pinning for the remaining
+  actions (requires network verification); live attestation generation +
+  verification, artifact signing, and any publication are CI/owner-gated and
+  have not been performed.
+
 ### Release closure C2 — durable backup create/restore publish
 
 - Backup and restore are now REAL durable, crash-recoverable operations
