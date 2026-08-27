@@ -140,12 +140,23 @@ def test_explicit_tier_overrides_the_auto_default():
 
 
 class RecordingRunner:
-    def __init__(self):
+    def __init__(self, verify_image_digest=True):
         self.commands = []
         self.messages = []
+        self.verify_image_digest = verify_image_digest
 
     def run(self, command, **kwargs):
         self.commands.append([str(c) for c in command])
+        if self.verify_image_digest:
+            # Simulate a locally-cached image carrying the pinned digest so
+            # install's digest gate passes (a real podman would already have
+            # pulled it to that exact identity).
+            if (len(command) >= 4 and command[:3]
+                    == ["podman", "image", "inspect"]):
+                from bc250_llm_mode import openwebui
+                return SimpleNamespace(
+                    returncode=0, stdout=json.dumps([openwebui.IMAGE_REF]),
+                    stderr="")
         return SimpleNamespace(returncode=1, stdout="", stderr="")
 
     def emit(self, message):
@@ -157,7 +168,10 @@ from types import SimpleNamespace  # noqa: E402
 
 def test_openwebui_image_is_pinned_not_mutable_main():
     assert ":main" not in IMAGE_REF
-    assert IMAGE_REF.startswith("ghcr.io/open-webui/open-webui:")
+    # DEF-006 / ADR 005 D5: identity is the immutable @sha256 digest, never a tag.
+    assert IMAGE_REF.startswith("ghcr.io/open-webui/open-webui@sha256:")
+    # The digest reference resolves (image manifest sha256 form).
+    assert "@sha256:" in IMAGE_REF
 
 
 def test_elevated_call_sites_frozen():
@@ -183,10 +197,16 @@ def test_openwebui_create_uses_security_posture(monkeypatch):
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
     runner = RecordingRunner()
     state = {"openwebui_container": openwebui.CONTAINER}
-    openwebui.install_open_webui(state, runner)
+    openwebui.install_open_webui(state, runner, credential_file="/tmp/gw-cred")
     create = next(c for c in runner.commands if c[:2] == ["podman", "create"])
     for flag in ("--security-opt", "no-new-privileges", "--cap-drop", "all",
-                 "--memory", "--pids-limit"):
+                 "--memory", "--pids-limit", "--read-only", "--cpus",
+                 "--ulimit", "-p", "127.0.0.1:3000:8080"):
         assert flag in create, flag
     assert openwebui.IMAGE_REF in create
     assert ":main" not in create
+    # credential rides a read-only bind mount, never in argv/labels
+    assert any("/run/secrets/gateway-cred" in x for x in create)
+    assert "sk-pending" not in " ".join(create)
+    # never a bare mutable tag as the identity
+    assert not any(x.endswith(":v0.6.14") for x in create)

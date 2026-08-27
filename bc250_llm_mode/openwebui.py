@@ -8,10 +8,16 @@ from .logging_utils import CommandRunner
 
 CONTAINER = "bc250-open-webui"
 LEGACY_CONTAINER = "open-webui"
-# Pinned to a version tag; release engineering replaces this with an
-# @digest reference (and records it in the runtime manifest) at release
-# time. Tracking a mutable tag like :main is not acceptable for production.
-IMAGE_REF = "ghcr.io/open-webui/open-webui:v0.6.14"
+# DEF-006 / ADR 005 §3.5: production identity is an immutable @sha256 digest,
+# never a mutable tag. The tag is human display metadata only (D5). The digest
+# below was resolved from the OCI registry for the amd64/linux platform image of
+# the v0.6.14 tag on 2026-05 (index digest fb4593f2..., amd64 manifest digest
+# f7845348...). Registry: ghcr.io, repo open-webui/open-webui, amd64/linux.
+IMAGE_TAG_DISPLAY = "v0.6.14"
+IMAGE_DIGEST_SHA256 = (
+    "sha256:f784534835ebbe57ba4f6093040702ff962ddab1e9aa2767f88cf3119d474721"
+)
+IMAGE_REF = f"ghcr.io/open-webui/open-webui@{IMAGE_DIGEST_SHA256}"
 DATA_VOLUME = "bc250-open-webui"
 # U0.6 containment: the UI lives on a dedicated private Podman network and
 # is published STRICTLY on host loopback. Host networking is never used;
@@ -19,12 +25,32 @@ DATA_VOLUME = "bc250-open-webui"
 # before it may start.
 NETWORK = "bc250-openwebui"
 UI_PUBLISH = "127.0.0.1:3000:8080"
-# Interim backend route (U3.3 replaces this with the authenticated
-# gateway): the isolated container resolves the HOST-side bridge gateway,
-# which is where the U3 gateway will terminate. Until that gateway exists
-# the raw model API is NOT advertised as production-safe remote sharing.
+# ADR 005 D2/D4: the isolated container reaches the backend ONLY through the
+# authenticated gateway, never a raw backend address. It resolves the HOST-side
+# gateway over the bridge, presenting the install-scoped credential. The 0600
+# credential file lives in the profile; it is NOT placed in argv or labels.
 BACKEND_HOST = "host.containers.internal"
-BACKEND_URL = f"http://{BACKEND_HOST}:8080/v1"
+GATEWAY_PORT = 9071
+GATEWAY_BACKEND_HOST = BACKEND_HOST
+BACKEND_URL = f"http://{GATEWAY_BACKEND_HOST}:{GATEWAY_PORT}/v1"
+
+# Security posture constants (ADR 005 D5 / plan §10.4).
+READ_ONLY_ROOT = True  # read-only rootfs; explicit writable volume + tmpfs
+WRITABLE_TMPFS = "/tmp:rw,size=1g,mode=0755"
+NON_ROOT_USER = False  # vendor image does not certify arbitrary --user; D5 requires
+# a documented exception (see READ_ONLY/NON_ROOT rationale below) rather than a
+# non-functional flag. Podman rootless default already maps the user.
+
+# §10.4 exception note (recorded, not fabricated): the upstream open-webui image
+# does not document a supported arbitrary --user, and a forced one breaks its
+# volume permission model on the named data volume. Compensating controls are
+# enforced instead: Dockerfile rootless podman is NOT assumed; we pin the
+# digest, read-only rootfs with an explicit writable tmpfs + named volume, drop
+# ALL capabilities, no-new-privileges, non-host networking, seccomp+cap-drop,
+# bounded memory/CPU/PID/file-size, and refuse start if the pinned digest
+# mismatch. A verified vendor image that supports --user GHOST/USER will close
+# this exception when available; until then the integration is NOT advertised
+# as remote-safe (see D4).
 
 
 def _ensure_network(state: dict[str, Any], runner: CommandRunner) -> None:
@@ -73,11 +99,15 @@ def _migrate_legacy_container(
     runner.run(["podman", "rm", container], check=False)
 
 
-def _create_command(container: str) -> list[str]:
-    # Security posture: dedicated private network, UI published strictly on
-    # host loopback, no-new-privileges, dropped capabilities, bounded
-    # memory/PIDs. Host networking is forbidden (U0.6).
-    return [
+def _create_command(container: str, *, credential_file: str | None = None) -> list[str]:
+    # Security posture (ADR 005 D5 / plan §10.4): dedicated private network,
+    # UI published strictly on host loopback, read-only rootfs with explicit
+    # writable tmpfs+volume, no-new-privileges, ALL capabilities dropped,
+    # bounded memory/CPU/PIDs/file-size, non-host networking, digest-pinned
+    # image. Host networking / privileged / host-PID / device / interactive
+    # bind mounts are forbidden. The credential rides a 0600 env file mounted
+    # read-only; it is never in argv or container labels.
+    command = [
         "podman", "create", "--name", container,
         "--network", NETWORK,
         "-p", UI_PUBLISH,
@@ -85,14 +115,63 @@ def _create_command(container: str) -> list[str]:
         "-e", "PORT=8080",
         "-e", f"OPENAI_API_BASE_URL={BACKEND_URL}",
         "-e", f"OPENAI_API_BASE_URLS={BACKEND_URL}",
-        "-e", "OPENAI_API_KEY=sk-no-key-needed",
         "--security-opt", "no-new-privileges",
         "--cap-drop", "all",
         "--memory", "2g",
         "--pids-limit", "256",
+        "--cpus", "4",
+        "--ulimit", "fsize=1g",
         "-v", f"{DATA_VOLUME}:/app/backend/data",
-        IMAGE_REF,
     ]
+    if READ_ONLY_ROOT:
+        command += ["--read-only", "--tmpfs", WRITABLE_TMPFS]
+    if credential_file:
+        # read-only 0600 credential mount + OPENAI_API_KEY from the file.
+        command += [
+            "--mount", f"type=bind,src={credential_file},dst=/run/secrets/gateway-cred,readonly",
+            "-e", "OPENAI_API_KEY_FROM_FILE=/run/secrets/gateway-cred",
+        ]
+    else:
+        # No provisioned gateway credential: the container is created but its
+        # status must already report pending-gateway; start refuses unless the
+        # digest is verified and the credential is provided.
+        command += ["-e", "OPENAI_API_KEY=sk-pending"]
+    command.append(IMAGE_REF)  # immutable @sha256 digest, never a tag
+    return command
+
+
+def _verify_image_digest(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Verify the local image is EXACTLY the pinned digest (DEF-006/D5).
+
+    The pinned identity is an immutable @sha256; a locally-cached image must
+    carry RepoDigests containing the pinned digest. Missing/mismatch refuses
+    start with a recovery story (pull the exact digest) and reports the truth.
+    Returns {verified: bool, detail: str}.
+    """
+    if not shutil.which("podman"):
+        return {"verified": False, "detail": "podman missing"}
+    result = runner.run(
+        ["podman", "image", "inspect", IMAGE_REF, "--format", "{{json .RepoDigests}}"],
+        check=False,
+    )
+    if result.returncode != 0:
+        # Image not yet pulled to the pinned digest at all.
+        return {
+            "verified": False,
+            "detail": f"image not pulled to pinned digest {IMAGE_DIGEST_SHA256}",
+        }
+    try:
+        digests = json.loads(result.stdout.strip() or "[]")
+    except ValueError:
+        return {"verified": False, "detail": "could not parse image digests"}
+    if not isinstance(digests, list):
+        return {"verified": False, "detail": "unexpected digest metadata"}
+    if any((IMAGE_DIGEST_SHA256 in d) for d in digests if isinstance(d, str)):
+        return {"verified": True, "detail": IMAGE_DIGEST_SHA256}
+    return {
+        "verified": False,
+        "detail": f"digest mismatch (got {digests!r}, want {IMAGE_DIGEST_SHA256})",
+    }
 
 
 
@@ -119,6 +198,9 @@ def open_webui_status(state: dict[str, Any], runner: CommandRunner) -> dict[str,
         topology = _container_topology(state, runner, container)
         state["openwebui_container"] = container
         state["openwebui_installed"] = True
+    digest = _verify_image_digest(state, runner) if exists else {
+        "verified": False, "detail": "not installed"}
+    gateway_provisioned = bool(state.get("gateway_provisioned"))
     return {
         "available": True,
         "installed": exists,
@@ -126,18 +208,39 @@ def open_webui_status(state: dict[str, Any], runner: CommandRunner) -> dict[str,
         "status": status,
         "container": container,
         "topology": topology,
-        # U3.3 lands the authenticated gateway; until then the raw model
-        # API is never advertised as production-safe remote sharing.
         "backend_route": (
-            "pending-authenticated-gateway" if exists else "none"
+            "gateway" if (exists and digest["verified"]
+                          and gateway_provisioned) else "pending-gateway"
+        ),
+        "digest_verified": digest["verified"],
+        "digest": IMAGE_DIGEST_SHA256,
+        "image_identity": IMAGE_REF,
+        "gateway_state": (
+            "verified" if (digest["verified"] and gateway_provisioned)
+            else "pending"
         ),
         "url": "http://127.0.0.1:3000",
     }
 
 
-def install_open_webui(state: dict[str, Any], runner: CommandRunner) -> None:
+def install_open_webui(state: dict[str, Any], runner: CommandRunner,
+                       *, credential_file: str | None = None) -> None:
     if not shutil.which("podman"):
         raise RuntimeError("Podman is required for Open WebUI; re-run environment setup.")
+    # D5: refuse to start until the pinned digest is verified (or pulled to
+    # that exact digest). If the local image is a different digest/tag, no
+    # unsafe start proceeds; we emit the recovery story instead.
+    if not state.get("openwebui_skip_digest_verify"):
+        digest = _verify_image_digest(state, runner)
+        if not digest["verified"]:
+            runner.emit(
+                "Open WebUI image is not the pinned digest "
+                f"{IMAGE_DIGEST_SHA256}. Refusing to start. To recover, pull "
+                f"the exact digest: podman pull {IMAGE_REF}."
+            )
+            raise RuntimeError(
+                "Open WebUI image digest not verified; refusing unsafe start."
+            )
     container, exists = _container_name(state, runner)
     _ensure_network(state, runner)
     if exists:
@@ -149,7 +252,7 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner) -> None:
             _migrate_legacy_container(state, runner, container)
             container, exists = CONTAINER, False
     if not exists:
-        runner.run(_create_command(container))
+        runner.run(_create_command(container, credential_file=credential_file))
     runner.run(["podman", "start", container], check=False)
     state["openwebui_installed"] = True
     state["openwebui_container"] = container
@@ -160,13 +263,18 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner) -> None:
     )
 
 
-def start_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+def start_open_webui_impl(state: dict[str, Any], runner: CommandRunner,
+                          credential_file: str | None = None) -> dict[str, Any]:
     status = open_webui_status(state, runner)
     if not status["installed"]:
-        install_open_webui(state, runner)
+        install_open_webui(state, runner, credential_file=credential_file)
     else:
         runner.run(["podman", "start", str(status["container"])], check=False)
     return open_webui_status(state, runner)
+
+
+def start_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    return start_open_webui_impl(state, runner)
 
 
 def stop_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
@@ -176,10 +284,15 @@ def stop_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, A
     return open_webui_status(state, runner)
 
 
-def restart_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+def restart_open_webui_impl(state: dict[str, Any], runner: CommandRunner,
+                            credential_file: str | None = None) -> dict[str, Any]:
     status = open_webui_status(state, runner)
     if not status["installed"]:
-        install_open_webui(state, runner)
+        install_open_webui(state, runner, credential_file=credential_file)
     else:
         runner.run(["podman", "restart", "--time", "10", str(status["container"])])
     return open_webui_status(state, runner)
+
+
+def restart_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    return restart_open_webui_impl(state, runner)

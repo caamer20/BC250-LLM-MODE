@@ -71,6 +71,7 @@ def test_openwebui_status_and_lifecycle(monkeypatch):
         ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
         ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "running\n"),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, networks + "\n"),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
     }
     runner = FakeRunner(outputs)
     state = {}
@@ -83,6 +84,14 @@ def test_openwebui_status_and_lifecycle(monkeypatch):
     assert any(command[:3] == ["podman", "stop", "--time"] for command, _ in runner.commands)
 
 
+def _diginspect_tuple():
+    return (
+        ("podman", "image", "inspect", openwebui.IMAGE_REF,
+         "--format", "{{json .RepoDigests}}"),
+        (0, json.dumps([openwebui.IMAGE_REF]) + "\n"),
+    )
+
+
 def test_openwebui_install_is_loopback_contained(monkeypatch):
     """U0.6: no host networking; UI published strictly on 127.0.0.1."""
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
@@ -90,6 +99,7 @@ def test_openwebui_install_is_loopback_contained(monkeypatch):
         {
             ("podman", "network", "exists", openwebui.NETWORK): (1, ""),
             ("podman", "container", "exists", openwebui.CONTAINER): (1, ""),
+            _diginspect_tuple()[0]: _diginspect_tuple()[1],
         }
     )
     state = {}
@@ -106,6 +116,20 @@ def test_openwebui_install_is_loopback_contained(monkeypatch):
     assert ["podman", "start", openwebui.CONTAINER] in commands
 
 
+def test_openwebui_install_refuses_unverified_image_digest(monkeypatch):
+    """DEF-006/D5: start refuses until the local image IS the pinned digest."""
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    runner = FakeRunner()  # image inspect returns empty -> unverified
+    state = {"openwebui_container": openwebui.CONTAINER}
+    with pytest.raises(RuntimeError, match="digest"):
+        openwebui.install_open_webui(state, runner)
+    # Recovery story is surfaced; no create/start was attempted.
+    commands = [command for command, _ in runner.commands]
+    assert not any(command[:2] == ["podman", "create"] for command in commands)
+    assert not any(command[0] == "podman" and command[1] == "start" for command in commands)
+    assert runner.messages and "podman pull" in runner.messages[-1]
+
+
 def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
     """Legacy/uncontained topology is migrated with the volume preserved."""
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
@@ -114,6 +138,7 @@ def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
         ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
         ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, legacy_networks + "\n"),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
     }
     runner = FakeRunner(outputs)
     state = {"openwebui_container": openwebui.CONTAINER}
