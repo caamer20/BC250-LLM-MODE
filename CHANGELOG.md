@@ -5,6 +5,33 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release closure C7 — known-limitation and conversion decision
+
+- Capability classification refined from the C1 3-value draft to the reviewed
+  5-value 1.0 scope vocabulary: `MANDATORY_FOR_1_0`, `SUPPORTED_OPTIONAL`,
+  `EXPERIMENTAL`, `DEFERRED_NOT_ADVERTISED`, `REMOVED`. A `REMOVED` capability
+  is gone (with migration guidance) and needs no limitation acceptance.
+- Model conversion scope decision: `DEFERRED_NOT_ADVERTISED`. No pinned,
+  verified converter ships in 1.0, so conversion is outside the 1.0 support
+  promise and not advertised in product claims or the primary UI. Direct GGUF
+  acquisition and local GGUF import remain the supported model-ingestion paths.
+  The reviewed scope-decision record is `release/scope-decision-model-
+  conversion.md` (bound to release policy v2 + its digest); the matching
+  `KNOWN_LIMITATION_ACCEPTANCE` evidence record remains human/owner-gated and is
+  not fabricated.
+- `backup-restore-publish` reconciled as IMPLEMENTED by C2: it leaves the
+  known-unavailable list, and its remaining 1.0 requirement is physical-hardware
+  qualification evidence, tracked by the evidence gate (BACKUP_RESTORE_HARDWARE
+  / HARDWARE_QUALIFICATION / SOAK_TEST) and by the manifest blocking gaps — not
+  by capability unavailability.
+- New unclassified-limitation gate: `may_tag_1_0_0()` can never become true
+  while a known limitation lacks a scope classification in the release policy.
+- Release policy bumped to content revision 2 (`release/policy-v2.json`;
+  `release/policy-v1.json` retained as the C1 historical artifact).
+- The release evaluator still truthfully reports `eligible_for_1_0_0 = false`
+  (hardware qualification, soak, security review, human acceptance, and
+  limitation-acceptance evidence all remain pending); no record is fabricated.
+
 ### Release closure C3 — supply-chain, SBOM, and release pipeline
 
 - Deterministic CycloneDX 1.5 SBOM generation + fail-closed validation

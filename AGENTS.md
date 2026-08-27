@@ -2,14 +2,57 @@
 
 ## Current state
 
-**RELEASE CLOSURE — C3 COMPLETE (supply-chain, SBOM, release pipeline).**
-C0 + C1 + C2 remain the baseline records below. C3 produced the developer-
-executable supply-chain tooling and the approval-gated release pipeline:
-deterministic CycloneDX SBOM generation + fail-closed validation, a hardened
-content-identity artifact inventory, least-privilege CI, and a SEPARATE release
-workflow that builds once, attests, and publishes only through an approval-gated
-environment (publication NOT performed). **Next: C7 (limitation/conversion
-decision); C4/C5/C6/C8 stay hardware/human/owner-gated pending evidence.**
+**RELEASE CLOSURE — C7 COMPLETE (known-limitation & conversion decision).**
+C0 + C1 + C2 + C3 remain the baseline records below. C7 resolved the "1.0 ready
+while a mandatory capability is listed unavailable" contradiction: it refined the
+capability classification to the reviewed 5-value 1.0 scope vocabulary, recorded
+the model-conversion scope decision (DEFERRED_NOT_ADVERTISED), reconciled
+backup-restore-publish as IMPLEMENTED by C2 (its remaining 1.0 requirement is
+hardware evidence, tracked by the evidence gate — not capability unavailability),
+and added the unclassified-limitation gate. **All developer-executable milestones
+(C0, C1, C2, C3, C7) are now COMPLETE. Remaining: C4/C5/C6/C8, which are
+hardware/human/owner-gated pending evidence — never fabricated.**
+
+C7 landed (commits in order):
+
+- `912e1ec` `release_policy.py` — CapabilityClass refined from the C1 3-value
+  draft to the 5-value scope vocabulary (MANDATORY_FOR_1_0 / SUPPORTED_OPTIONAL /
+  EXPERIMENTAL / DEFERRED_NOT_ADVERTISED / REMOVED); mandatory/limitation/
+  classified accessors updated (REMOVED is not an accepted limitation);
+  default policy records the C7 decision (backup-restore-publish MANDATORY_FOR_
+  1_0, model-conversion DEFERRED_NOT_ADVERTISED); RELEASE_POLICY_VERSION → 2;
+  reviewed snapshot `release/policy-v2.json` (policy-v1.json kept as C1 history).
+- `38d9a63` `release_state.py` — backup-restore-publish leaves
+  KNOWN_UNAVAILABLE_CAPABILITIES (implemented by C2; hardware evidence now its
+  1.0 requirement via the evidence gate + blocking_gaps); model-conversion stays
+  the single genuinely unavailable capability; NEW unclassified-limitation gate
+  (may_tag_1_0_0() can never be true with an unclassified limitation).
+  `release/scope-decision-model-conversion.md` — reviewed scope-decision record
+  bound to policy v2 + digest (the KNOWN_LIMITATION_ACCEPTANCE evidence record
+  stays human/owner-gated, never fabricated). Reconciled P9-era release-state
+  tests + the C0 red gate; +9 C7 tests.
+
+C7 verification: authoritative collection **1064** (1053 C3 + 11 C7); default
+suite green across nine alphabetical chunks reconciling to 1064; release-related
+tests **95/95** (policy/gate/state/capability/supply-chain/workflows/fuzz/
+convert/tooling); slow battery **51/51**; C1.4 docs-consistency gate green;
+compileall + `git diff --check` clean. C7 exit gate met: no mandatory capability
+unavailable; model-conversion classified DEFERRED_NOT_ADVERTISED with a reviewed
+scope record + consistent product copy (no GUI affordance, convert-model CLI a
+clearly labeled UNAVAILABLE refusal); may_tag_1_0_0() cannot be true with an
+unclassified limitation. **The evaluator still truthfully reports
+eligible_for_1_0_0 = false (hardware/security/human/limitation-acceptance
+evidence all pending); NO record fabricated.**
+
+---
+
+**C3 record (supply-chain, SBOM, release pipeline, superseded as "next" by
+C7).** C3 produced the developer-executable supply-chain tooling and the
+approval-gated release pipeline: deterministic CycloneDX SBOM generation +
+fail-closed validation, a hardened content-identity artifact inventory,
+least-privilege CI, and a SEPARATE release workflow that builds once, attests,
+and publishes only through an approval-gated environment (publication NOT
+performed).
 
 C3 landed (commits in order):
 
