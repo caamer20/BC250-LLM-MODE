@@ -5,6 +5,81 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release state (P9 §15)
+
+- The build is NOT `1.0.0` and will not be tagged until the P9 exit gate is
+  met: all milestone gates evidence-linked, hardware qualification + soak
+  green on BC250 hardware, human acceptance signed off, and security review
+  signed off. `bc250_llm_mode/release_state.py` models this state and keeps
+  the known-unavailable capabilities VISIBLE rather than implying
+  completeness: **model conversion** (no pinned, verified converter ships in
+  this build) and the **backup-restore publish step** (atomic profile-level
+  publish + post-restore inference verification require physical hardware).
+- Deterministic property/fuzz robustness gates (`tests/test_release_fuzz.py`)
+  prove GGUF parsing, operation request validation, backup manifest digest
+  verification, and event pagination are fail-closed and bounded.
+
+### Added (P8 §14: backup, restore, repair, and upgrade safety)
+
+- `backup_manifest.py`: versioned, secret-free backup manifest with a stable
+  canonical digest; refuses secret-like keys and non-contained paths.
+- `backup_restore.py`: fail-closed dry-run restore gate — tampered/partial/
+  wrong-key/path-traversal/newer-schema/low-space/permission/identity failures
+  all refuse BEFORE any mutation, leaving the current profile untouched.
+- `repair_center.py`: read-only repair findings + idempotent, auditable,
+  precondition-gated actions for the eight supported repairs (no manual
+  SQLite/filesystem edits).
+- Upgrade matrix tests prove schema upgrades preserve the database, managed
+  artifacts, and runtime lineage (v8 -> v9 with no data loss).
+
+### Added (P7 §13: chat reliability, privacy, and daily-use UX)
+
+- `chat_lifecycle.py`: shared request/result/error semantics for both chat
+  clients — request/conversation IDs, bounded deadlines (never `timeout=None`),
+  cancellation token, closed terminal classification, pure retry policy (never
+  after tokens emitted), redacted event record, recoverable messages with the
+  request ID instead of a traceback.
+- `conversation_ux.py` + `benchmark_ux.py`: pure presentation contracts for
+  conversation UX (model-change indicator, export redaction, confirmations,
+  bounded search) and benchmark/tune UX (tested-vs-estimated, attribution,
+  bounded retention, "apply winner" as a separate verified operation).
+- Privacy exit gate: conversation content never enters operation history,
+  logs, metrics, or support bundles by default.
+
+### Added (P6 §12: model library and storage lifecycle v2)
+
+- Model Library read model over the immutable artifact identity (provenance,
+  digest, trust, fit, active/known-good references, deletion eligibility);
+  migration 009 `model_library_meta` (schema v9).
+- Durable `MODEL_REMOVE v1`: quarantines rather than deletes; refuses
+  active/known-good/referenced artifacts; survives process death + lease
+  takeover.
+- `storage_capacity.py`: capacity/dedup report + ranked, report-only cleanup
+  suggestions.
+- `MODEL_CONVERT v1` gate: known versioned type, but honestly unavailable (no
+  converter shipped) and refused before any external effect.
+
+### Added (P5 §11: appliance home, health, and diagnostics)
+
+- `health.py` typed health model (closed readiness vocabulary, fail-closed
+  staleness, READY never inferred) + `home.py` home snapshot (ten cards, one
+  read unit).
+- `doctor.py` read-only diagnostics catching the eight seeded failures;
+  `support_bundle.py` redacted-by-construction export; `home_ux.py` pure
+  presentation contract.
+
+### Added (P4 §10: authenticated integration boundary)
+
+- Gateway (credential-only, scope/rate/size bounded, loopback), Open WebUI
+  digest-pinned container, and sharing routed ONLY through the gateway.
+
+### Added (P3 §9: bounded execution platform)
+
+- One bounded process port + bounded HTTP transport policy; every production
+  subprocess/HTTP caller migrated; AST guards against regressions.
+
+## [0.9.0.dev0] — unreleased development line
+
 ### Added (P2/U1.5: Activity Center v1)
 
 - Activity Center (`gui/activity.py`) reachable from a dashboard button:
