@@ -15,7 +15,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-RELEASE_POLICY_VERSION = 1
+# C7 (§C7.1): the reviewed policy content revision. The class schema is still
+# generation 1 (``ReleasePolicyV1``); this field tracks reviewed CONTENT
+# revisions within that schema. Revision 2 is the C7 capability-scope decision.
+RELEASE_POLICY_VERSION = 2
 
 
 class EvidenceKind(str, Enum):
@@ -72,9 +75,37 @@ GATE_CODES: tuple[str, ...] = tuple(c.value for c in ReleaseGateCode)
 
 
 class CapabilityClass(str, Enum):
-    MANDATORY = "MANDATORY"
-    OPTIONAL = "OPTIONAL"
-    DEFERRED = "DEFERRED"
+    """C7 §C7.1 (V1_0_RELEASE_CLOSURE plan): the 1.0 capability-scope vocabulary.
+
+    MANDATORY_FOR_1_0       release blocks until implemented and evidenced;
+    SUPPORTED_OPTIONAL      available and supported when enabled;
+    EXPERIMENTAL            intentionally outside the stable 1.0 support
+                            contract, visibly labeled;
+    DEFERRED_NOT_ADVERTISED not present in product claims or primary UI;
+    REMOVED                 command/UI/API deleted with migration guidance.
+
+    C1 originally shipped a 3-value draft (MANDATORY/OPTIONAL/DEFERRED) and
+    marked it REL-012/C7; this is the reviewed refinement. Every known
+    limitation must carry one of these classes — an UNCLASSIFIED limitation can
+    never qualify a 1.0 tag (C7 exit gate).
+    """
+
+    MANDATORY_FOR_1_0 = "MANDATORY_FOR_1_0"
+    SUPPORTED_OPTIONAL = "SUPPORTED_OPTIONAL"
+    EXPERIMENTAL = "EXPERIMENTAL"
+    DEFERRED_NOT_ADVERTISED = "DEFERRED_NOT_ADVERTISED"
+    REMOVED = "REMOVED"
+
+
+# Capability classes that are "accepted limitations": present in the policy but
+# not mandatory, each requiring a reviewed KNOWN_LIMITATION_ACCEPTANCE record.
+# REMOVED is excluded — a removed capability is gone (with migration guidance)
+# and needs no limitation acceptance.
+_LIMITATION_CLASSES: tuple[str, ...] = (
+    CapabilityClass.SUPPORTED_OPTIONAL.value,
+    CapabilityClass.EXPERIMENTAL.value,
+    CapabilityClass.DEFERRED_NOT_ADVERTISED.value,
+)
 
 
 # Map each required evidence kind to the gate code raised when it is absent.
@@ -138,13 +169,16 @@ class ReleasePolicyV1:
     def mandatory_capabilities(self) -> frozenset[str]:
         return frozenset(
             c.capability for c in self.capabilities
-            if c.classification == CapabilityClass.MANDATORY.value)
+            if c.classification == CapabilityClass.MANDATORY_FOR_1_0.value)
 
     def limitation_capabilities(self) -> frozenset[str]:
         return frozenset(
             c.capability for c in self.capabilities
-            if c.classification in (CapabilityClass.OPTIONAL.value,
-                                    CapabilityClass.DEFERRED.value))
+            if c.classification in _LIMITATION_CLASSES)
+
+    def classified_capabilities(self) -> frozenset[str]:
+        """Every capability this policy assigns a scope class to (C7)."""
+        return frozenset(c.capability for c in self.capabilities)
 
     def gate_code_for(self, kind: str) -> str | None:
         return _KIND_TO_GATE_CODE.get(kind)
@@ -165,20 +199,33 @@ class ReleasePolicyV1:
 
 
 def default_release_policy() -> ReleasePolicyV1:
-    """The reviewed default policy. backup-restore-publish is MANDATORY for
-    1.0 (REL-004/C2); model-conversion is DEFERRED and therefore requires an
-    accepted-limitation record (REL-008/C7)."""
+    """The reviewed default policy (C7 §C7.1/§C7.2 scope decision).
+
+    ``backup-restore-publish`` is MANDATORY_FOR_1_0 (REL-004): implemented as a
+    durable operation by C2, so it is no longer an "unavailable capability" —
+    its remaining 1.0 requirement is physical-hardware qualification evidence,
+    tracked by the evidence gate (BACKUP_RESTORE_HARDWARE / HARDWARE_
+    QUALIFICATION / SOAK_TEST), not by capability unavailability.
+
+    ``model-conversion`` is DEFERRED_NOT_ADVERTISED (REL-008): no pinned,
+    verified converter ships in 1.0, so conversion is outside the 1.0 support
+    promise and not advertised in product claims or the primary UI. It requires
+    a reviewed accepted-limitation record. Direct GGUF acquisition + local GGUF
+    import remain the supported model-ingestion paths.
+    """
     return ReleasePolicyV1(
         capabilities=(
             CapabilityPolicy(
                 capability="backup-restore-publish",
-                classification=CapabilityClass.MANDATORY.value,
+                classification=CapabilityClass.MANDATORY_FOR_1_0.value,
                 reason="durable backup create/restore publication is required "
-                       "for 1.0 (REL-004)"),
+                       "for 1.0 (REL-004); implemented by C2, so hardware "
+                       "qualification evidence is tracked by the evidence gate"),
             CapabilityPolicy(
                 capability="model-conversion",
-                classification=CapabilityClass.DEFERRED.value,
+                classification=CapabilityClass.DEFERRED_NOT_ADVERTISED.value,
                 reason="no pinned, verified converter ships in this build "
-                       "(REL-008); requires an accepted-limitation record"),
+                       "(REL-008); C7 scope decision DEFERRED_NOT_ADVERTISED, "
+                       "requires an accepted-limitation record"),
         ),
     )
