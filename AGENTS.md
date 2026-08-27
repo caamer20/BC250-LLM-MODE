@@ -2,15 +2,67 @@
 
 ## Current state
 
-**P5 COMPLETE — appliance home, health, and diagnostics (§11). All §11
-exit-gate items closed and gated except the novice-acceptance test, which
-is human-moderated and remains pending-evidence.** The health model
-(`bc250_llm_mode/health.py`) is the design authority for readiness: a
-closed 8-state vocabulary, deterministic severity ordering, verified>
-observed>inferred basis, fail-closed staleness (positive claims READY/
-DEGRADED/BUSY demote to UNVERIFIED when stale; safety conditions persist),
-and READY can never be inferred — every green claim carries bounded
-evidence + a timestamp.
+**P6 COMPLETE — model library and storage lifecycle v2 (§12). All §12
+exit-gate items closed and gated.** The Model Library is a query-only read
+model over the immutable artifact identity (content digest + artifact id —
+never a catalog title or mutable remote tag); removal is a sixth durable
+operation that quarantines rather than deletes and refuses active/known-good/
+referenced artifacts; capacity/dedup reporting and ranked cleanup are
+report-only; and conversion is honestly unavailable (no pinned, verified
+converter ships in this build) rather than faked.
+
+P6 landed (commits in order):
+
+- `fc2129a` P6.1 (§12.1): migration 009 `model_library_meta` (pinned,
+  last_used_at, last_verified_inference_at, bounded benchmark summary;
+  cascades on alias removal) → `SCHEMA_VERSION = 9`;
+  `ModelLibraryMetaRepository` + `ModelLibraryQueryService`/
+  `ModelLibraryEntry` surfacing every §12.1 field (identity/provenance,
+  digest/size/format/quant/arch/tensor, trust/storage + quarantine reason,
+  license, active/known-good refs, computed fit, usage, pinned, deletion
+  eligibility + blockers); CLI `models library`; AST query-only guard.
+  Schema-version assertions made future-proof. 14 tests.
+- `84bb0f6` P6.2 (§12.2): durable `MODEL_REMOVE v1` — sixth operation;
+  frozen four-step forward-only workflow (resolve_identity → detach_alias →
+  quarantine_bytes → record_removal) on `model-storage`; ONE production
+  adapter refuses blocked removals before mutation, detaches in a
+  transaction, MOVES unreferenced bytes to operation-owned quarantine (never
+  deletes), writes a removal receipt for bounded undo, marks the artifact
+  QUARANTINED; forward-only rules re-verify references/active/known-good
+  before moving bytes. `ModelRemoveCommandService` (query-only accurate
+  dry_run + refuse-or-enqueue remove); CLI `remove-model` (dry-run default,
+  `--yes` behind acknowledgment). 14 tests incl. TWO death/lease-takeover
+  convergence tests.
+- `a0231c1` P6.3 (§12.3): `storage_capacity.py` query-only
+  `StorageCapacityService` — logical-unique vs logical-installed size, dedup
+  savings, physical/staging/quarantine/reserved bytes, free space,
+  configurable low-space warning; ranked cleanup suggestions
+  (staging→quarantine→unreferenced) with exact identities + reasons;
+  dry-run cleanup NEVER deletes; CLI `storage report|cleanup`; AST guard.
+  9 tests.
+- `e8118d2` P6.4 (§12.4): `MODEL_CONVERT v1` gate — known versioned type +
+  request contract, but NO workflow registered and NO converter shipped;
+  `ModelConvertCommandService` refuses every request BEFORE any external
+  effect with the single honest reason; CLI `convert-model` reports
+  UNAVAILABLE (exit 1). 6 tests.
+
+§12 exit gate: Model Library shows provenance/digest/trust/fit/active/
+known-good/verification state (P6.1); duplicate import/acquisition converges
+to one managed artifact (existing acquisition gate, re-verified); invalid/
+untrusted files quarantine safely and never receive an alias (existing +
+P6.2); remove dry-run accurate and active/known-good/referenced models cannot
+be destructively removed (P6.2); cleanup and undo survive process death and
+lease takeover (P6.2 death tests); conversion remains visibly unavailable
+with an honest reason (P6.4).
+
+Verification: authoritative collection **884** (`pytest tests
+--collect-only -q`); default suite green across deterministic alphabetical
+chunks (882 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 884
+reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
+clean-wheel 4/4); compileall + `git diff --check` clean.
+
+Next: **P7 — chat reliability, privacy, and daily-use UX (§13), then P8
+backup/restore/repair/upgrade (§14), P9 release qualification (§15).**
 
 P5 landed (commits in order):
 
