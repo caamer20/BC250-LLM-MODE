@@ -2,15 +2,71 @@
 
 ## Current state
 
-**P4 COMPLETE — authenticated gateway and contained integrations (§10).
-All §10.4 exit-gate items closed and gated except hardware soak /
-human acceptance, which remain pending-evidence.** ADR 005 (gateway
-threat model, `docs/adr/005-authenticated-gateway.md`, approved
-`ea87984`) is the design authority: the purpose-built gateway is the
-ONLY bridge from remote/container traffic to the loopback backend;
-scoped credentials; fingerprint-only durable storage; constant-time
-comparison; bounded rate/size; content-free audit; digest-pinned image
-identity.
+**P5 COMPLETE — appliance home, health, and diagnostics (§11). All §11
+exit-gate items closed and gated except the novice-acceptance test, which
+is human-moderated and remains pending-evidence.** The health model
+(`bc250_llm_mode/health.py`) is the design authority for readiness: a
+closed 8-state vocabulary, deterministic severity ordering, verified>
+observed>inferred basis, fail-closed staleness (positive claims READY/
+DEGRADED/BUSY demote to UNVERIFIED when stale; safety conditions persist),
+and READY can never be inferred — every green claim carries bounded
+evidence + a timestamp.
+
+P5 landed (commits in order):
+
+- `fddf8a1` P5.1 (§11.1/§11.2): `health.py` typed health model +
+  `home.py` `HomeQueryService`/`ApplianceHomeSnapshot` — ONE read unit,
+  ten cards (identity/runtime/model/inference/thermal/operations/storage/
+  integrations/backup/host) each with `as_of`+`stale_reason`, query-only
+  by construction (AST guard). §11.2: `server.health_check` `model_id` is
+  now the OBSERVED identity from the live server (never the desired
+  `current_model`), + `desired_model`/`model_matches_desired`;
+  `queries.health()` labels the model desired-only. Composition wires
+  `application.home`; CLI `home` verb. 13 health + 15 home + 2 server tests.
+- `9972b28` P5.2 (§11.3): `doctor.py` read-only `DoctorService` — stable
+  finding ids, bounded severity (FAIL>WARN>INFO>PASS), evidence,
+  recommended command; query-only (AST guard), never deletes; an unreadable
+  DB is itself a finding. Catches all eight seeded failures (DB corruption,
+  stale lease, mismatched handoff, bad digest, thermal latch, low disk,
+  insecure topology, stale backup). CLI doctor merges structured findings.
+  16 tests.
+- `8910f57` P5.3 (§11.3): `support_bundle.py` redacted-by-construction
+  export — conversations never read; credential files read only to feed the
+  scrubber; raw DB/backups/binaries never copied; secret keys masked; free
+  text scrubbed; paths normalized to `<profile>/`; model filenames
+  replaceable with `<model-N>`; per-file+total size bounds; cancellable;
+  manifest records policy + per-file + bundle digests. Embeds home.json +
+  doctor.json from the SAME composed services. CLI `support-bundle` verb.
+  11 tests. Also: `test_public_import_surface_is_stable` skips its tkinter
+  gui import when `_tkinter` is unavailable (mirrors the Linux-gated skip;
+  confirmed pre-existing at P4 in this sandbox).
+- `f88e5e3` P5.4 (§11.4): `home_ux.py` PURE presentation contract (no
+  tkinter/IO; AST guard) — preflight checklist, disk-space estimates, model
+  fit explanation, downloaded/installed/active/verified separation,
+  recovery-after-frontend-close instructions, bounded redacted copy-
+  diagnostic-details, exact operation-history commands. GUI dashboard gains
+  an "Appliance home" panel + "Copy diagnostic details" fed by the composed
+  `application.home`. 10 home_ux + 1 GUI-contract test.
+
+§11 exit gate: home snapshot query-only and consistent across CLI (`home`
+verb), GUI (home panel), and support bundle (home.json) — all read the one
+composed `HomeQueryService`; every green readiness claim has a bounded
+evidence source; doctor catches all eight seeded failures; support bundles
+pass secret/path/prompt canaries + size limits. **Pending evidence (never
+fabricated): the novice-user moderated acceptance test (resolving seeded
+common failures using only the UI's recommended-action text) requires a
+non-developer operator.**
+
+Verification: authoritative collection **841** (`pytest tests
+--collect-only -q`); default suite green across deterministic alphabetical
+chunks (135+110+94+167+115+135+85 = 841), 839 passed + 1 Linux-gated skip
++ 1 tkinter-gated skip = 841 reconciled; explicit slow battery **51/51**
+(runtime 6/6, acquisition 41/41, clean-wheel 4/4); compileall + `git diff
+--check` clean.
+
+Next: **P6 — model library and storage lifecycle v2 (§12), then P7 chat
+reliability (§13), P8 backup/restore/repair/upgrade (§14), P9 release
+qualification (§15).**
 
 P4 landed (commits in order):
 
@@ -88,10 +144,7 @@ deselected + 1 Linux-gated skip = 773 reconciled; explicit slow
 battery **51/51** (runtime 6/6, acquisition 41/41, clean-wheel 4/4);
 compileall + `git diff --check` clean.
 
-Next: **P5 — home, health, and diagnostics (§11): dashboard/home
-surface, health model, doctor + support bundle; then P6 model library /
-storage lifecycle v2 (§12), P7 chat reliability (§13), P8 backup/
-restore/repair/upgrade (§14), P9 release qualification (§15).**
+(P5 followed and is recorded above.)
 
 P3 landed:
 
