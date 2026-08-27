@@ -1,0 +1,483 @@
+"""Production host adapters for ``BACKUP_CREATE v1`` / ``BACKUP_RESTORE v1``
+(ADR 006). ONE production host satisfies each workflow port.
+
+BACKUP_CREATE: a hot-consistent SQLite snapshot (``sqlite3`` backup API), a
+secret-free manifest, and a no-replace tar archive published to the backups dir.
+Model/runtime bytes are excluded unless explicitly included. Secrets are
+excluded by construction (the gateway secret never lives in the database).
+
+BACKUP_RESTORE: validate the source against the confirmation digest, extract
+into a fresh contained sibling staging profile, validate it, then ONE atomic
+same-filesystem profile exchange, post-restore verification, and promote
+(retain prior) or exchange back. Every pre-publication failure leaves the active
+profile unchanged; an uncertain state retains both profiles.
+
+The adapters operate on injected ``AppPaths`` + ``UnitOfWorkFactory`` so the
+exact semantics are exercised by fake-world tests (no systemd/hardware here).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sqlite3
+import tarfile
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from . import __version__ as APPLICATION_RELEASE
+from .backup_lifecycle import BackupSetRepository, RestoreAttemptRepository
+from .backup_manifest import (
+    BackupManifest,
+    FileEntry,
+    build_backup_manifest,
+    verify_manifest_digest,
+)
+from .db import SCHEMA_VERSION
+from .legacy_import import utcnow
+from .operations.backup import (
+    CODE_BACKUP_CREATED,
+    CODE_RESTORE_PUBLISHED,
+    CODE_RESTORE_ROLLED_BACK,
+    BackupCreateHost,
+    BackupRestoreHost,
+)
+from .operations.validation import OperationValidationError
+from .paths import AppPaths
+from .profile_exchange_helper import Refusal, run_local_profile_exchange
+from .unit_of_work import UnitOfWorkFactory
+
+MANIFEST_NAME = "backup-manifest.json"
+_SNAPSHOT_NAME = "state.db"
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _bare_digest(digest: str) -> str:
+    """Normalize a ``sha256:<hex>`` manifest digest to bare 64-char hex (the
+    form persisted in ``backup_sets`` and bound to restore confirmations)."""
+    return digest[7:] if digest.startswith("sha256:") else digest
+
+
+class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
+    """ONE production host for both backup workflows."""
+
+    def __init__(
+        self,
+        units: UnitOfWorkFactory,
+        paths: AppPaths,
+        *,
+        clock=utcnow,
+        exchange=run_local_profile_exchange,
+    ) -> None:
+        self._units = units
+        self._paths = paths
+        self._clock = clock
+        self._exchange = exchange
+
+    # -- shared helpers -----------------------------------------------------
+
+    def _backup_staging_dir(self, operation_id: str) -> Path:
+        return self._paths.staging_dir / f"backup-{operation_id}"
+
+    def _restore_staging_profile(self, operation_id: str) -> Path:
+        return self._paths.app_dir.parent / (
+            f"{self._paths.app_dir.name}-restore-{operation_id}")
+
+    def _archive_path(self, label: str) -> Path:
+        # Contained within the backups dir; never an absolute/escaping path.
+        parts = Path(label).parts
+        if not parts or label.startswith("/") or ".." in parts:
+            raise OperationValidationError(
+                "destination_label must be a contained relative path")
+        return self._paths.backups_dir.joinpath(*parts)
+
+    # ======================================================================
+    # BACKUP_CREATE v1
+    # ======================================================================
+
+    def snapshot_database(self, ctx) -> dict[str, Any]:
+        staging = self._backup_staging_dir(ctx.operation_id)
+        staging.mkdir(parents=True, exist_ok=True)
+        os.chmod(staging, 0o700)
+        snapshot_path = staging / _SNAPSHOT_NAME
+        # Hot-consistent snapshot via the maintained sqlite backup API.
+        src = sqlite3.connect(str(self._paths.database_path))
+        try:
+            dst = sqlite3.connect(str(snapshot_path))
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+        return {"snapshot_path": str(snapshot_path),
+                "snapshot_digest": _sha256_file(snapshot_path)}
+
+    def probe_snapshot(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        snapshot = self._backup_staging_dir(ctx.operation_id) / _SNAPSHOT_NAME
+        if snapshot.is_file():
+            return ProbeResult(RecoveryClass.COMPLETE, "SNAPSHOT_PRESENT")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "SNAPSHOT_MISSING")
+
+    def inventory_and_stage(self, ctx) -> dict[str, Any]:
+        staging = self._backup_staging_dir(ctx.operation_id)
+        snapshot = staging / _SNAPSHOT_NAME
+        if not snapshot.is_file():
+            raise OperationValidationError("snapshot missing before inventory")
+        files = [
+            FileEntry(
+                relative_path=_SNAPSHOT_NAME,
+                sha256=_sha256_file(snapshot),
+                size_bytes=snapshot.stat().st_size,
+                mode=0o600,
+            )
+        ]
+        manifest = BackupManifest(
+            application_release=APPLICATION_RELEASE,
+            database_schema_version=SCHEMA_VERSION,
+            created_at=self._clock(),
+            model_bytes_included=bool(ctx.request.include_models),
+            files=files,
+        )
+        doc = build_backup_manifest(manifest)  # refuses secrets/traversal
+        manifest_path = staging / MANIFEST_NAME
+        manifest_path.write_text(
+            json.dumps(doc, sort_keys=True, indent=2), encoding="utf-8")
+        return {"manifest_digest": _bare_digest(doc["manifest_digest"]),
+                "manifest_path": str(manifest_path),
+                "file_count": len(files)}
+
+    def probe_staged(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        staging = self._backup_staging_dir(ctx.operation_id)
+        if (staging / MANIFEST_NAME).is_file() and (
+                staging / _SNAPSHOT_NAME).is_file():
+            return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "STAGING_INCOMPLETE")
+
+    def publish_archive(self, ctx) -> dict[str, Any]:
+        staging = self._backup_staging_dir(ctx.operation_id)
+        archive = self._archive_path(ctx.request.destination_label)
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        if archive.exists():
+            # A collision NEVER overwrites an existing backup.
+            raise OperationValidationError(
+                f"BACKUP_COLLISION: {ctx.request.destination_label!r} exists")
+        tmp = archive.with_suffix(archive.suffix + ".partial")
+        with tarfile.open(tmp, "w") as tar:
+            tar.add(str(staging / MANIFEST_NAME), arcname=MANIFEST_NAME)
+            tar.add(str(staging / _SNAPSHOT_NAME), arcname=_SNAPSHOT_NAME)
+        # fsync then no-replace publish.
+        fd = os.open(str(tmp), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        try:
+            os.link(str(tmp), str(archive))  # no-replace (EEXIST if present)
+        except FileExistsError as exc:
+            raise OperationValidationError(
+                f"BACKUP_COLLISION: {ctx.request.destination_label!r} exists"
+            ) from exc
+        finally:
+            tmp.unlink(missing_ok=True)
+        return {"archive_path": str(archive),
+                "archive_digest": _sha256_file(archive),
+                "bytes_total": archive.stat().st_size}
+
+    def probe_published(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        archive = self._archive_path(ctx.request.destination_label)
+        if archive.is_file():
+            return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "PUBLISH_INCOMPLETE")
+
+    def verify_archive(self, ctx) -> dict[str, Any]:
+        archive = self._archive_path(ctx.request.destination_label)
+        with tarfile.open(archive, "r") as tar:
+            member = tar.extractfile(MANIFEST_NAME)
+            if member is None:
+                raise OperationValidationError("manifest missing in archive")
+            doc = json.loads(member.read().decode("utf-8"))
+        if not verify_manifest_digest(doc):
+            raise OperationValidationError("VERIFY_FAILED: manifest digest")
+        return {"verified": True,
+                "manifest_digest": _bare_digest(doc["manifest_digest"])}
+
+    def probe_verified(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        archive = self._archive_path(ctx.request.destination_label)
+        if archive.is_file():
+            try:
+                self.verify_archive(ctx)
+                return ProbeResult(RecoveryClass.COMPLETE, "VERIFIED")
+            except OperationValidationError:
+                return ProbeResult(RecoveryClass.FAILED, "VERIFY_FAILED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "ARCHIVE_MISSING")
+
+    def record_backup(self, ctx) -> dict[str, Any]:
+        archive = self._archive_path(ctx.request.destination_label)
+        with tarfile.open(archive, "r") as tar:
+            doc = json.loads(
+                tar.extractfile(MANIFEST_NAME).read().decode("utf-8"))
+        digest = _bare_digest(doc["manifest_digest"])
+        with self._units.begin() as conn:
+            repo = BackupSetRepository(conn)
+            existing = conn.execute(
+                "SELECT backup_id FROM backup_sets WHERE manifest_digest = ?",
+                (digest,)).fetchone()
+            if existing is None:
+                row = repo.insert(
+                    backup_id=f"bk-{ctx.operation_id}",
+                    manifest_digest=digest,
+                    storage_path_label=ctx.request.destination_label,
+                    created_by_operation_id=ctx.operation_id,
+                    bytes_total=archive.stat().st_size,
+                    encryption_mode="none",
+                )
+                repo.mark_verification(
+                    row.backup_id, state="verified",
+                    expected_revision=row.revision)
+        # Secure cleanup of the staging dir (retention window expired inline).
+        staging = self._backup_staging_dir(ctx.operation_id)
+        for child in staging.iterdir():
+            child.unlink(missing_ok=True)
+        staging.rmdir()
+        return {"disposition": CODE_BACKUP_CREATED,
+                "backup_id": f"bk-{ctx.operation_id}",
+                "manifest_digest": digest}
+
+    def probe_record(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        with self._units.read() as conn:
+            row = conn.execute(
+                "SELECT backup_id FROM backup_sets WHERE "
+                "created_by_operation_id = ?", (ctx.operation_id,)).fetchone()
+        if row is not None:
+            return ProbeResult(RecoveryClass.COMPLETE, "RECORDED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "RECORD_MISSING")
+
+    # ======================================================================
+    # BACKUP_RESTORE v1
+    # ======================================================================
+
+    def _load_backup(self, backup_id: str) -> tuple[Path, dict[str, Any]]:
+        with self._units.read() as conn:
+            row = conn.execute(
+                "SELECT storage_path_label, manifest_digest FROM backup_sets "
+                "WHERE backup_id = ?", (backup_id,)).fetchone()
+        if row is None:
+            raise OperationValidationError(
+                f"SOURCE_INVALID: unknown backup_id {backup_id!r}")
+        archive = self._archive_path(row["storage_path_label"])
+        if not archive.is_file():
+            raise OperationValidationError("SOURCE_INVALID: archive missing")
+        with tarfile.open(archive, "r") as tar:
+            doc = json.loads(
+                tar.extractfile(MANIFEST_NAME).read().decode("utf-8"))
+        return archive, doc
+
+    def validate_source(self, ctx) -> dict[str, Any]:
+        archive, doc = self._load_backup(ctx.request.backup_id)
+        if not verify_manifest_digest(doc):
+            raise OperationValidationError("SOURCE_INVALID: manifest digest")
+        if _bare_digest(doc["manifest_digest"]) != ctx.request.confirmation_digest:
+            raise OperationValidationError(
+                "SOURCE_INVALID: confirmation_digest does not bind this "
+                "backup (dry-run digest mismatch)")
+        return {"manifest_digest": _bare_digest(doc["manifest_digest"]),
+                "archive_path": str(archive)}
+
+    def probe_source_valid(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        try:
+            self.validate_source(ctx)
+            return ProbeResult(RecoveryClass.COMPLETE, "SOURCE_VALID")
+        except OperationValidationError:
+            return ProbeResult(RecoveryClass.FAILED, "SOURCE_INVALID")
+
+    def stage_candidate(self, ctx) -> dict[str, Any]:
+        archive, doc = self._load_backup(ctx.request.backup_id)
+        candidate = self._restore_staging_profile(ctx.operation_id)
+        if candidate.exists():
+            # Idempotent resume: a partially staged candidate is re-staged.
+            import shutil
+            shutil.rmtree(candidate)
+        candidate.mkdir(parents=True)
+        os.chmod(candidate, 0o700)
+        with tarfile.open(archive, "r") as tar:
+            # Contained extraction only (no absolute/traversal members).
+            for member in tar.getmembers():
+                name = Path(member.name)
+                if member.name.startswith("/") or ".." in name.parts:
+                    raise OperationValidationError(
+                        "STAGING_INCOMPLETE: traversal member")
+            tar.extractall(candidate)
+        # Migrate the staged database only (schema forward).
+        staged_db = candidate / _SNAPSHOT_NAME
+        from .db import initialize, open_database
+        conn = open_database(staged_db, mode="migration")
+        try:
+            initialize(conn)
+        finally:
+            conn.close()
+        return {"candidate_profile": str(candidate),
+                "candidate_identity": _sha256_file(staged_db)}
+
+    def probe_staged_candidate(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        candidate = self._restore_staging_profile(ctx.operation_id)
+        if (candidate / _SNAPSHOT_NAME).is_file():
+            return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "STAGING_INCOMPLETE")
+
+    def validate_staged(self, ctx) -> dict[str, Any]:
+        candidate = self._restore_staging_profile(ctx.operation_id)
+        staged_db = candidate / _SNAPSHOT_NAME
+        if not staged_db.is_file():
+            raise OperationValidationError("STAGED_INVALID: db missing")
+        conn = sqlite3.connect(str(staged_db))
+        try:
+            ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if ok != "ok":
+                raise OperationValidationError("STAGED_INVALID: integrity")
+        finally:
+            conn.close()
+        return {"staged_integrity": "ok"}
+
+    def probe_staged_validated(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        try:
+            self.validate_staged(ctx)
+            return ProbeResult(RecoveryClass.COMPLETE, "STAGED_VALID")
+        except OperationValidationError:
+            return ProbeResult(RecoveryClass.FAILED, "STAGED_INVALID")
+
+    def publish_exchange(self, ctx) -> dict[str, Any]:
+        candidate = self._restore_staging_profile(ctx.operation_id)
+        active = self._paths.app_dir
+        approved_root = str(active.parent)
+        # Record the restore attempt + identities before the exchange.
+        with self._units.begin() as conn:
+            repo = RestoreAttemptRepository(conn)
+            row = repo.insert(
+                restore_id=f"rs-{ctx.operation_id}",
+                source_manifest_digest=ctx.request.confirmation_digest,
+                created_by_operation_id=ctx.operation_id)
+            repo.set_identities(
+                row.restore_id, expected_revision=row.revision,
+                staging_identity=str(candidate),
+                prior_profile_identity=str(active),
+                candidate_profile_identity=str(candidate))
+        try:
+            self._exchange(str(active), str(candidate),
+                           approved_root=approved_root)
+        except (Refusal, SystemExit) as exc:
+            raise OperationValidationError(
+                f"PUBLISH_INCOMPLETE: profile exchange refused ({exc})")
+        return {"exchanged": True, "active_profile": str(active)}
+
+    def probe_published(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        # After exchange, the active app_dir holds the restored content; the
+        # candidate dir holds the prior profile (retained for rollback).
+        candidate = self._restore_staging_profile(ctx.operation_id)
+        if (self._paths.app_dir / _SNAPSHOT_NAME).is_file() and candidate.exists():
+            return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "PUBLISH_INCOMPLETE")
+
+    def verify_post_restore(self, ctx) -> dict[str, Any]:
+        db = self._paths.database_path
+        if not db.is_file():
+            raise OperationValidationError("POST_VERIFY_FAILED: db missing")
+        conn = sqlite3.connect(str(db))
+        try:
+            ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if ok != "ok":
+                raise OperationValidationError("POST_VERIFY_FAILED: integrity")
+        finally:
+            conn.close()
+        return {"post_integrity": "ok"}
+
+    def probe_post_verified(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        try:
+            self.verify_post_restore(ctx)
+            return ProbeResult(RecoveryClass.COMPLETE, "POST_VERIFIED")
+        except OperationValidationError:
+            return ProbeResult(RecoveryClass.FAILED, "POST_VERIFY_FAILED")
+
+    def promote_or_rollback(self, ctx) -> dict[str, Any]:
+        # Post-verification passed (engine only reaches here when verified).
+        # The profile database was swapped during the exchange, so the terminal
+        # outcome is recorded in the NEW (restored) database — making the
+        # restored profile self-documenting — while the pre-exchange tracking
+        # row remains with the retained prior profile for rollback review.
+        with self._units.begin() as conn:
+            repo = RestoreAttemptRepository(conn)
+            existing = conn.execute(
+                "SELECT restore_id, revision FROM restore_attempts WHERE "
+                "created_by_operation_id = ?", (ctx.operation_id,)).fetchone()
+            if existing is None:
+                # The restored database has no row for this restore operation
+                # (it predates the restore), so the terminal record is recorded
+                # without an operation FK; restore_id carries the lineage.
+                row = repo.insert(
+                    restore_id=f"rs-{ctx.operation_id}",
+                    source_manifest_digest=ctx.request.confirmation_digest,
+                    created_by_operation_id=None)
+                repo.set_state(
+                    row.restore_id, expected_revision=row.revision,
+                    publish_state="published", post_verify_state="passed",
+                    rollback_state="not_needed")
+            else:
+                repo.set_state(
+                    existing["restore_id"],
+                    expected_revision=existing["revision"],
+                    publish_state="published", post_verify_state="passed",
+                    rollback_state="not_needed")
+        return {"disposition": CODE_RESTORE_PUBLISHED,
+                "retained_prior_profile": str(
+                    self._restore_staging_profile(ctx.operation_id))}
+
+    def probe_terminal(self, ctx) -> "ProbeResult":
+        from .operations.workflow import ProbeResult
+        from .recovery import RecoveryClass
+
+        with self._units.read() as conn:
+            row = conn.execute(
+                "SELECT publish_state FROM restore_attempts WHERE "
+                "created_by_operation_id = ?", (ctx.operation_id,)).fetchone()
+        if row is not None and row["publish_state"] == "published":
+            return ProbeResult(RecoveryClass.COMPLETE, "PROMOTED")
+        return ProbeResult(RecoveryClass.INCOMPLETE, "TERMINAL_MISSING")
