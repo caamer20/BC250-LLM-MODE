@@ -2,14 +2,59 @@
 
 ## Current state
 
-**P6 COMPLETE — model library and storage lifecycle v2 (§12). All §12
-exit-gate items closed and gated.** The Model Library is a query-only read
-model over the immutable artifact identity (content digest + artifact id —
-never a catalog title or mutable remote tag); removal is a sixth durable
-operation that quarantines rather than deletes and refuses active/known-good/
-referenced artifacts; capacity/dedup reporting and ranked cleanup are
-report-only; and conversion is honestly unavailable (no pinned, verified
-converter ships in this build) rather than faked.
+**P7 COMPLETE — chat reliability, privacy, and daily-use UX (§13). All §13
+exit-gate items closed and gated.** Chat now has shared, bounded, redacted
+request/result/error semantics for both the terminal and desktop clients: every
+request carries an ID + bounded deadlines (never `timeout=None`) + a
+cancellation token + a closed terminal classification; the retry policy never
+retries after tokens are emitted; conversation content never enters operation
+history, logs, metrics, or support bundles; and benchmark/tune results stay
+bounded, attributable, and safe to apply.
+
+P7 landed (commits in order):
+
+- `70c05ff` P7.1 (§13.1/§13.2): `chat_lifecycle.py` PURE shared contract —
+  `ChatRequest` (request_id + conversation_id + bounded `ChatDeadline`
+  connect/read/write/total, never None + prompt/generation token caps),
+  thread-safe `ChatCancellation`, closed `ChatResultClassification`
+  (COMPLETED/CANCELLED/TIMEOUT/SERVER_UNAVAILABLE/MODEL_MISMATCH/THERMAL_STOP/
+  MALFORMED_RESPONSE/UNKNOWN) with deterministic precedence, duck-typed
+  `classify_exception` (no httpx import), pure `should_retry` (never after
+  tokens emitted; transient pre-response only; at most once), redacted
+  `ChatEventRecord` (no prompt/completion), `recoverable_message` (request ID,
+  never a traceback). `chat.py` integrates `format_chat_error` into both
+  generate() handlers. 10 tests.
+- `51a8b9e` P7.2 (§13.3): `conversation_ux.py` PURE presentation contract —
+  model/context/slot profile indicator, "active model changed since last
+  message" signal, rename/archive/delete confirmation + recovery policy
+  (delete is the only destructive action), export privacy warning + optional
+  redaction (redacted export never stores content), bounded search, accessible
+  streaming status indicator. Local-only defaults preserved. 8 tests.
+- `b135098` P7.3 (§13.4): `benchmark_ux.py` PURE contract — tested-vs-
+  estimated comparison, model/runtime/config attribution, thermal-condition
+  notice, cancellation/partial-result semantics, bounded retention (last 20),
+  prompt-content canary, "apply winner" as a SEPARATE verified operation.
+  `tests/test_chat_privacy_gate.py` pins the cross-module privacy exit gate
+  (redacted event record; benchmark shape carries no prompt; support bundle
+  never references conversations_dir; chat.py has no timeout=None; closed
+  operation decoders reject unknown fields). 7 + 5 tests.
+
+§13 exit gate: chat has no unbounded HTTP call or accumulation path
+(`timeout=None` guard + bounded CHAT_HTTP_TIMEOUT); Stop/timeout/server-death/
+thermal-latch/model-swap classification tested end to end (precedence +
+duck-typed exception matrix); conversation content does not enter operation
+history/logs/metrics/support bundles by default (privacy gate); GUI and
+terminal clients share request/result/error semantics (one `chat_lifecycle`
+contract); benchmark/tune results bounded, attributable, safe to apply.
+
+Verification: authoritative collection **914** (`pytest tests
+--collect-only -q`); default suite green across deterministic alphabetical
+chunks (912 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 914
+reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
+clean-wheel 4/4); compileall + `git diff --check` clean.
+
+Next: **P8 — backup, restore, repair, and upgrade safety (§14), then P9
+release qualification (§15).**
 
 P6 landed (commits in order):
 
