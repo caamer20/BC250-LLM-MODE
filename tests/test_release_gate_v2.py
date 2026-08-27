@@ -43,25 +43,30 @@ def test_red_caller_booleans_alone_must_not_qualify_release():
     assert state.may_tag_1_0_0() is False
 
 
-def test_red_known_unavailable_mandatory_capability_blocks_release():
-    """RED #8: a mandatory capability that is unavailable must block release.
-    backup-restore-publish is mandatory (plan C7.1) yet listed unavailable; the
-    current model can still report may_tag_1_0_0() True -> this fails."""
-    from bc250_llm_mode.release_state import (
-        KNOWN_UNAVAILABLE_CAPABILITIES,
-        ReleaseState,
-    )
+def test_red_known_unavailable_mandatory_capability_blocks_release(monkeypatch):
+    """RED #8 (C7-reconciled): a mandatory capability that is unavailable must
+    block release. After C2 implemented backup-restore-publish and C7 removed it
+    from the unavailable list, NO real mandatory capability is unavailable — so
+    this simulates the pre-C7 state (backup-restore-publish unavailable) to prove
+    the block is still enforced even with every boolean green + evidence."""
+    import bc250_llm_mode.release_state as rs
+    from bc250_llm_mode.release_state import ReleaseState
 
-    unavailable = {c["capability"] for c in KNOWN_UNAVAILABLE_CAPABILITIES}
-    assert "backup-restore-publish" in unavailable  # mandatory, still absent
+    monkeypatch.setattr(rs, "KNOWN_UNAVAILABLE_CAPABILITIES", (
+        {"capability": "backup-restore-publish",
+         "reason": "simulated pre-C7 unavailable mandatory capability",
+         "visible_in": "test"},
+    ))
     state = ReleaseState(
         version="1.0.0",
         milestone_gates_green=True,
         hardware_qualification_green=True,
         human_acceptance_green=True,
         security_review_signed_off=True,
+        evidence_satisfied=True,
     )
     # Desired: an unavailable mandatory capability blocks the tag.
+    assert "backup-restore-publish" in state.unavailable_mandatory_capabilities()
     assert state.may_tag_1_0_0() is False
 
 

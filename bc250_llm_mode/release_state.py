@@ -8,6 +8,15 @@ capability that is still unavailable always blocks the tag. The authoritative
 fail-closed evaluator is ``bc250_llm_mode.release_gate.evaluate_release``; this
 module remains the public manifest facade and keeps the known-unavailable
 capabilities VISIBLE rather than implying completeness.
+
+C7 (§C7.1–§C7.3): capability scope reconciliation. ``backup-restore-publish``
+was IMPLEMENTED by C2 as a durable operation, so it is no longer an "unavailable
+capability" — its remaining 1.0 requirement is physical-hardware qualification
+evidence, tracked by the evidence gate (and by ``blocking_gaps``), not by
+capability unavailability. ``model-conversion`` remains the single genuinely
+unavailable capability, classified DEFERRED_NOT_ADVERTISED. C7 also adds the
+unclassified-limitation gate: ``may_tag_1_0_0()`` can never be true while a
+known limitation lacks a scope classification in the release policy.
 """
 
 from __future__ import annotations
@@ -22,17 +31,21 @@ RELEASE_MANIFEST_SCHEMA_VERSION = 2
 
 # Capabilities that are documented but NOT available in this build. They must
 # surface in the release state (P9 §15.1 rule 5/6) — never implied complete.
+#
+# C7 reconciliation: ``backup-restore-publish`` was REMOVED from this list when
+# C2 implemented it as a durable operation (its remaining 1.0 requirement is
+# hardware qualification evidence, tracked by the evidence gate, not by
+# capability unavailability). ``model-conversion`` remains the single genuinely
+# unavailable capability (C7 scope decision: DEFERRED_NOT_ADVERTISED — outside
+# the 1.0 support promise and not advertised in product claims/primary UI).
 KNOWN_UNAVAILABLE_CAPABILITIES: tuple[dict[str, str], ...] = (
     {
         "capability": "model-conversion",
-        "reason": "no pinned, verified converter ships in this build",
-        "visible_in": "convert-model CLI + release notes",
-    },
-    {
-        "capability": "backup-restore-publish",
-        "reason": "atomic profile-level publish + post-restore inference "
-                  "verification require physical BC250 hardware",
-        "visible_in": "release notes (hardware-gated pending evidence)",
+        "reason": "no pinned, verified converter ships in this build; C7 scope "
+                  "decision DEFERRED_NOT_ADVERTISED — only GGUF acquisition and "
+                  "local GGUF import are supported model-ingestion paths in 1.0",
+        "visible_in": "release notes + accepted-limitation record (not "
+                      "advertised in product claims or primary UI)",
     },
 )
 
@@ -91,13 +104,28 @@ class ReleaseState:
         mandatory = default_release_policy().mandatory_capabilities()
         return sorted(unavailable & mandatory)
 
+    def unclassified_limitations(self) -> list[str]:
+        """Known-unavailable capabilities the release policy does NOT classify.
+
+        C7 exit gate: an unclassified limitation can never qualify a 1.0 tag —
+        every known limitation must carry a reviewed scope classification
+        (MANDATORY_FOR_1_0 / SUPPORTED_OPTIONAL / EXPERIMENTAL /
+        DEFERRED_NOT_ADVERTISED / REMOVED).
+        """
+        classified = default_release_policy().classified_capabilities()
+        return sorted(c["capability"] for c in KNOWN_UNAVAILABLE_CAPABILITIES
+                      if c["capability"] not in classified)
+
     def may_tag_1_0_0(self) -> bool:
-        """C1.2: never 1.0.0 from booleans alone. Requires (a) no informational
-        gaps, (b) no unavailable mandatory capability, and (c) validated
-        evidence. The public constructor cannot satisfy (c)."""
+        """C1.2 + C7: never 1.0.0 from booleans alone. Requires (a) no
+        informational gaps, (b) no unavailable mandatory capability, (c) no
+        unclassified limitation, and (d) validated evidence. The public
+        constructor cannot satisfy (d)."""
         if self.blocking_gaps():
             return False
         if self.unavailable_mandatory_capabilities():
+            return False
+        if self.unclassified_limitations():
             return False
         return self.evidence_satisfied
 
@@ -112,6 +140,7 @@ class ReleaseState:
                 KNOWN_UNAVAILABLE_CAPABILITIES),
             "unavailable_mandatory_capabilities":
                 self.unavailable_mandatory_capabilities(),
+            "unclassified_limitations": self.unclassified_limitations(),
             "blocking_gaps": self.blocking_gaps(),
             "evidence_satisfied": self.evidence_satisfied,
             "may_tag_1_0_0": self.may_tag_1_0_0(),
