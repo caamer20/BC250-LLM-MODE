@@ -2,15 +2,70 @@
 
 ## Current state
 
-**RELEASE CLOSURE — C1 COMPLETE (evidence-driven release gate v2).** C0
-remains the baseline record below. C1 replaced the boolean readiness model
-with a closed, fail-closed evaluator: caller-supplied approval booleans can
-NEVER qualify a `1.0.0` on their own — eligibility derives ONLY from
-validated, candidate-bound evidence. The C0 red gates are GREEN and folded
-into the default suite. The evaluator truthfully reports the current
-repository as `eligible_for_1_0_0 = false` with exact missing-evidence codes;
-NO record is fabricated to turn it green. **Next: C2 (durable backup
-create/restore publish).**
+**RELEASE CLOSURE — C2 COMPLETE (durable backup create/restore publish).**
+C0 + C1 remain the baseline records below. C2 made backup/restore REAL durable,
+crash-recoverable operations (REL-004) instead of pure manifest/dry-run
+contracts: `BACKUP_CREATE v1` and `BACKUP_RESTORE v1` are registered in the ONE
+frozen registry (now eight workflows) and driven by the shared engine factory,
+so creation, publication, and rollback survive process death and lease takeover.
+**Next: C3 (supply-chain/SBOM/provenance), then C7 (limitation/conversion
+decision); C4/C5/C6/C8 stay hardware/human/owner-gated pending evidence.**
+
+C2 landed (commits in order):
+
+- `6a33c07` ADR 006 `docs/adr/006-durable-backup-restore.md` — D1 tar container
+  `format_version=1`; D2 encryption `none` only this build (`aes-256-gcm`
+  designed but fail-closed `ENCRYPTION_UNAVAILABLE` until a reviewed crypto dep;
+  secrets excluded by construction); D3 model/runtime bytes excluded by default;
+  D4 `sqlite3` backup() hot snapshot; D5 ONE atomic same-fs exchange (no
+  copy-then-replace); D6 profile-exclusive barrier + quiescence; D7 verification
+  chain + exchange-back + RECOVERY_REQUIRED; D8 evidence-driven repair; D9
+  retention/secure cleanup; D10 unsupported-fs refusal; D11 hardware evidence
+  reserved for C4.
+- `fbb0084` migration 010 `backup-restore-lifecycle` → schema **10**:
+  `backup_sets` + `restore_attempts` (CAS revision-fenced repositories in
+  `backup_lifecycle.py`).
+- `a4cc088` `profile_exchange_helper.py` — digest-pinned `renameat2
+  RENAME_EXCHANGE` helper gated to the profile marker + same-fs containment
+  (Linux-only real swap; fake-world tests cover the contract).
+- `3f7c0a8` `operations/backup.py` — frozen `BACKUP_CREATE v1` (snapshot →
+  inventory/stage → publish no-replace → verify → record) and
+  `BACKUP_RESTORE v1` (validate source → stage candidate → validate staged →
+  publish exchange → post-verify → promote/rollback) workflows; closed request
+  decoders (encryption refused fail-closed; restore bound to a full sha256
+  confirmation digest); the profile-publication barrier joins only at the
+  exchange boundary.
+- `47b910d` `backup_adapter.py` — ONE production host satisfies both ports:
+  hot-consistent snapshot, secret-free manifest, no-replace tar publish
+  (collision refuses), digest verify, fenced record + secure staging cleanup;
+  restore digest-bound validation, contained staging + forward migration,
+  atomic exchange, post-restore integrity, promote retaining the prior profile.
+- `23d12ed` composition + CLI — `BackupCommandService` (create/list/verify +
+  restore inspect/start), registered in the single frozen registry + composed;
+  `backup create/list/verify` and `restore inspect/start/status` CLI verbs. The
+  restore carries the operation's durable rows across the profile swap so the
+  engine's fenced checkpoint protocol continues (failure converges to
+  RECOVERY_REQUIRED with both profiles retained).
+
+C2 verification: authoritative collection **1036** (1000 C1 + 36 C2); default
+suite green across nine alphabetical chunks reconciling to 1036; backup
+workflow+adapter+command tests **22/22** incl. engine-driven create + restore
+round trips (restore via a platform-neutral exchange standing in for the
+Linux-only renameat2); Activity Center lists BACKUP_CREATE/BACKUP_RESTORE rows;
+slow battery re-run for the clean-wheel gate. **Pending evidence (never
+fabricated): the physical BC250 backup/restore round trip + post-restore
+inference verification and the live Linux renameat2 publication remain
+hardware-gated until C4.**
+
+---
+
+**C1 record (evidence-driven release gate v2, superseded as "next" by C2).** C1
+replaced the boolean readiness model with a closed, fail-closed evaluator:
+caller-supplied approval booleans can NEVER qualify a `1.0.0` on their own —
+eligibility derives ONLY from validated, candidate-bound evidence. The C0 red
+gates are GREEN and folded into the default suite. The evaluator truthfully
+reports the current repository as `eligible_for_1_0_0 = false` with exact
+missing-evidence codes; NO record is fabricated to turn it green.
 
 C1 landed (pure modules + repository-only tooling):
 

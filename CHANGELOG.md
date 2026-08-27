@@ -5,6 +5,45 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release closure C2 — durable backup create/restore publish
+
+- Backup and restore are now REAL durable, crash-recoverable operations
+  (REL-004), not just manifest/dry-run contracts. `BACKUP_CREATE v1` and
+  `BACKUP_RESTORE v1` are registered in the single frozen registry (now eight
+  workflows) and driven by the shared engine factory, so creation, publication,
+  and rollback survive process death and lease takeover.
+- ADR 006 `docs/adr/006-durable-backup-restore.md` records the decisions: tar
+  container `format_version=1`; encryption `none` only this build
+  (`aes-256-gcm` designed but refused fail-closed `ENCRYPTION_UNAVAILABLE`
+  until a reviewed crypto dependency is accepted; secrets excluded by
+  construction); model/runtime bytes excluded by default; `sqlite3` backup()
+  hot snapshot; ONE atomic same-filesystem profile exchange; profile-exclusive
+  publication barrier; verification chain with exchange-back and
+  RECOVERY_REQUIRED; retention + secure cleanup; unsupported-filesystem refusal.
+- Migration 010 `backup-restore-lifecycle` (schema 10) adds `backup_sets` and
+  `restore_attempts` with CAS revision-fenced repositories
+  (`backup_lifecycle.py`).
+- `profile_exchange_helper.py`: digest-pinned `renameat2 RENAME_EXCHANGE`
+  helper gated to the profile marker + same-filesystem containment (Linux-only
+  real swap; the contract is fake-world tested).
+- `operations/backup.py` + `backup_adapter.py`: the two frozen workflows and ONE
+  production host. Create: hot-consistent snapshot, secret-free manifest,
+  no-replace tar publish (collision refuses), digest verify, fenced record +
+  secure staging cleanup. Restore: digest-bound source validation, contained
+  sibling staging + forward migration, atomic exchange, post-restore integrity,
+  promote retaining the prior profile. The restore carries the operation's
+  durable rows across the profile swap so the engine's fenced checkpoint
+  protocol continues; a publication death converges to RECOVERY_REQUIRED with
+  both profiles retained.
+- `backup_command.py` + composition + CLI: `BackupCommandService`
+  (create/list/verify + restore inspect/start) composed into the application;
+  `bc250 backup create/list/verify` and `bc250 restore inspect/start/status`
+  verbs (restore start behind acknowledgment). Restore inspect is a query-only
+  dry run returning the confirmation digest that binds the restore.
+- Pending evidence (never fabricated): the physical BC250 backup/restore round
+  trip + post-restore inference verification and the live Linux renameat2
+  publication remain hardware-gated until C4.
+
 ### Release closure C1 — evidence-driven release gate v2
 
 - The boolean readiness model is NO LONGER the release authority. Caller-
