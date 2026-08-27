@@ -290,7 +290,7 @@ class BackupRestoreHost:
     def publish_exchange(self, ctx: EffectContext) -> dict[str, Any]:
         raise NotImplementedError
 
-    def probe_published(self, ctx: EffectContext) -> ProbeResult:
+    def probe_restore_published(self, ctx: EffectContext) -> ProbeResult:
         raise NotImplementedError
 
     def verify_post_restore(self, ctx: EffectContext) -> dict[str, Any]:
@@ -381,11 +381,11 @@ def build_backup_restore_workflow(host: BackupRestoreHost) -> WorkflowDefinition
             sequence=4,
             derive_input=lambda request, prior: {
                 "backup_id": request.backup_id},
-            probe=host.probe_published,
+            probe=host.probe_restore_published,
             execute=lambda ctx: {
                 "published": {"evidence": host.publish_exchange(ctx)}},
             verify=lambda ctx: _require_complete(
-                host.probe_published(ctx), "PUBLISH_INCOMPLETE"),
+                host.probe_restore_published(ctx), "PUBLISH_INCOMPLETE"),
             effect_disposition="FORWARD_ONLY",
             critical=True,
             resources=(RESTORE_RESOURCE, PUBLISH_BARRIER_RESOURCE),

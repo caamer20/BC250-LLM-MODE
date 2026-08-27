@@ -51,6 +51,8 @@ KNOWN_REQUEST_VERSIONS: dict[OperationType, int] = {
     OperationType.MODEL_CONVERT: 1,
     OperationType.RUNTIME_UPDATE: 1,
     OperationType.RUNTIME_ROLLBACK: 1,
+    OperationType.BACKUP_CREATE: 1,
+    OperationType.BACKUP_RESTORE: 1,
 }
 
 EVENT_LEVELS = ("debug", "info", "warn", "error")

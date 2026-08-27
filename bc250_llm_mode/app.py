@@ -383,7 +383,20 @@ class Application:
         remove_adapter = ModelRemoveHostAdapter(units, application.paths)
         registry.register(build_remove_workflow(remove_adapter))
 
-        # ONE freeze point for ALL six durable workflows; exactly one
+        # C2 (ADR 006): ONE durable backup/restore path — the same frozen
+        # registry, enqueue service, and engine factory, with ONE production
+        # host adapter satisfying both BACKUP_CREATE v1 and BACKUP_RESTORE v1.
+        from .backup_adapter import BackupHostAdapter
+        from .operations.backup import (
+            build_backup_create_workflow,
+            build_backup_restore_workflow,
+        )
+
+        backup_adapter = BackupHostAdapter(units, application.paths)
+        registry.register(build_backup_create_workflow(backup_adapter))
+        registry.register(build_backup_restore_workflow(backup_adapter))
+
+        # ONE freeze point for ALL eight durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
         enqueue = EnqueueService(
@@ -420,6 +433,16 @@ class Application:
 
         application.model_remove = ModelRemoveCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
+        )
+        # C2 (ADR 006): durable backup create/list/verify + restore inspect/
+        # start over the same frozen registry and engine factory.
+        from .backup_command import BackupCommandService
+
+        application.backup = BackupCommandService(
+            units=units,
+            enqueue=enqueue,
+            engine_factory=engine_factory,
+            adapter=backup_adapter,
         )
         # P6 §12.4: model conversion — honestly unavailable in this build.
         from .model_convert_command import ModelConvertCommandService

@@ -44,7 +44,9 @@ from .operations.backup import (
     BackupCreateHost,
     BackupRestoreHost,
 )
+from .operations.recovery import RecoveryClass
 from .operations.validation import OperationValidationError
+from .operations.workflow import ProbeResult
 from .paths import AppPaths
 from .profile_exchange_helper import Refusal, run_local_profile_exchange
 from .unit_of_work import UnitOfWorkFactory
@@ -123,13 +125,11 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "snapshot_digest": _sha256_file(snapshot_path)}
 
     def probe_snapshot(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         snapshot = self._backup_staging_dir(ctx.operation_id) / _SNAPSHOT_NAME
         if snapshot.is_file():
             return ProbeResult(RecoveryClass.COMPLETE, "SNAPSHOT_PRESENT")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "SNAPSHOT_MISSING")
+        return ProbeResult(RecoveryClass.ABSENT, "SNAPSHOT_MISSING")
 
     def inventory_and_stage(self, ctx) -> dict[str, Any]:
         staging = self._backup_staging_dir(ctx.operation_id)
@@ -160,14 +160,12 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "file_count": len(files)}
 
     def probe_staged(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         staging = self._backup_staging_dir(ctx.operation_id)
         if (staging / MANIFEST_NAME).is_file() and (
                 staging / _SNAPSHOT_NAME).is_file():
             return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "STAGING_INCOMPLETE")
+        return ProbeResult(RecoveryClass.ABSENT, "STAGING_INCOMPLETE")
 
     def publish_archive(self, ctx) -> dict[str, Any]:
         staging = self._backup_staging_dir(ctx.operation_id)
@@ -200,13 +198,11 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "bytes_total": archive.stat().st_size}
 
     def probe_published(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         archive = self._archive_path(ctx.request.destination_label)
         if archive.is_file():
             return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "PUBLISH_INCOMPLETE")
+        return ProbeResult(RecoveryClass.ABSENT, "PUBLISH_INCOMPLETE")
 
     def verify_archive(self, ctx) -> dict[str, Any]:
         archive = self._archive_path(ctx.request.destination_label)
@@ -221,8 +217,6 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "manifest_digest": _bare_digest(doc["manifest_digest"])}
 
     def probe_verified(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         archive = self._archive_path(ctx.request.destination_label)
         if archive.is_file():
@@ -230,8 +224,8 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 self.verify_archive(ctx)
                 return ProbeResult(RecoveryClass.COMPLETE, "VERIFIED")
             except OperationValidationError:
-                return ProbeResult(RecoveryClass.FAILED, "VERIFY_FAILED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "ARCHIVE_MISSING")
+                return ProbeResult(RecoveryClass.ABSENT, "VERIFY_FAILED")
+        return ProbeResult(RecoveryClass.ABSENT, "ARCHIVE_MISSING")
 
     def record_backup(self, ctx) -> dict[str, Any]:
         archive = self._archive_path(ctx.request.destination_label)
@@ -266,8 +260,6 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "manifest_digest": digest}
 
     def probe_record(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         with self._units.read() as conn:
             row = conn.execute(
@@ -275,7 +267,7 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "created_by_operation_id = ?", (ctx.operation_id,)).fetchone()
         if row is not None:
             return ProbeResult(RecoveryClass.COMPLETE, "RECORDED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "RECORD_MISSING")
+        return ProbeResult(RecoveryClass.ABSENT, "RECORD_MISSING")
 
     # ======================================================================
     # BACKUP_RESTORE v1
@@ -309,14 +301,12 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "archive_path": str(archive)}
 
     def probe_source_valid(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         try:
             self.validate_source(ctx)
             return ProbeResult(RecoveryClass.COMPLETE, "SOURCE_VALID")
         except OperationValidationError:
-            return ProbeResult(RecoveryClass.FAILED, "SOURCE_INVALID")
+            return ProbeResult(RecoveryClass.ABSENT, "SOURCE_INVALID")
 
     def stage_candidate(self, ctx) -> dict[str, Any]:
         archive, doc = self._load_backup(ctx.request.backup_id)
@@ -347,13 +337,11 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "candidate_identity": _sha256_file(staged_db)}
 
     def probe_staged_candidate(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         candidate = self._restore_staging_profile(ctx.operation_id)
         if (candidate / _SNAPSHOT_NAME).is_file():
             return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "STAGING_INCOMPLETE")
+        return ProbeResult(RecoveryClass.ABSENT, "STAGING_INCOMPLETE")
 
     def validate_staged(self, ctx) -> dict[str, Any]:
         candidate = self._restore_staging_profile(ctx.operation_id)
@@ -370,14 +358,49 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         return {"staged_integrity": "ok"}
 
     def probe_staged_validated(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         try:
             self.validate_staged(ctx)
             return ProbeResult(RecoveryClass.COMPLETE, "STAGED_VALID")
         except OperationValidationError:
-            return ProbeResult(RecoveryClass.FAILED, "STAGED_INVALID")
+            return ProbeResult(RecoveryClass.ABSENT, "STAGED_INVALID")
+
+    def _carry_operation_record(self, operation_id: str,
+                                prior_db: Path, restored_db: Path) -> None:
+        """The profile exchange swaps the database the engine records the
+        operation in. Carry the restore operation's durable rows (operation,
+        steps, leases, events) from the retained prior profile into the
+        restored database so the engine's fenced checkpoint protocol can
+        continue across the exchange. A failure here leaves both profiles
+        retained and converges to RECOVERY_REQUIRED (never a lost record)."""
+        src = sqlite3.connect(str(prior_db))
+        src.row_factory = sqlite3.Row
+        dst = sqlite3.connect(str(restored_db))
+        try:
+            def _copy(table: str, key_col: str) -> None:
+                rows = src.execute(
+                    f"SELECT * FROM {table} WHERE {key_col} = ?",
+                    (operation_id,)).fetchall()
+                if not rows:
+                    return
+                cols = rows[0].keys()
+                colnames = ",".join(cols)
+                placeholders = ",".join("?" for _ in cols)
+                for r in rows:
+                    dst.execute(
+                        f"INSERT OR REPLACE INTO {table} ({colnames}) "
+                        f"VALUES ({placeholders})",
+                        tuple(r[c] for c in cols))
+            _copy("operations", "id")
+            _copy("operation_steps", "operation_id")
+            _copy("operation_leases", "operation_id")
+            # operation_events (audit history) are intentionally NOT copied to
+            # avoid cursor collisions; the pre-exchange history stays with the
+            # retained prior profile and new events append in the restored DB.
+            dst.commit()
+        finally:
+            src.close()
+            dst.close()
 
     def publish_exchange(self, ctx) -> dict[str, Any]:
         candidate = self._restore_staging_profile(ctx.operation_id)
@@ -401,18 +424,23 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         except (Refusal, SystemExit) as exc:
             raise OperationValidationError(
                 f"PUBLISH_INCOMPLETE: profile exchange refused ({exc})")
+        # After the swap the prior profile (with the operation record) is under
+        # `candidate`; carry that record into the restored database so the
+        # engine can checkpoint the remaining steps.
+        self._carry_operation_record(
+            ctx.operation_id,
+            prior_db=candidate / _SNAPSHOT_NAME,
+            restored_db=self._paths.database_path)
         return {"exchanged": True, "active_profile": str(active)}
 
-    def probe_published(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
+    def probe_restore_published(self, ctx) -> "ProbeResult":
 
         # After exchange, the active app_dir holds the restored content; the
         # candidate dir holds the prior profile (retained for rollback).
         candidate = self._restore_staging_profile(ctx.operation_id)
         if (self._paths.app_dir / _SNAPSHOT_NAME).is_file() and candidate.exists():
             return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "PUBLISH_INCOMPLETE")
+        return ProbeResult(RecoveryClass.ABSENT, "PUBLISH_INCOMPLETE")
 
     def verify_post_restore(self, ctx) -> dict[str, Any]:
         db = self._paths.database_path
@@ -428,14 +456,12 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         return {"post_integrity": "ok"}
 
     def probe_post_verified(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         try:
             self.verify_post_restore(ctx)
             return ProbeResult(RecoveryClass.COMPLETE, "POST_VERIFIED")
         except OperationValidationError:
-            return ProbeResult(RecoveryClass.FAILED, "POST_VERIFY_FAILED")
+            return ProbeResult(RecoveryClass.ABSENT, "POST_VERIFY_FAILED")
 
     def promote_or_rollback(self, ctx) -> dict[str, Any]:
         # Post-verification passed (engine only reaches here when verified).
@@ -471,8 +497,6 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                     self._restore_staging_profile(ctx.operation_id))}
 
     def probe_terminal(self, ctx) -> "ProbeResult":
-        from .operations.workflow import ProbeResult
-        from .recovery import RecoveryClass
 
         with self._units.read() as conn:
             row = conn.execute(
@@ -480,4 +504,4 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "created_by_operation_id = ?", (ctx.operation_id,)).fetchone()
         if row is not None and row["publish_state"] == "published":
             return ProbeResult(RecoveryClass.COMPLETE, "PROMOTED")
-        return ProbeResult(RecoveryClass.INCOMPLETE, "TERMINAL_MISSING")
+        return ProbeResult(RecoveryClass.ABSENT, "TERMINAL_MISSING")

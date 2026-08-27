@@ -197,6 +197,35 @@ def _parser() -> argparse.ArgumentParser:
     )
     convert.add_argument("source_alias")
     convert.add_argument("target_quantization")
+    # C2 (ADR 006): durable backup create/list/verify + restore inspect/start.
+    backup = sub.add_parser(
+        "backup",
+        help="Create, list, or verify a durable profile backup",
+    )
+    backup.add_argument("action", choices=("create", "list", "verify"))
+    backup.add_argument(
+        "destination", nargs="?", default=None,
+        help="create: relative backup label; verify: backup id")
+    backup.add_argument(
+        "--include-models", action="store_true",
+        help="include model bytes (excluded by default)")
+    backup.add_argument(
+        "--include-runtime", action="store_true",
+        help="include runtime bytes (excluded by default)")
+    backup.add_argument(
+        "--encrypt", action="store_true",
+        help="request encryption (refused fail-closed until reviewed crypto)")
+    restore = sub.add_parser(
+        "restore",
+        help="Inspect or start a durable profile restore",
+    )
+    restore.add_argument("action", choices=("inspect", "start", "status"))
+    restore.add_argument(
+        "backup", nargs="?", default=None,
+        help="inspect/start: backup id; status: operation id")
+    restore.add_argument(
+        "--confirmation-digest", default=None,
+        help="start: the digest from `restore inspect` (binds the restore)")
     switch = sub.add_parser("switch", help="Switch the single server service to an installed model")
     switch.add_argument("model_id")
     desktop = sub.add_parser(
@@ -827,6 +856,60 @@ def main(argv: list[str] | None = None) -> int:
         # P6 §12.4: honestly unavailable until a verified converter exists.
         outcome = application.model_convert.convert(
             args.source_alias, args.target_quantization, requested_by="cli")
+        print(json.dumps(outcome.to_dict(), indent=2))
+        return 0 if outcome.ok else 1
+    if args.command == "backup":
+        # C2 (ADR 006): create/list/verify a durable profile backup.
+        if args.action == "list":
+            print(json.dumps(application.backup.list_backups(), indent=2))
+            return 0
+        if args.action == "verify":
+            if not args.destination:
+                print("backup verify requires a backup id", file=sys.stderr)
+                return 2
+            print(json.dumps(
+                application.backup.verify_backup(args.destination), indent=2))
+            return 0
+        # create
+        if not args.destination:
+            print("backup create requires a destination label", file=sys.stderr)
+            return 2
+        outcome = application.backup.create_backup(
+            args.destination,
+            include_models=args.include_models,
+            include_runtime=args.include_runtime,
+            encrypt=args.encrypt,
+            requested_by="cli")
+        print(json.dumps(outcome.to_dict(), indent=2))
+        return 0 if outcome.ok else 1
+    if args.command == "restore":
+        # C2 (ADR 006): inspect (dry-run) or start a durable profile restore.
+        if args.action == "inspect":
+            if not args.backup:
+                print("restore inspect requires a backup id", file=sys.stderr)
+                return 2
+            print(json.dumps(
+                application.backup.restore_inspect(args.backup), indent=2))
+            return 0
+        if args.action == "status":
+            if not args.backup:
+                print("restore status requires an operation id", file=sys.stderr)
+                return 2
+            detail = application.operation_query.show(args.backup)
+            if detail is None:
+                print(json.dumps({"operation_id": args.backup,
+                                  "found": False}, indent=2))
+                return 1
+            print(json.dumps(detail.to_dict(), indent=2))
+            return 0
+        # start
+        if not args.backup or not args.confirmation_digest:
+            print("restore start requires a backup id and "
+                  "--confirmation-digest", file=sys.stderr)
+            return 2
+        require_acknowledgment(state)
+        outcome = application.backup.restore_start(
+            args.backup, args.confirmation_digest, requested_by="cli")
         print(json.dumps(outcome.to_dict(), indent=2))
         return 0 if outcome.ok else 1
     if args.command == "switch":
