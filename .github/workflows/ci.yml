@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# C3.1: least privilege. CI only reads the repository; it never receives
+# publish credentials or OIDC publication permissions (those exist only in the
+# approval-gated release workflow). Pull-request runs inherit this read-only
+# scope and cannot write packages or mint attestations.
+permissions:
+  contents: read
+
 jobs:
   test:
     # Linux is the supported runtime; macOS is a development smoke target.
@@ -14,9 +21,14 @@ jobs:
       matrix:
         python-version: ["3.11", "3.14"]
     steps:
-      - uses: actions/checkout@v4
+      # C3.1: actions pinned to full-length commit SHAs where the SHA has been
+      # verified against the upstream release. `checkout` is pinned below; the
+      # remaining actions carry a TODO(C3) until their SHAs are verified with
+      # network access (recorded as pending C3 evidence — never guessed).
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Set up Python ${{ matrix.python-version }}
+        # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -93,7 +105,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+      # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -107,6 +120,7 @@ jobs:
           /tmp/wheel-venv/bin/pip install dist/*.whl
           /tmp/wheel-venv/bin/bc250-llm-mode --version
           /tmp/wheel-venv/bin/python -c "import bc250_llm_mode; print('wheel import ok')"
+      # TODO(C3): pin to verified full-length SHA for actions/upload-artifact v4.
       - uses: actions/upload-artifact@v4
         with:
           name: dist
