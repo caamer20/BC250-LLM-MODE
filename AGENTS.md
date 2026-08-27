@@ -2,14 +2,52 @@
 
 ## Current state
 
-**RELEASE CLOSURE — C0 COMPLETE (plan adopted, baseline frozen, red gates
-landed).** Sequencing authority for release closure is now
-`V1_0_RELEASE_CLOSURE_IMPLEMENTATION_PLAN.md` (committed as the adopted
-authority per its §1.1/REL-009). It supersedes the closeout portion of the
-prior plan without rewriting the P0–P9 record below. C0 made NO production
-behavior change: it froze the baseline and added the intentionally-RED
-release-gate tests that prove the current boolean `release_state.py` cannot
-enforce evidence requirements. **Next: C1 (evidence-driven release gate v2).**
+**RELEASE CLOSURE — C1 COMPLETE (evidence-driven release gate v2).** C0
+remains the baseline record below. C1 replaced the boolean readiness model
+with a closed, fail-closed evaluator: caller-supplied approval booleans can
+NEVER qualify a `1.0.0` on their own — eligibility derives ONLY from
+validated, candidate-bound evidence. The C0 red gates are GREEN and folded
+into the default suite. The evaluator truthfully reports the current
+repository as `eligible_for_1_0_0 = false` with exact missing-evidence codes;
+NO record is fabricated to turn it green. **Next: C2 (durable backup
+create/restore publish).**
+
+C1 landed (pure modules + repository-only tooling):
+
+- `release_policy.py`: versioned policy — closed evidence-kind (18) and
+  gate-code (19) vocabularies, RC vs 1.0 required-evidence sets, capability
+  classification (`backup-restore-publish` MANDATORY, `model-conversion`
+  DEFERRED), canonical policy digest. Reviewed snapshot `release/policy-v1.json`.
+- `release_evidence.py`: fail-closed evidence-record validation (unknown kind,
+  non-PASS, wrong version/commit, expired, superseded, duplicated, path
+  traversal, secret/prompt material, bad digest → stable rejection codes).
+- `release_gate.py`: pure deterministic `evaluate_release` (exact blocking
+  codes; eligible decision cannot be constructed directly) + read-only
+  `check_release_checkout` (rejects untracked build inputs, never deletes).
+- `release_state.py` migrated to manifest schema **v2**: `may_tag_1_0_0()`
+  needs no informational gaps + no unavailable mandatory capability +
+  satisfied evidence (public constructor leaves evidence unsatisfied).
+- `tools/release/` (repository-only, NOT packaged): validate/evaluate/
+  manifest/verify CLI + strict evidence I/O + bounded artifact inventory +
+  C1.4 read-only documentation-consistency gate. Evidence rules in
+  `release/evidence/README.md` (no fabricated samples).
+
+C1 verification: authoritative collection **1000**; default suite green across
+deterministic alphabetical chunks (998 passed + 1 Linux-gated skip + 1
+tkinter-gated skip = 1000 reconciled); release-related tests 61/61; slow
+battery **51/51**; compileall + `git diff --check` clean. C1 exit gate met:
+evaluator returns `eligible_for_1_0_0 = false` with exact codes; no boolean
+combination bypasses a missing evidence requirement; accepted records bind to
+candidate commit + artifacts; unknown/stale/mismatched/unsigned records fail
+closed; manifest v2 canonical/bounded/redacted; app startup/runtime state does
+NOT depend on release-evidence files.
+
+---
+
+**C0 record (baseline + red gates, superseded as "next" by C1 above).** C0
+made NO production behavior change: it froze the baseline and added the
+intentionally-RED release-gate tests that proved the boolean `release_state.py`
+could not enforce evidence requirements.
 
 C0 baseline reconciliation (read-only, exact commands in §C0.1):
 
@@ -39,9 +77,9 @@ unavailable mandatory capability does not block it) and 8 fail
 `release_gate` modules do not exist yet). Run them with
 `PYTHONPATH=. .venv/bin/pytest -m release_gate_v2`.
 
-Release-closure milestone status: **C0 done**; C1 (evidence-driven gate v2),
-C2 (durable backup create/restore publish), C3 (supply-chain/SBOM/provenance),
-C7 (limitation/conversion decision) are developer-executable and next. **C4
+Release-closure milestone status: **C0 + C1 done**; C2 (durable backup
+create/restore publish), C3 (supply-chain/SBOM/provenance), and C7
+(limitation/conversion decision) are developer-executable and next. **C4
 (physical BC250 qualification + soak), C5 (independent security review), C6
 (non-developer human acceptance), and C8 (tag/publish) are hardware/human/
 owner-gated pending evidence — never fabricated.** No `1.0.0` tag will be

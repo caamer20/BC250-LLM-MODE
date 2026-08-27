@@ -5,6 +5,35 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release closure C1 — evidence-driven release gate v2
+
+- The boolean readiness model is NO LONGER the release authority. Caller-
+  supplied approval booleans can never, on their own, qualify a `1.0.0`.
+  Eligibility now derives ONLY from validated, candidate-bound evidence.
+- `release_policy.py`: versioned release policy — closed evidence-kind and
+  gate-code vocabularies, RC vs 1.0 required-evidence sets, and capability
+  classification (`backup-restore-publish` MANDATORY; `model-conversion`
+  DEFERRED, requiring an accepted-limitation record). Canonical policy digest;
+  reviewed snapshot at `release/policy-v1.json`.
+- `release_evidence.py`: immutable evidence-record validation, fail-closed —
+  unknown kind, non-PASS result, wrong version/commit, expired, superseded,
+  duplicated, non-contained attachment path, secret/prompt material, and
+  malformed digest are all rejected with stable codes.
+- `release_gate.py`: pure, deterministic, fail-closed evaluator
+  (`evaluate_release`) returning exact blocking codes; an eligible decision
+  cannot be constructed directly. `check_release_checkout` rejects untracked
+  build inputs WITHOUT deleting developer files.
+- `release_state.py` migrated to manifest schema v2: `may_tag_1_0_0()` requires
+  no informational gaps, no unavailable mandatory capability, AND satisfied
+  evidence (public constructor leaves evidence unsatisfied).
+- Repository-only tooling `tools/release/` (validate/evaluate/manifest/verify)
+  plus the read-only documentation-consistency gate (C1.4). Tooling is excluded
+  from the runtime package. Evidence rules documented in
+  `release/evidence/README.md` — no fabricated samples.
+- The C0 red gates are green and folded into the default suite. The evaluator
+  truthfully reports the repository as `eligible_for_1_0_0 = false` with exact
+  missing-evidence codes; no record is fabricated to turn it green.
+
 ### Release state (P9 §15)
 
 - The build is NOT `1.0.0` and will not be tagged until the P9 exit gate is
