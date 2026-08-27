@@ -1,0 +1,44 @@
+{
+  "capabilities": [
+    {
+      "capability": "backup-restore-publish",
+      "classification": "MANDATORY",
+      "reason": "durable backup create/restore publication is required for 1.0 (REL-004)"
+    },
+    {
+      "capability": "model-conversion",
+      "classification": "DEFERRED",
+      "reason": "no pinned, verified converter ships in this build (REL-008); requires an accepted-limitation record"
+    }
+  ],
+  "max_evidence_age_days": 90,
+  "min_soak_hours": 24,
+  "one_zero_required_kinds": [
+    "ARTIFACT_ATTESTATION",
+    "BACKUP_RESTORE_HARDWARE",
+    "BUILD_PROVENANCE",
+    "CLEAN_WHEEL_SMOKE",
+    "CONTAINER_IDENTITY",
+    "DEFAULT_TEST_SUITE",
+    "DOCUMENTATION_RECONCILIATION",
+    "HARDWARE_QUALIFICATION",
+    "HUMAN_ACCEPTANCE",
+    "PACKAGE_PUBLISH_ATTESTATION",
+    "RELEASE_APPROVAL",
+    "SBOM",
+    "SECURITY_REVIEW",
+    "SLOW_SECURITY_STRESS",
+    "SOAK_TEST",
+    "SOURCE_CHECKOUT",
+    "UPGRADE_MATRIX"
+  ],
+  "policy_digest": "sha256:3938c8ecf5b78ab1bd5308beaa4db2c540835b8d94774a05ac59c05e791f572b",
+  "rc_required_kinds": [
+    "CLEAN_WHEEL_SMOKE",
+    "DEFAULT_TEST_SUITE",
+    "DOCUMENTATION_RECONCILIATION",
+    "SLOW_SECURITY_STRESS",
+    "UPGRADE_MATRIX"
+  ],
+  "release_policy_version": 1
+}
