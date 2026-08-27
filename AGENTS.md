@@ -2,28 +2,48 @@
 
 ## Current state
 
-**P3 IN PROGRESS — DEF-003 core closed (`f1c0e48`): CommandRunner is
-bounded. All 28 production call sites (server/systemd, GUI, chat /llm,
-maintenance) inherit watchdog-enforced timeouts (default 600 s), 8 MiB
-output caps with truncation markers, and whole-process-group TERM→KILL;
-signatures unchanged so no feature shifts. Real-child gates prove the
-silent-hang stop, group-grandchild reaping, single truncation marker,
-and env-secret canary absence. Inventory census stays green.**
+**P3 COMPLETE — bounded process AND HTTP execution platform (§9).
+All P3 findings closed and gated.** The bounded-execution inventory
+census (`test_bounded_execution_inventory.py`) audits EVERY production
+call site of `subprocess`/shell/`CommandRunner`/raw HTTP and pins the
+typed lifecycle/`httpx.Timeout` constants, enforcing ZERO
+`timeout=None` and ZERO unbounded-output sites forever (AST-guarded).
+DEF-003 core closed (`f1c0e48`): legacy `CommandRunner` delegates to
+the bounded port (watchdog timeouts, output caps, whole-process-group
+TERM→KILL); all 28 production call sites inherit the contract without
+signature change. DEF-004 closed (`6242581`): both chat HTTP calls
+(SSE + POST) share one typed `httpx.Timeout` (connect 10 s / write 30 s
+/ read 120 s per chunk); dead/half-open connections cut at their bound.
+§9.5 stress gate green (`bace791`): twenty consecutive timeout/stop
+cycles, every stop within bound, no temp residue, runner functional
+afterwards. §9.5 HTTP probe + cross-surface secret canary gate green
+(`d03363a`): a loopback server that accepts and never answers is cut by
+the read bound (scaled-down policy shape, production constants pinned
+separately); a planted env secret never reaches emitted log lines or
+bounded capture while a length echo proves the value travelled. The
+§9.5 exit-gate matrix is **all green** — hung child, noisy child,
+half-open socket, stalled stream, Ctrl-C, and repeated cancellation all
+terminate within documented bounds with no leaked child/temp, secret
+canaries absent from argv/logs/SQLite/events/support bundles, and static
+AST guards forbidding raw process/HTTP calls in domain/services/
+frontends. Every P3 slice ran its exit gate on real child processes
+(no mocks for spawn/termination).
 
-**DEF-004 closed (`6242581`): both chat HTTP calls (SSE stream +
-non-stream POST) now share one typed `httpx.Timeout` — connect 10 s,
-write 30 s, read 120 s PER CHUNK — so slow tokens stream fine while a
-dead/half-open connection is cut at its bound. The inventory census now
-enforces ZERO `timeout=None` production sites forever and pins the
-typed constants.
+Verification: authoritative collection **737**; default suite green
+across five deterministic alphabetical chunks (158+125+185+183+86), 4
+slow-marked deselected + 1 Linux-gated skip = 737 reconciled; explicit
+slow battery **51/51** (incl. runtime 6/6, acquisition 41/41, clean-wheel
+4/4, plus the P3 process/HTTP intervals); compileall + `git diff --check`
+clean.
 
-**§9.5 stress gate green (`bace791`): twenty consecutive
-timeout/stop cycles — every stop within bound, runner functional
-afterwards, no temp residue.**
-
-P3 remaining: half-open-socket probe for the HTTP side (the typed
-timeouts already bound it), a cross-surface secret canary sweep, then
-close P3 and open P4 with the gateway threat-model ADR.
+Next: **P4 — authenticated gateway and contained integrations. Step 1
+(P4 opening): write and approve the gateway threat-model ADR (plan §10.1)
+before any implementation; then build the small purpose-built gateway
+(scoped credentials, capability scopes, rate/size limits, audit), route
+sharing/Open WebUI only through it, digest-pin/harden managed container
+images, and close P4 with its §10.4 exit gate. Hardware soak / human
+acceptance for P4 remain pending-evidence on physical BC250 hardware /
+non-developer operators and will NEVER be fabricated.**
 
 P2 landed:
 
