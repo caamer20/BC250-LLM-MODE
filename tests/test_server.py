@@ -78,3 +78,53 @@ def test_health_reports_actual_server_context_and_slots(monkeypatch):
     assert result["n_ctx"] == 128000
     assert result["requested_ctx"] == 131072
     assert result["parallel_slots"] == 4
+    # §11.2: model_id is the OBSERVED id from /v1/models, and the desired
+    # model is reported separately with an explicit match flag.
+    assert result["model_id"] == "lfm"
+    assert result["desired_model"] == "lfm"
+    assert result["model_matches_desired"] is True
+
+
+def test_health_model_id_is_observed_not_desired(monkeypatch):
+    """§11.2: the desired current_model is never proof of a live model."""
+
+    def fake_get(url, timeout=5):
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        if url.endswith("/v1/models"):
+            return {"data": [{"id": "actually-loaded.gguf"}]}
+        return {"default_generation_settings": {"n_ctx": 8192}, "total_slots": 1}
+
+    monkeypatch.setattr(server, "_json_get", fake_get)
+    monkeypatch.setattr(server, "system_metrics", lambda: {})
+    result = server.health_check(
+        {"server_port": 8080, "current_model": "something-else",
+         "current_ctx": 8192},
+        timeout=1,
+    )
+    assert result["healthy"] is True
+    assert result["model_id"] == "actually-loaded.gguf"
+    assert result["desired_model"] == "something-else"
+    assert result["model_matches_desired"] is False
+
+
+def test_health_model_id_none_when_server_reports_nothing(monkeypatch):
+    def fake_get(url, timeout=5):
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        if url.endswith("/v1/models"):
+            return {"data": []}
+        return {}
+
+    monkeypatch.setattr(server, "_json_get", fake_get)
+    monkeypatch.setattr(server, "system_metrics", lambda: {})
+    result = server.health_check(
+        {"server_port": 8080, "current_model": "desired-alias",
+         "current_ctx": 8192},
+        timeout=1,
+    )
+    # Fail-closed: no observed identity, and the desired alias is NOT
+    # substituted as proof of liveness.
+    assert result["model_id"] is None
+    assert result["desired_model"] == "desired-alias"
+    assert result["model_matches_desired"] is False

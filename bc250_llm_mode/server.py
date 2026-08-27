@@ -496,9 +496,24 @@ def health_check(
                 else None
             )
             metrics = system_metrics()
+            # §11.2: the OBSERVED model comes from the live server only.
+            # The desired ``current_model`` is never proof of a live model.
+            observed_model = None
+            if isinstance(props, dict) and props.get("model_alias"):
+                observed_model = props.get("model_alias")
+            elif isinstance(models, dict):
+                data = models.get("data") or []
+                if data and isinstance(data[0], dict):
+                    observed_model = data[0].get("id")
+            desired_model = state.get("current_model")
             result = {
                 "healthy": True,
-                "model_id": state.get("current_model"),
+                "model_id": observed_model,
+                "desired_model": desired_model,
+                "model_matches_desired": bool(
+                    observed_model is not None
+                    and observed_model == desired_model
+                ),
                 "n_ctx": int(actual_ctx or state.get("current_ctx", 8192)),
                 "requested_ctx": int(state.get("current_ctx", 8192)),
                 "parallel_slots": int(
@@ -515,6 +530,7 @@ def health_check(
             if runner:
                 runner.emit(
                     f"Server healthy on 127.0.0.1:{port}; model={result['model_id']} "
+                    f"(desired={desired_model}) "
                     f"n_ctx={result['n_ctx']} VRAM={result['vram_used_mib']}/{result['vram_total_mib']} MiB"
                 )
             return result

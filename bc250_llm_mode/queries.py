@@ -188,7 +188,11 @@ class ApplicationQueryService:
         snap = self.snapshot()
         return {
             "revision": snap.revision,
+            # §11.2: this is the DESIRED model identity from durable
+            # configuration. It is never proof of a live model; live proof
+            # requires a bounded probe (see server.health_check / doctor).
             "model": snap.get("current_model"),
+            "model_basis": "desired",
             "context": snap.get("current_ctx"),
             "setup_complete": bool(snap.get("setup_complete")),
             "env_ready": bool(snap.get("env_ready")),

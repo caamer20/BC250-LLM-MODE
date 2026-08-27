@@ -73,6 +73,7 @@ class Application:
     operation_query: Any = None
     operation_commands: Any = None
     gateway: Any = None
+    home: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -217,6 +218,10 @@ class Application:
         units = UnitOfWorkFactory(application.paths.database_path)
         application.units = units
         application.query = ApplicationQueryService(units, application.paths)
+        # P5 §11.1: the unified, query-only appliance home snapshot.
+        from .home import HomeQueryService
+
+        application.home = HomeQueryService(units, application.paths)
         application.setup = SetupService(units)
         application.safety = ThermalStateService(units)
         application.runtime_config = RuntimeConfigurationService(

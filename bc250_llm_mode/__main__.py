@@ -120,6 +120,10 @@ def _parser() -> argparse.ArgumentParser:
     gateway.add_argument(
         "--secret", help="Use an explicit secret (test/tooling only; prefer generated)"
     )
+    sub.add_parser(
+        "home",
+        help="Print the unified appliance home snapshot (query-only) as JSON",
+    )
     models = sub.add_parser("models", help="List, scan, search, recommend, or select models")
     models.add_argument("action", choices=("list", "scan", "search", "recommend", "use"))
     models.add_argument("model_id", nargs="?")
@@ -589,6 +593,10 @@ def main(argv: list[str] | None = None) -> int:
             result = svc.verify()
         # Mutations persisted internally by the durable service.
         print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "home":
+        # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
+        print(json.dumps(application.home.snapshot().to_dict(), indent=2))
         return 0
     if args.command == "models":
         if args.action == "list":
