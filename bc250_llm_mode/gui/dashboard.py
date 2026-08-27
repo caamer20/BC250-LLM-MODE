@@ -192,6 +192,10 @@ class DashboardMixin:
         ttk.Button(quick, text="Start terminal chat", command=self._launch_chat_terminal).pack(side="left")
         ttk.Button(quick, text="Benchmark", command=self._dashboard_benchmark).pack(side="left", padx=5)
 
+        # P5 §11.1/§11.4: the appliance home panel — the SAME query-only
+        # snapshot the CLI and support bundle consume.
+        self._build_home_panel(inner)
+
         llama_frame = ttk.LabelFrame(inner, text="llama.cpp runtime", padding=6)
         llama_frame.pack(fill="x", pady=4)
         self.llamacpp_status_var = tk.StringVar(value="")
@@ -584,6 +588,76 @@ class DashboardMixin:
                 messagebox.showinfo("Benchmark", "Benchmark completed without timing data.")
 
         self._work(work, done)
+
+    # --- P5 §11.1/§11.4: appliance home panel (query-only, consistent) ------
+
+    def _build_home_panel(self, parent) -> None:
+        frame = ttk.LabelFrame(parent, text="Appliance home", padding=6)
+        frame.pack(fill="x", pady=4)
+        self.home_headline_var = tk.StringVar(value="")
+        ttk.Label(
+            frame, textvariable=self.home_headline_var,
+            font=("TkDefaultFont", 10, "bold"),
+        ).pack(anchor="w")
+        self.home_tree = ttk.Treeview(
+            frame, columns=("state", "evidence", "as_of"),
+            show="headings", height=6,
+        )
+        for key, title, width in (
+            ("state", "State", 120), ("evidence", "Evidence", 420),
+            ("as_of", "As of", 160),
+        ):
+            self.home_tree.heading(key, text=title)
+            self.home_tree.column(key, width=width, stretch=key == "evidence")
+        self.home_tree.pack(fill="both", expand=True, pady=(4, 0))
+        buttons = ttk.Frame(frame)
+        buttons.pack(fill="x", pady=(4, 0))
+        ttk.Button(buttons, text="Refresh home",
+                   command=self._refresh_home_panel).pack(side="left")
+        ttk.Button(buttons, text="Copy diagnostic details",
+                   command=self._copy_diagnostic_details).pack(side="left", padx=5)
+        self._refresh_home_panel()
+
+    def _refresh_home_panel(self) -> None:
+        from .. import home_ux
+
+        try:
+            snapshot = self.application.home.snapshot().to_dict()
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            self.home_headline_var.set(f"Home unavailable: {exc}")
+            return
+        headline = home_ux.overall_headline(snapshot)
+        self.home_headline_var.set(
+            f"Overall: {headline['state']} — {headline['evidence']}")
+        for item in self.home_tree.get_children():
+            self.home_tree.delete(item)
+        for row in home_ux.home_card_lines(snapshot):
+            label = row["name"] + (" (stale)" if row["stale"] else "")
+            self.home_tree.insert(
+                "", "end", text=label,
+                values=(row["state"], row["evidence"], row["as_of"]),
+            )
+        self._last_home_snapshot = snapshot
+
+    def _copy_diagnostic_details(self) -> None:
+        from tkinter import messagebox
+
+        from .. import home_ux
+
+        try:
+            snapshot = getattr(self, "_last_home_snapshot", None)
+            if snapshot is None:
+                snapshot = self.application.home.snapshot().to_dict()
+            doctor = self.application.doctor.run().to_dict()
+            text = home_ux.diagnostic_details_text(snapshot, doctor)
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            messagebox.showinfo(
+                "Diagnostic details",
+                "Redacted diagnostic details copied to the clipboard.")
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            messagebox.showerror(
+                "Diagnostic details", f"Could not copy details: {exc}")
 
     def _refresh_llamacpp_card(self) -> None:
         try:

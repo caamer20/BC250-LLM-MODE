@@ -85,3 +85,21 @@ def test_wizard_step_navigation_contract():
     import bc250_llm_mode.gui as gui_module
 
     assert len(gui_module.STEP_TITLES) == 11
+
+
+def test_dashboard_home_panel_consumes_the_composed_snapshot(wizard):
+    """P5 exit gate: the GUI home surface reads the SAME composed home
+    service the CLI and support bundle use."""
+    assigned = set(vars(wizard))
+    for attr in ("home_headline_var", "home_tree"):
+        assert attr in assigned, attr
+    # Refresh ran during construction and cached the composed snapshot.
+    snapshot = wizard._last_home_snapshot
+    assert snapshot["overall"]["name"] == "overall"
+    assert set(snapshot["cards"]) == {
+        "identity", "runtime", "model", "inference", "thermal",
+        "operations", "storage", "integrations", "backup", "host",
+    }
+    # The refresh path re-reads the composed service without error.
+    wizard._refresh_home_panel()
+    assert wizard._last_home_snapshot["schema_version"] == snapshot["schema_version"]
