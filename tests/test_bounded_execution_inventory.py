@@ -33,6 +33,10 @@ DISPOSITIONS = {
     "hub_source.py": "migrate_http_transport",
     "chat.py": "migrate_http_transport",
     "__main__.py": "migrate_http_transport",
+    # P4 gateway: purpose-built authenticated integration bridge. Its httpx
+    # client is bounded by the typed GatewayPolicy timeouts (never timeout=None)
+    # and is the ONLY bridge to the loopback backend (ADR 005 D3/D4).
+    "gateway.py": "already_bounded",
 }
 
 
@@ -112,6 +116,8 @@ FROZEN_BASELINE = {
                          "shell_kwargs": 0, "timeout_none": 0},
     "runtime_process.py": {"proc_calls": 1, "http_module": False,
                            "shell_kwargs": 0, "timeout_none": 0},
+    "gateway.py": {"proc_calls": 0, "http_module": True,
+                   "shell_kwargs": 0, "timeout_none": 0},
     "worker_service.py": {"proc_calls": 1, "http_module": False,
                           "shell_kwargs": 0, "timeout_none": 0},
 }

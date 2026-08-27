@@ -74,7 +74,7 @@ def test_fixed_retry_succeeds_and_creates_all_operation_tables(v2_conn):
     tables = _tables(v2_conn)
     for name in ("operations", "operation_steps", "operation_events", "operation_leases"):
         assert name in tables
-    assert _applied(v2_conn) == {1, 2, 3, 4, 5, 6, 7}
+    assert _applied(v2_conn) == set(range(1, db.SCHEMA_VERSION + 1))
     # Idempotent re-initialization does not reapply or duplicate.
     assert db.initialize(v2_conn) == db.SCHEMA_VERSION
 

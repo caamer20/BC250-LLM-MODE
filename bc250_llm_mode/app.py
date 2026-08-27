@@ -72,6 +72,7 @@ class Application:
     maintenance: Any = None
     operation_query: Any = None
     operation_commands: Any = None
+    gateway: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -392,6 +393,14 @@ class Application:
 
         application.host_mode = HostModeService(units)
         application.component = ComponentLifecycleService(units)
-        application.openwebui = OpenWebUIService(units)
+        # ADR 005 D3: durable gateway credential management. Constructed with
+        # the ONE UnitOfWorkFactory + profile dir; persists ONLY the fingerprint
+        # in the DB and the secret in a 0600 profile file, never in state/argv.
+        from .gateway_command import GatewayCredentialService
+
+        application.gateway = GatewayCredentialService(
+            units, application.paths.app_dir
+        )
+        application.openwebui = OpenWebUIService(units, gateway=application.gateway)
         application.sharing = SharingService(units)
         application.maintenance = MaintenanceService(units)

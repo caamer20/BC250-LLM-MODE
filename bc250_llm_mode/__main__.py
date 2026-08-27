@@ -111,6 +111,15 @@ def _parser() -> argparse.ArgumentParser:
         "serve", aliases=["share"], help="Publish Open WebUI and the model API over tailnet HTTPS"
     )
     sharing.add_argument("action", choices=("start", "stop", "restart", "status"))
+    gateway = sub.add_parser(
+        "gateway", help="Manage the authenticated integration gateway credential (ADR 005 D3)"
+    )
+    gateway.add_argument(
+        "action", choices=("status", "provision", "rotate", "revoke", "verify")
+    )
+    gateway.add_argument(
+        "--secret", help="Use an explicit secret (test/tooling only; prefer generated)"
+    )
     models = sub.add_parser("models", help="List, scan, search, recommend, or select models")
     models.add_argument("action", choices=("list", "scan", "search", "recommend", "use"))
     models.add_argument("model_id", nargs="?")
@@ -293,6 +302,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return run_operations_command(application, args)
     state = application.read_model()
+    # ADR 005 D3: refresh durable gateway view fields into the working snapshot
+    # for anything that shares/Open WebUI depends on (credential file, verified
+    # state, last_verified_at) without persisting them here.
+    if args.command in {"gateway", "serve", "share", "webui", "openwebui"}:
+        application.gateway.write_state_fields(state)
     if args.command in (None, "setup"):
         if not bootstrap_tkinter(application):
             return 0
@@ -545,6 +559,35 @@ def main(argv: list[str] | None = None) -> int:
         }
         result = actions[args.action]()
         # Persistence owner: SharingService committed internally.
+        print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "gateway":
+        if args.action in {"provision", "rotate", "revoke"}:
+            require_acknowledgment(state)
+        svc = application.gateway
+        if args.action == "status":
+            result = svc.write_state_fields(state)
+        elif args.action == "provision":
+            r = svc.provision(secret=args.secret)
+            result = {
+                "provisioned": r.provisioned,
+                "fingerprint_prefix": r.fingerprint[:8],
+                "credential_file": r.credential_file,
+                "scopes": r.scopes,
+            }
+        elif args.action == "rotate":
+            r = svc.rotate(secret=args.secret)
+            result = {
+                "rotated": True,
+                "fingerprint_prefix": r.fingerprint[:8],
+                "credential_file": r.credential_file,
+                "scopes": r.scopes,
+            }
+        elif args.action == "revoke":
+            result = svc.revoke()
+        else:  # verify
+            result = svc.verify()
+        # Mutations persisted internally by the durable service.
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "models":

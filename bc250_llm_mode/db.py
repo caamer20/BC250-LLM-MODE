@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -548,6 +548,33 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             CREATE INDEX idx_operations_default_view
                 ON operations(updated_at DESC, id DESC)
                 WHERE dismissed_at IS NULL
+            """,
+        ),
+    ),
+    (
+        8,
+        "gateway-credential",
+        (
+            # ADR 005 D3: the authenticated gateway credential is the ONLY
+            # bridge to the loopback backend for remote/container traffic.
+            # ONLY the NON-SECRET fingerprint is durable here (revocation +
+            # rotation are auditable and durable); the secret itself lives
+            # in a 0600 profile file and never touches SQLite/logs/argv.
+            # Singleton row (id=1) mirrors runtime_component_state.
+            """
+            CREATE TABLE gateway_credentials (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                fingerprint TEXT NOT NULL
+                    CHECK (length(fingerprint) = 64
+                           AND fingerprint GLOB '[0-9a-f]*'),
+                scopes TEXT NOT NULL DEFAULT 'inference:read,inference:stream,models:list'
+                    CHECK (length(scopes) <= 256),
+                created_at TEXT NOT NULL,
+                rotated_at TEXT,
+                revoked_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (revision >= 1)
+            )
             """,
         ),
     ),

@@ -227,6 +227,9 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner,
                        *, credential_file: str | None = None) -> None:
     if not shutil.which("podman"):
         raise RuntimeError("Podman is required for Open WebUI; re-run environment setup.")
+    # Compose passes the provisioned gateway credential file; fall back to the
+    # refreshed state field when the wrapper path is used (never the secret).
+    credential_file = credential_file or state.get("gateway_credential_file")
     # D5: refuse to start until the pinned digest is verified (or pulled to
     # that exact digest). If the local image is a different digest/tag, no
     # unsafe start proceeds; we emit the recovery story instead.
@@ -274,7 +277,11 @@ def start_open_webui_impl(state: dict[str, Any], runner: CommandRunner,
 
 
 def start_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
-    return start_open_webui_impl(state, runner)
+    # The composed wrapper forwards any refreshed gateway credential file so the
+    # container presents a scoped credential (never the secret in argv).
+    return start_open_webui_impl(
+        state, runner, credential_file=state.get("gateway_credential_file")
+    )
 
 
 def stop_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
@@ -295,4 +302,6 @@ def restart_open_webui_impl(state: dict[str, Any], runner: CommandRunner,
 
 
 def restart_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
-    return restart_open_webui_impl(state, runner)
+    return restart_open_webui_impl(
+        state, runner, credential_file=state.get("gateway_credential_file")
+    )

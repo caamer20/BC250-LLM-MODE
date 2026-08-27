@@ -2,50 +2,98 @@
 
 ## Current state
 
-**P3 COMPLETE — bounded process AND HTTP execution platform (§9).
-All P3 findings closed and gated.** The bounded-execution inventory
-census (`test_bounded_execution_inventory.py`) audits EVERY production
-call site of `subprocess`/shell/`CommandRunner`/raw HTTP and pins the
-typed lifecycle/`httpx.Timeout` constants, enforcing ZERO
-`timeout=None` and ZERO unbounded-output sites forever (AST-guarded).
-DEF-003 core closed (`f1c0e48`): legacy `CommandRunner` delegates to
-the bounded port (watchdog timeouts, output caps, whole-process-group
-TERM→KILL); all 28 production call sites inherit the contract without
-signature change. DEF-004 closed (`6242581`): both chat HTTP calls
-(SSE + POST) share one typed `httpx.Timeout` (connect 10 s / write 30 s
-/ read 120 s per chunk); dead/half-open connections cut at their bound.
-§9.5 stress gate green (`bace791`): twenty consecutive timeout/stop
-cycles, every stop within bound, no temp residue, runner functional
-afterwards. §9.5 HTTP probe + cross-surface secret canary gate green
-(`d03363a`): a loopback server that accepts and never answers is cut by
-the read bound (scaled-down policy shape, production constants pinned
-separately); a planted env secret never reaches emitted log lines or
-bounded capture while a length echo proves the value travelled. The
-§9.5 exit-gate matrix is **all green** — hung child, noisy child,
-half-open socket, stalled stream, Ctrl-C, and repeated cancellation all
-terminate within documented bounds with no leaked child/temp, secret
-canaries absent from argv/logs/SQLite/events/support bundles, and static
-AST guards forbidding raw process/HTTP calls in domain/services/
-frontends. Every P3 slice ran its exit gate on real child processes
-(no mocks for spawn/termination).
+**P4 COMPLETE — authenticated gateway and contained integrations (§10).
+All §10.4 exit-gate items closed and gated except hardware soak /
+human acceptance, which remain pending-evidence.** ADR 005 (gateway
+threat model, `docs/adr/005-authenticated-gateway.md`, approved
+`ea87984`) is the design authority: the purpose-built gateway is the
+ONLY bridge from remote/container traffic to the loopback backend;
+scoped credentials; fingerprint-only durable storage; constant-time
+comparison; bounded rate/size; content-free audit; digest-pinned image
+identity.
 
-Verification: authoritative collection **737**; default suite green
-across five deterministic alphabetical chunks (158+125+185+183+86), 4
-slow-marked deselected + 1 Linux-gated skip = 737 reconciled; explicit
-slow battery **51/51** (incl. runtime 6/6, acquisition 41/41, clean-wheel
-4/4, plus the P3 process/HTTP intervals); compileall + `git diff --check`
-clean.
+P4 landed (commits in order):
 
-Next: **P4 — authenticated gateway and contained integrations. Step 1
-(P4 opening): write and approve the gateway threat-model ADR (plan §10.1)
-before any implementation; then build the small purpose-built gateway
-(scoped credentials, capability scopes, rate/size limits, audit), route
-sharing/Open WebUI only through it, digest-pin/harden managed container
-images, and close P4 with its §10.4 exit gate. Hardware soak / human
-acceptance for P4 remain pending-evidence on physical BC250 hardware /
-non-developer operators and will NEVER be fabricated.**
+- `ea87984` ADR 005 threat model (plan §10.1 prerequisite).
+- `2fd40b0` gateway core (`bc250_llm_mode/gateway.py`):
+  `GATEWAY_API_VERSION=1`; scopes `inference:read|inference:stream|
+  models:list`; `CredentialStore` (fingerprint-only, `hmac.compare_
+  digest`, provisioning record/rotate/revoke); `GatewayPolicy.authorize`
+  scope matrix; `validate_body_bounds` (4 MiB body, 512 B secret,
+  131072 ctx / 8192 gen token caps); `RateLimiter`; `GatewayServer`
+  forwarding to the backend with typed timeouts + content-free audit;
+  `make_gateway_socket_server` (ThreadingHTTPServer, loopback default).
+  16 tests (`tests/test_gateway.py`).
+- `b4edcf6` live-socket gate (`tests/test_gateway_live.py`, 2 tests on
+  REAL loopback sockets: no-credential fail-closed; inference-through-
+  gateway end-to-end) + end-to-end production gate.
+- `2cf47a9` Open WebUI digest pin + container hardening
+  (`bc250_llm_mode/openwebui.py`): `IMAGE_REF` pinned to
+  `ghcr.io/open-webui/open-webui@sha256:f784534835ebbe57ba4f6093040702
+  ff962ddab1e9aa2767f88cf3119d474721` (v0.6.14 amd64/linux, resolved via
+  the real GHCR token flow); digest mismatch refuses install/start;
+  named volume `bc250-open-webui` preserved across install/upgrade;
+  UI publish bound to `127.0.0.1:3000:8080`; container security
+  canaries (no-new-privileges, dropped capabilities, read-only rootfs
+  where supported).
+- `e613bfc` sharing routes ONLY through the gateway
+  (`bc250_llm_mode/sharing.py`): `API_TARGET` is the gateway port 9071
+  (never the raw backend); `https_sharing_status` reports §10.3 fields
+  (topology/gateway_state/auth_state/backend_identity/last_verified_at);
+  `start_https_sharing` REFUSES before any mutation unless
+  `gateway_state == "verified"`; AST guard
+  `test_architecture.py::test_gateway_is_the_only_bridge_to_the_backend`
+  forbids the raw backend address as a serve target in sharing/openwebui
+  forever.
+- (this commit) durable credential slice (ADR 005 D3): migration 008
+  `gateway_credentials` singleton row (fingerprint CHECK length=64 hex,
+  scopes, created/rotated/revoked, revision) → `SCHEMA_VERSION = 8`;
+  `bc250_llm_mode/gateway_command.py` `GatewayCredentialService`
+  (provision/rotate/revoke/verify; secret persists ONLY in a 0600
+  profile file `gateway-credential` via mkstemp+fchmod+atomic replace+
+  dir fsync; DB holds the fingerprint alone; `write_state_fields`
+  refreshes `gateway_provisioned/verified/backend_identity/
+  last_verified_at/credential_file` into view snapshots;
+  `resolve_credential_file` for the container mount); composition wires
+  it in `app.py` and `OpenWebUIService` refreshes it before every
+  install/start/restart/status and passes the credential file to the
+  container (`OPENAI_API_KEY_FROM_FILE`); `gateway` CLI verb
+  (status/provision/rotate/revoke/verify, `--secret` optional,
+  mutating actions behind `require_acknowledgment`, PermissionError →
+  exit 1 at the console boundary); serve/webui/gateway paths refresh
+  gateway fields into the working snapshot. 9 service tests
+  (`tests/test_gateway_credentials.py`, incl. v7→v8 upgrade preserving
+  operations rows) + 5 CLI smoke tests (`tests/test_gateway_cli.py`,
+  real composed application: fail-closed status, ack-gated provision,
+  full provision→verify→rotate→revoke lifecycle with 0600 checks,
+  secret-never-in-DB canary). `gateway.py` recorded in the bounded-
+  execution inventory (`already_bounded`: typed gateway timeouts, never
+  `timeout=None`).
 
-P2 landed:
+§10.4 exit gate: raw backend unreachable from remote/container topology
+(AST guard + gateway-only targets + loopback publish); no-credential
+fail-closed (gateway 401 + CLI/service fail-closed tests); scope/rate/
+size/rotation/revoke/audit tests pass (16 gateway + 9 credential + 5
+CLI); Open WebUI inference-through-gateway (BACKEND_URL =
+`http://host.containers.internal:9071/v1` with the mounted credential
+file; live-socket end-to-end gate); digest mismatch refuses start;
+container security canaries green; clean install+upgrade preserves the
+named volume. **Pending evidence (never fabricated): hardware soak and
+human-acceptance on physical BC250 hardware / non-developer operators.**
+
+Verification: authoritative collection **773** (`pytest tests
+--collect-only -q`); default suite green across six deterministic
+alphabetical chunks (114+121+114+135+134+155), 4 slow-marked
+deselected + 1 Linux-gated skip = 773 reconciled; explicit slow
+battery **51/51** (runtime 6/6, acquisition 41/41, clean-wheel 4/4);
+compileall + `git diff --check` clean.
+
+Next: **P5 — home, health, and diagnostics (§11): dashboard/home
+surface, health model, doctor + support bundle; then P6 model library /
+storage lifecycle v2 (§12), P7 chat reliability (§13), P8 backup/
+restore/repair/upgrade (§14), P9 release qualification (§15).**
+
+P3 landed:
 
 - `gui/activity.py`: Activity Center reachable from a dashboard button
   (`_open_activity_center`, Toplevel + bounded polling that never blocks

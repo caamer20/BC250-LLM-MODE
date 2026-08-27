@@ -904,14 +904,29 @@ class ComponentLifecycleService:
 
 
 class OpenWebUIService:
-    """Desired Open WebUI install/run state; status queries never write."""
+    """Desired Open WebUI install/run state; status queries never write.
 
-    def __init__(self, units) -> None:
+    ``gateway`` (a ``GatewayCredentialService``) is optional but, when present,
+    refreshes the durable gateway_* view fields into the running snapshot first
+    so the container resolves the scoped credential file through ADR 005 D3.
+    """
+
+    def __init__(self, units, gateway=None, secret_file_dir=None) -> None:
         self._units = units
+        self._gateway = gateway
+        self._secret_file_dir = secret_file_dir
+
+    def _refresh_gateway(self, view: dict[str, Any]) -> None:
+        if self._gateway is not None:
+            self._gateway.write_state_fields(view)
 
     def install(self, view, runner) -> Any:
         from .openwebui import install_open_webui
 
+        # Refresh durable gateway fields into the snapshot so the container
+        # resolves the scoped credential file via state (ADR 005 D3); the module
+        # call stays (state, runner) for the adapter contract.
+        self._refresh_gateway(view)
         before = dict(view)
         result = install_open_webui(view, runner)
         persist_state_diff(self._units, before, view)
@@ -920,6 +935,7 @@ class OpenWebUIService:
     def start(self, view, runner) -> Any:
         from .openwebui import start_open_webui
 
+        self._refresh_gateway(view)
         before = dict(view)
         result = start_open_webui(view, runner)
         persist_state_diff(self._units, before, view)
@@ -936,6 +952,7 @@ class OpenWebUIService:
     def restart(self, view, runner) -> Any:
         from .openwebui import restart_open_webui
 
+        self._refresh_gateway(view)
         before = dict(view)
         result = restart_open_webui(view, runner)
         persist_state_diff(self._units, before, view)
@@ -944,4 +961,5 @@ class OpenWebUIService:
     def status(self, view, runner) -> Any:
         from .openwebui import open_webui_status
 
+        self._refresh_gateway(view)
         return open_webui_status(view, runner)
