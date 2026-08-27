@@ -2,14 +2,60 @@
 
 ## Current state
 
-**P7 COMPLETE — chat reliability, privacy, and daily-use UX (§13). All §13
-exit-gate items closed and gated.** Chat now has shared, bounded, redacted
-request/result/error semantics for both the terminal and desktop clients: every
-request carries an ID + bounded deadlines (never `timeout=None`) + a
-cancellation token + a closed terminal classification; the retry policy never
-retries after tokens are emitted; conversation content never enters operation
-history, logs, metrics, or support bundles; and benchmark/tune results stay
-bounded, attributable, and safe to apply.
+**P8 COMPLETE — backup, restore, repair, and upgrade safety (§14). All §14
+exit-gate items closed and gated at the contract/schema level.** Backup has a
+versioned, secret-free manifest with a stable digest; restore is fail-closed
+(tampered/partial/wrong-key/path-traversal/newer-schema/low-space/permission/
+identity failures all refuse BEFORE any mutation, leaving the current profile
+untouched); the Repair Center exposes read-only findings + idempotent,
+auditable, precondition-gated actions; and the upgrade matrix proves schema
+upgrades preserve the database, managed artifacts, and runtime lineage.
+
+P8 landed (commits in order):
+
+- `db81d60` P8.1 (§14.1): `backup_manifest.py` PURE manifest model —
+  `BACKUP_MANIFEST_SCHEMA_VERSION=1`; frozen `BackupManifest` with every §14.1
+  identity field (release + schema version, legacy-import provenance, runtime
+  builds + known-good lineage, model artifact metadata + aliases with
+  model_bytes_included default False, settings/thermal/operation-history
+  policy, gateway config metadata, per-file digest/size/mode + relative
+  containment, tool version) + canonical `manifest_digest`; refuses secret-like
+  keys and non-contained paths (fail-closed). 5 tests.
+- `7960ed1` P8.2 (§14.2/§14.3): `backup_restore.py` PURE dry-run restore gate —
+  closed `RestoreRefusalCode` vocabulary; `validate_restore` checks manifest
+  integrity -> completeness -> key -> containment -> schema -> space ->
+  permissions -> identity, refusing BEFORE any mutation with a typed result.
+  12 tests.
+- `1e25770` P8.3 (§14.4): `repair_center.py` PURE Repair Center — closed
+  `REPAIR_ACTIONS` catalogue (the eight §14.4 repairs), every action idempotent
+  + auditable and available ONLY when every precondition is met;
+  `findings_from_conditions` maps conditions to read-only findings (newer-schema
+  is FAIL routed to upgrade). 6 tests.
+- `5c70cb8` P8.4 (§14.5): `tests/test_upgrade_matrix.py` — a hand-built v8 DB
+  (operations + model_installations + model_artifacts + known_good_runtime
+  lineage + gateway_credentials) upgrades to v9 preserving EVERY durable row +
+  adding model_library_meta; fresh install reaches SCHEMA_VERSION with every
+  migration recorded. 2 tests.
+
+§14 exit gate: backup manifest secret-free + digest-verified (P8.1); tampered/
+partial/wrong-key/path-traversal/newer-schema/low-space/permission failures
+leave the current profile untouched (P8.2 refusal matrix); Repair Center
+resolves seeded supported failures via precondition-gated idempotent actions
+without manual SQLite/filesystem edits (P8.3); upgrade tests prove the database,
+managed artifacts, and runtime lineage are preserved (P8.4). **Pending evidence
+(never fabricated): a full BACKUP_CREATE/BACKUP_RESTORE durable-operation
+round-trip on physical BC250 hardware + post-restore inference verification
+requires hardware; the restore PUBLISH step (atomic profile-level swap) is
+designed fail-closed here but its live execution is hardware-gated.**
+
+Verification: authoritative collection **939** (`pytest tests
+--collect-only -q`); default suite green across deterministic alphabetical
+chunks (937 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 939
+reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
+clean-wheel 4/4); compileall + `git diff --check` clean.
+
+Next: **P9 — release engineering and 1.0 qualification (§15), then final
+reconciliation.**
 
 P7 landed (commits in order):
 
