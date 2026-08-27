@@ -2,14 +2,70 @@
 
 ## Current state
 
-**P8 COMPLETE — backup, restore, repair, and upgrade safety (§14). All §14
-exit-gate items closed and gated at the contract/schema level.** Backup has a
-versioned, secret-free manifest with a stable digest; restore is fail-closed
-(tampered/partial/wrong-key/path-traversal/newer-schema/low-space/permission/
-identity failures all refuse BEFORE any mutation, leaving the current profile
-untouched); the Repair Center exposes read-only findings + idempotent,
-auditable, precondition-gated actions; and the upgrade matrix proves schema
-upgrades preserve the database, managed artifacts, and runtime lineage.
+**P9 COMPLETE (developer-executable scope) — release engineering and 1.0
+qualification (§15).** The release state is modeled honestly: the build is NOT
+`1.0.0` and `release_state.py` keeps the known-unavailable capabilities
+(model conversion; hardware-gated backup-restore publish) VISIBLE rather than
+implying completeness. Deterministic property/fuzz gates prove the parse/
+validate surfaces are fail-closed and bounded. CHANGELOG now agrees with
+README/ARCHITECTURE/ADR index/AGENTS.md on the same release state. **The
+hardware- and human-gated P9 exit-gate items remain pending evidence (never
+fabricated).**
+
+P9 landed (commits in order):
+
+- `48ac3f7` P9.1 (§15.3): `tests/test_release_fuzz.py` deterministic
+  property/fuzz gates — GGUF parsing TOTAL over adversarial inputs (closed
+  verdict, never exception/hang), request validation bounded + fail-closed,
+  backup manifest digest verification never raises + detects tampering, event
+  pagination bounds finite. 5 tests.
+- `922df33` P9.2 (§15.1/§15.2): `release_state.py` PURE release-state +
+  manifest contract — `KNOWN_UNAVAILABLE_CAPABILITIES` (model-conversion,
+  backup-restore-publish), `ReleaseState.blocking_gaps()/may_tag_1_0_0()`
+  encode the P9 preconditions (milestone gates, hardware qualification, human
+  acceptance, security review), `build_release_manifest` with integration
+  identities. 5 tests.
+- `5c27650` P9.3 (exit gate item 8): CHANGELOG entries for P3–P8 + a
+  Release-state section making the not-yet-1.0.0 status explicit.
+
+§15 exit gate — status per item: (1) all milestone exit gates green +
+evidence-linked in this file [DONE]; (2) no open P0/P1 issue [DONE]; (3) signed
+wheel/sdist/container/SBOM/provenance — clean-wheel install+smoke gates green,
+but SIGNING/attestation is CI/human-gated [PENDING]; (4) upgrade + restore
+matrices green [DONE — P8.4 + P8.2]; (5) hardware qualification + soak
+[PENDING — physical BC250]; (6) security review sign-off [PENDING — human];
+(7) human acceptance sign-off [PENDING — non-developer operator]; (8) docs
+agreement [DONE — this commit]; (9) version bump + tag [DEFERRED until 3/5/6/7].
+
+**Pending evidence (never fabricated): hardware qualification + 24–72h soak on
+physical BC250; non-developer human acceptance (setup/daily chat/operations/
+recovery/diagnostics); security review sign-off; artifact signing/attestation;
+and the `1.0.0` version bump + tag, which are gated on those approvals.**
+
+Verification: authoritative collection **949** (`pytest tests
+--collect-only -q`); default suite green across deterministic alphabetical
+chunks (947 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 949
+reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
+clean-wheel 4/4); compileall + `git diff --check` clean.
+
+---
+
+## FINAL RECONCILIATION (P0 -> P9)
+
+Every milestone of `FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md` has been
+executed in order with its exit gate recorded: **P0** foundation correction,
+**P1** operation command/query API, **P2** Activity Center, **P3** bounded
+execution platform, **P4** authenticated integration boundary, **P5** home/
+health/diagnostics, **P6** model library + storage lifecycle v2, **P7** chat
+reliability/privacy/daily-use UX, **P8** backup/restore/repair/upgrade safety,
+**P9** release engineering + 1.0 qualification (developer scope). Test
+collection grew 689 (P0) -> 715 (P1) -> 722 (P2) -> 773 (P4) -> 841 (P5) ->
+884 (P6) -> 914 (P7) -> 939 (P8) -> **949** (P9), all green across
+deterministic alphabetical chunks with the slow battery held at 51/51
+throughout. Schema advanced to v9. The `elevated()` call-site census stayed at
+45. What remains is exclusively hardware- and human-gated evidence (soak,
+acceptance, security sign-off, artifact signing, and the 1.0.0 tag), recorded
+as pending and never fabricated.
 
 P8 landed (commits in order):
 
