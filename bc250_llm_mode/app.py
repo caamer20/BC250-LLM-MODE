@@ -75,6 +75,7 @@ class Application:
     gateway: Any = None
     home: Any = None
     doctor: Any = None
+    support_bundle: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -227,6 +228,15 @@ class Application:
         from .doctor import DoctorService
 
         application.doctor = DoctorService(units, application.paths)
+        # P5 §11.3: the redacted-by-construction support bundle. Reuses the
+        # SAME composed home/doctor services the CLI/GUI consume so the
+        # bundle is consistent with every other surface.
+        from .support_bundle import SupportBundleService
+
+        application.support_bundle = SupportBundleService(
+            units, application.paths,
+            home=application.home, doctor=application.doctor,
+        )
         application.setup = SetupService(units)
         application.safety = ThermalStateService(units)
         application.runtime_config = RuntimeConfigurationService(

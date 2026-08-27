@@ -124,6 +124,18 @@ def _parser() -> argparse.ArgumentParser:
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
     )
+    support_bundle = sub.add_parser(
+        "support-bundle",
+        help="Write a redacted-by-construction support bundle to a directory",
+    )
+    support_bundle.add_argument(
+        "--output", required=True, help="Directory to write the bundle into"
+    )
+    support_bundle.add_argument(
+        "--keep-model-filenames",
+        action="store_true",
+        help="Do not replace model filenames with <model-N> labels",
+    )
     models = sub.add_parser("models", help="List, scan, search, recommend, or select models")
     models.add_argument("action", choices=("list", "scan", "search", "recommend", "use"))
     models.add_argument("model_id", nargs="?")
@@ -607,6 +619,19 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
         print(json.dumps(application.home.snapshot().to_dict(), indent=2))
+        return 0
+    if args.command == "support-bundle":
+        # P5 §11.3: redacted-by-construction export. Reuses the composed
+        # home/doctor services so the bundle matches every other surface.
+        from .support_bundle import SupportBundleService
+
+        service = SupportBundleService(
+            application.units, application.paths,
+            home=application.home, doctor=application.doctor,
+            redact_model_filenames=not args.keep_model_filenames,
+        )
+        manifest = service.build(args.output)
+        print(json.dumps(manifest.to_dict(), indent=2))
         return 0
     if args.command == "models":
         if args.action == "list":

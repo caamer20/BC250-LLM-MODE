@@ -2,7 +2,16 @@
 
 from pathlib import Path
 
+import pytest
+
 import bc250_llm_mode
+
+try:  # Tk is an optional system dependency (mirrors the Linux-gated skips).
+    import tkinter  # noqa: F401
+
+    _TKINTER_AVAILABLE = True
+except Exception:  # noqa: BLE001 - headless sandboxes lack _tkinter
+    _TKINTER_AVAILABLE = False
 
 
 def test_pyproject_declares_entry_point_and_metadata():
@@ -17,8 +26,13 @@ def test_pyproject_declares_entry_point_and_metadata():
 def test_public_import_surface_is_stable():
     assert bc250_llm_mode.__version__
     from bc250_llm_mode.__main__ import cli  # noqa: F401
-    from bc250_llm_mode.gui import Wizard, run_gui  # noqa: F401
     from bc250_llm_mode.paths import AppPaths  # noqa: F401
+    if not _TKINTER_AVAILABLE:
+        pytest.skip(
+            "Tk (_tkinter) unavailable in this environment; the gui import "
+            "surface is verified where Tk is installed"
+        )
+    from bc250_llm_mode.gui import Wizard, run_gui  # noqa: F401
 
 
 def test_every_importable_production_package_is_declared():
