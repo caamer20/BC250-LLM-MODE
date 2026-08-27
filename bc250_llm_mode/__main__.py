@@ -191,6 +191,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Capacity/dedup report and ranked cleanup suggestions (never deletes)",
     )
     storage.add_argument("action", choices=("report", "cleanup"))
+    convert = sub.add_parser(
+        "convert-model",
+        help="Convert a model to another quantization (unavailable until a verified converter is provisioned)",
+    )
+    convert.add_argument("source_alias")
+    convert.add_argument("target_quantization")
     switch = sub.add_parser("switch", help="Switch the single server service to an installed model")
     switch.add_argument("model_id")
     desktop = sub.add_parser(
@@ -817,6 +823,12 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         print(json.dumps(application.storage_capacity.dry_run_cleanup(), indent=2))
         return 0
+    if args.command == "convert-model":
+        # P6 §12.4: honestly unavailable until a verified converter exists.
+        outcome = application.model_convert.convert(
+            args.source_alias, args.target_quantization, requested_by="cli")
+        print(json.dumps(outcome.to_dict(), indent=2))
+        return 0 if outcome.ok else 1
     if args.command == "switch":
         require_acknowledgment(state)
         switch_model(application, state, args.model_id, runner)

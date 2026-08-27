@@ -48,6 +48,7 @@ KNOWN_REQUEST_VERSIONS: dict[OperationType, int] = {
     OperationType.MODEL_ACQUIRE: 1,
     OperationType.MODEL_IMPORT: 1,
     OperationType.MODEL_REMOVE: 1,
+    OperationType.MODEL_CONVERT: 1,
     OperationType.RUNTIME_UPDATE: 1,
     OperationType.RUNTIME_ROLLBACK: 1,
 }

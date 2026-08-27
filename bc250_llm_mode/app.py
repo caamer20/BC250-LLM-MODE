@@ -70,6 +70,7 @@ class Application:
     model_acquisition: Any = None
     runtime_lifecycle: Any = None
     model_remove: Any = None
+    model_convert: Any = None
     maintenance: Any = None
     operation_query: Any = None
     operation_commands: Any = None
@@ -420,6 +421,10 @@ class Application:
         application.model_remove = ModelRemoveCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
         )
+        # P6 §12.4: model conversion — honestly unavailable in this build.
+        from .model_convert_command import ModelConvertCommandService
+
+        application.model_convert = ModelConvertCommandService(units=units)
         # U1.3: exposed read-only for the explicitly-started worker host;
         # composition itself NEVER constructs or starts one.
         application.registry = frozen_registry
