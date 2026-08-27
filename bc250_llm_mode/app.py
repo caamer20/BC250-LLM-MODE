@@ -74,6 +74,7 @@ class Application:
     operation_commands: Any = None
     gateway: Any = None
     home: Any = None
+    doctor: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -222,6 +223,10 @@ class Application:
         from .home import HomeQueryService
 
         application.home = HomeQueryService(units, application.paths)
+        # P5 §11.3: the read-only doctor (stable findings, no mutations).
+        from .doctor import DoctorService
+
+        application.doctor = DoctorService(units, application.paths)
         application.setup = SetupService(units)
         application.safety = ThermalStateService(units)
         application.runtime_config = RuntimeConfigurationService(

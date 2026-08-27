@@ -419,6 +419,16 @@ def main(argv: list[str] | None = None) -> int:
             report["service_memory_guard"] = "MemoryMax" in unit_text
         except (OSError, RuntimeError, ValueError) as exc:
             report["service_guard_error"] = str(exc)
+        # P5 §11.3: structured read-only findings with stable IDs, severity,
+        # evidence, and a recommended command. Merged alongside the legacy
+        # probe report so existing consumers keep working.
+        try:
+            doctor_report = application.doctor.run()
+            report["doctor"] = doctor_report.to_dict()
+            report["findings"] = [f.to_dict() for f in doctor_report.findings]
+            report["overall"] = doctor_report.overall
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            report["doctor_error"] = str(exc)
         print(json.dumps(report, indent=2))
         return 0
     if args.command == "bench":
