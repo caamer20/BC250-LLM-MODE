@@ -191,3 +191,26 @@ def test_red_decision_names_candidate_identity_and_inventory_digest():
     assert "inventory_digest" in doc, (
         "the decision must bind the artifact inventory digest")
     assert "_evaluator_key" not in doc
+
+
+# --- §G1.5: single-authority architecture guard ------------------------------
+
+def test_eligibility_authority_is_the_single_evaluator_guard():
+    """§G1.5: no production module outside the release authority pair may
+    claim tag eligibility — no ``may_tag_1_0_0`` calls and no
+    ``evidence_satisfied`` references anywhere in the package or the release
+    tooling except the authority modules themselves."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    allowed = {"release_gate.py", "release_state.py"}
+    offenders: list[str] = []
+    for base in (root / "bc250_llm_mode", root / "tools"):
+        for path in sorted(base.rglob("*.py")):
+            if path.name in allowed:
+                continue
+            text = path.read_text(encoding="utf-8")
+            if "may_tag_1_0_0" in text or "evidence_satisfied" in text:
+                offenders.append(str(path.relative_to(root)))
+    assert offenders == [], (
+        f"eligibility authority leaked into: {offenders}")

@@ -44,69 +44,87 @@ def test_red_caller_booleans_alone_must_not_qualify_release():
 
 
 def test_red_known_unavailable_mandatory_capability_blocks_release(monkeypatch):
-    """RED #8 (C7-reconciled): a mandatory capability that is unavailable must
-    block release. After C2 implemented backup-restore-publish and C7 removed it
-    from the unavailable list, NO real mandatory capability is unavailable — so
-    this simulates the pre-C7 state (backup-restore-publish unavailable) to prove
-    the block is still enforced even with every boolean green + evidence."""
+    """RED #8 (C7-reconciled, G1-migrated): a mandatory capability that is
+    unavailable must block release. After C2 implemented backup-restore-publish
+    and C7 removed it from the unavailable list, NO real mandatory capability
+    is unavailable — so this simulates the pre-C7 state (backup-restore-publish
+    unavailable) to prove the evaluator still blocks it. G1: the evaluator now
+    DERIVES the unavailable set from the reviewed product state and requires a
+    full CandidateIdentity; the facade itself can never tag."""
     import bc250_llm_mode.release_state as rs
-    from bc250_llm_mode.release_state import ReleaseState
+    from bc250_llm_mode.release_artifacts import ArtifactInventory
+    from bc250_llm_mode.release_gate import CandidateIdentity, evaluate_release
+    from bc250_llm_mode.release_policy import default_release_policy
 
     monkeypatch.setattr(rs, "KNOWN_UNAVAILABLE_CAPABILITIES", (
         {"capability": "backup-restore-publish",
          "reason": "simulated pre-C7 unavailable mandatory capability",
          "visible_in": "test"},
     ))
-    state = ReleaseState(
-        version="1.0.0",
-        milestone_gates_green=True,
-        hardware_qualification_green=True,
-        human_acceptance_green=True,
-        security_review_signed_off=True,
-        evidence_satisfied=True,
-    )
-    # Desired: an unavailable mandatory capability blocks the tag.
-    assert "backup-restore-publish" in state.unavailable_mandatory_capabilities()
-    assert state.may_tag_1_0_0() is False
+    policy = default_release_policy()
+    candidate = CandidateIdentity(
+        version="1.0.0", source_commit="c" * 40,
+        source_ref="refs/tags/v1.0.0", repository="local",
+        policy_digest=policy.policy_digest())
+    decision = evaluate_release(
+        evidence=[], candidate=candidate, artifacts=ArtifactInventory(),
+        policy=policy)
+    # Desired: an unavailable mandatory capability blocks the release.
+    assert "backup-restore-publish" in (
+        rs.KNOWN_UNAVAILABLE_CAPABILITIES[0]["capability"])
+    assert decision.eligible_for_1_0_0 is False
+    assert "CAPABILITY_UNAVAILABLE" in decision.blocking_codes
 
 
 # ---------------------------------------------------------------------------
 # Tests over the FUTURE evidence API: fail until C1 implements it.
 # ---------------------------------------------------------------------------
 
+def _evaluate_empty(version="1.0.0"):
+    """G1-migrated helper: evaluate with NO evidence over a full candidate
+    identity bound to the reviewed policy (final versions ride their tag)."""
+    from bc250_llm_mode.release_artifacts import ArtifactInventory
+    from bc250_llm_mode.release_gate import CandidateIdentity, evaluate_release
+    from bc250_llm_mode.release_policy import default_release_policy
+
+    policy = default_release_policy()
+    is_final = all(part.isdigit() for part in version.split("."))
+    ref = f"refs/tags/v{version}" if is_final else "refs/heads/main"
+    candidate = CandidateIdentity(
+        version=version, source_commit="c" * 40, source_ref=ref,
+        repository="local", policy_digest=policy.policy_digest())
+    return evaluate_release(
+        evidence=[], candidate=candidate, artifacts=ArtifactInventory(),
+        policy=policy)
+
+
 def test_red_missing_signing_evidence_blocks_release():
     """RED #1: may_tag_1_0_0 must be False when signing evidence is missing."""
     from bc250_llm_mode.release_gate import evaluate_release  # noqa: F401
     from bc250_llm_mode.release_policy import ReleasePolicyV1  # noqa: F401
 
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = _evaluate_empty("1.0.0")
     assert decision.eligible_for_1_0_0 is False
     assert "SIGNATURE_MISSING_OR_INVALID" in decision.blocking_codes
 
 
 def test_red_missing_sbom_evidence_blocks_release():
     """RED #2: may_tag_1_0_0 must be False when SBOM evidence is missing."""
-    from bc250_llm_mode.release_gate import evaluate_release
-
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = _evaluate_empty("1.0.0")
     assert decision.eligible_for_1_0_0 is False
     assert "SBOM_MISSING_OR_MISMATCHED" in decision.blocking_codes
 
 
 def test_red_missing_provenance_attestation_blocks_release():
     """RED #3: missing provenance/attestation evidence blocks release."""
-    from bc250_llm_mode.release_gate import evaluate_release
-
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = _evaluate_empty("1.0.0")
     assert decision.eligible_for_1_0_0 is False
     assert "PROVENANCE_MISSING_OR_MISMATCHED" in decision.blocking_codes
 
 
 def test_red_missing_backup_restore_hardware_evidence_blocks_release():
     """RED #4: missing backup-restore hardware evidence blocks release."""
-    from bc250_llm_mode.release_gate import evaluate_release
-
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = _evaluate_empty("1.0.0")
     assert decision.eligible_for_1_0_0 is False
     assert "BACKUP_RESTORE_EVIDENCE_MISSING" in decision.blocking_codes
 
@@ -154,13 +172,10 @@ def test_red_bad_evidence_states_are_rejected():
 
 
 def test_red_limitation_without_acceptance_record_blocks_release():
-    """RED #9: an optional limitation without a reviewed acceptance record
-    blocks release."""
-    from bc250_llm_mode.release_gate import evaluate_release
-
-    decision = evaluate_release(
-        evidence=[], candidate_version="1.0.0",
-        declared_limitations=["model-conversion"])
+    """RED #9: an accepted limitation without a reviewed acceptance record
+    blocks release. G1: limitations derive from the reviewed policy alone
+    (model-conversion is classified there); no caller-declared list."""
+    decision = _evaluate_empty("1.0.0")
     assert decision.eligible_for_1_0_0 is False
     assert "LIMITATION_ACCEPTANCE_MISSING" in decision.blocking_codes
 

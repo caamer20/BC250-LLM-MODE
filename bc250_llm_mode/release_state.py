@@ -1,22 +1,24 @@
-"""Release state and manifest facade (pure, no I/O).
+"""Release state facade (pure, no I/O) — INFORMATIONAL ONLY since G1.
 
 Originally P9 §15.1/§15.2 (boolean readiness). Migrated by C1 (§C1.2 of the
-V1_0_RELEASE_CLOSURE plan): the caller-supplied approval booleans are NO LONGER
-the release authority. ``may_tag_1_0_0()`` can only become true through
-validated, candidate-bound evidence (``evidence_satisfied``), and a mandatory
-capability that is still unavailable always blocks the tag. The authoritative
-fail-closed evaluator is ``bc250_llm_mode.release_gate.evaluate_release``; this
-module remains the public manifest facade and keeps the known-unavailable
-capabilities VISIBLE rather than implying completeness.
+V1_0_RELEASE_CLOSURE plan) to an evidence-driven model, and by G1 (§G1.1 of
+the RELEASE_GATE_AND_PIPELINE_REMEDIATION plan) to a pure read facade: the
+``evidence_satisfied`` field is DELETED and ``may_tag_1_0_0()`` is
+NON-AUTHORITATIVE (always False). Tag eligibility has exactly ONE authority:
+the ``ReleaseDecision`` returned by
+``bc250_llm_mode.release_gate.evaluate_release`` over a mandatory
+``CandidateIdentity`` + ``ArtifactInventory`` + verified evidence. This module
+keeps the known-unavailable capabilities VISIBLE rather than implying
+completeness.
 
 C7 (§C7.1–§C7.3): capability scope reconciliation. ``backup-restore-publish``
 was IMPLEMENTED by C2 as a durable operation, so it is no longer an "unavailable
 capability" — its remaining 1.0 requirement is physical-hardware qualification
 evidence, tracked by the evidence gate (and by ``blocking_gaps``), not by
 capability unavailability. ``model-conversion`` remains the single genuinely
-unavailable capability, classified DEFERRED_NOT_ADVERTISED. C7 also adds the
-unclassified-limitation gate: ``may_tag_1_0_0()`` can never be true while a
-known limitation lacks a scope classification in the release policy.
+unavailable capability, classified DEFERRED_NOT_ADVERTISED. The
+unclassified-limitation surface is preserved: every known limitation must
+carry a scope classification in the release policy.
 """
 
 from __future__ import annotations
@@ -65,13 +67,13 @@ class ReleaseIdentity:
 
 @dataclass(frozen=True)
 class ReleaseState:
-    """Release-readiness state (manifest facade).
+    """Release-readiness state (INFORMATIONAL read facade since G1).
 
-    The four ``*_green`` booleans are DEPRECATED as release authority (C1.2):
-    they are informational only and can never, on their own, make
-    ``may_tag_1_0_0()`` true. Eligibility requires validated evidence
-    (``evidence_satisfied``), which the public constructor leaves False — only
-    the evidence-driven evaluator path may set it.
+    The four ``*_green`` booleans are informational only. G1 DELETED the
+    ``evidence_satisfied`` field (constructing one raises ``TypeError``) and
+    made ``may_tag_1_0_0()`` a non-authoritative constant ``False``: no public
+    ``ReleaseState`` construction can ever assert tag eligibility. The sole
+    eligibility authority is ``release_gate.evaluate_release``.
     """
 
     version: str
@@ -82,8 +84,6 @@ class ReleaseState:
     hardware_qualification_green: bool = False
     human_acceptance_green: bool = False
     security_review_signed_off: bool = False
-    # C1.2: evidence authority. Defaults False; booleans cannot set it.
-    evidence_satisfied: bool = False
 
     def blocking_gaps(self) -> list[str]:
         """Informational gaps from the deprecated booleans (honest, visible)."""
@@ -117,17 +117,16 @@ class ReleaseState:
                       if c["capability"] not in classified)
 
     def may_tag_1_0_0(self) -> bool:
-        """C1.2 + C7: never 1.0.0 from booleans alone. Requires (a) no
-        informational gaps, (b) no unavailable mandatory capability, (c) no
-        unclassified limitation, and (d) validated evidence. The public
-        constructor cannot satisfy (d)."""
-        if self.blocking_gaps():
-            return False
-        if self.unavailable_mandatory_capabilities():
-            return False
-        if self.unclassified_limitations():
-            return False
-        return self.evidence_satisfied
+        """G1 (§G1.1): NON-AUTHORITATIVE — always ``False``.
+
+        Tag eligibility has exactly one authority: the ``ReleaseDecision``
+        returned by ``bc250_llm_mode.release_gate.evaluate_release`` over a
+        mandatory ``CandidateIdentity`` + ``ArtifactInventory`` + verified
+        evidence. No public ``ReleaseState`` construction can ever assert
+        eligibility; this method survives only as an explicit, always-false
+        compatibility surface pointing callers at the real authority.
+        """
+        return False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -142,7 +141,6 @@ class ReleaseState:
                 self.unavailable_mandatory_capabilities(),
             "unclassified_limitations": self.unclassified_limitations(),
             "blocking_gaps": self.blocking_gaps(),
-            "evidence_satisfied": self.evidence_satisfied,
             "may_tag_1_0_0": self.may_tag_1_0_0(),
         }
 

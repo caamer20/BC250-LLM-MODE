@@ -5,41 +5,28 @@ Builds an ``ArtifactInventory`` (name, sha256, size, media_type) over a
 above a size cap so a release audit cannot be coerced into hashing unbounded
 data. C3.3: identity is the content sha256 (never the filename); symlinks and
 special files are rejected.
+
+G1 (§4.3, RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): the PURE identity types
+(``Artifact`` / ``ArtifactInventory``) moved to the package module
+``bc250_llm_mode.release_artifacts`` so the evaluator can bind decisions to
+exact artifact subjects; this repository-only tooling keeps the disk I/O and
+re-exports the names for compatibility. G3 adds inventory v2 roles here.
 """
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+
+# G1: pure identity types live in the package; re-exported for compatibility.
+from bc250_llm_mode.release_artifacts import (  # noqa: F401
+    Artifact,
+    ArtifactInventory,
+)
 
 MAX_ARTIFACTS = 64
 MAX_ARTIFACT_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB per artifact
 _CHUNK = 1024 * 1024
-
-
-@dataclass(frozen=True)
-class Artifact:
-    name: str
-    sha256: str
-    size: int
-    media_type: str = ""
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "sha256": self.sha256, "size": self.size,
-                "media_type": self.media_type}
-
-
-@dataclass(frozen=True)
-class ArtifactInventory:
-    artifacts: tuple[Artifact, ...] = ()
-
-    def by_name(self) -> dict[str, Artifact]:
-        return {a.name: a for a in self.artifacts}
-
-    def to_dict(self) -> dict[str, Any]:
-        return {"artifacts": [a.to_dict() for a in self.artifacts]}
 
 
 def sha256_file(path: str | Path) -> str:
@@ -84,6 +71,6 @@ def build_inventory(dist_dir: str | Path) -> ArtifactInventory:
         if size > MAX_ARTIFACT_BYTES:
             raise ValueError(f"artifact too large: {path.name}")
         artifacts.append(Artifact(name=path.name, sha256=sha256_file(path),
-                                   size=size,
-                                   media_type=media_type_for(path.name)))
+                                  size=size,
+                                  media_type=media_type_for(path.name)))
     return ArtifactInventory(artifacts=tuple(artifacts))

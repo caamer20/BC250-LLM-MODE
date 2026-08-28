@@ -14,12 +14,14 @@ import json
 
 import pytest
 
+from bc250_llm_mode.release_artifacts import Artifact, ArtifactInventory
 from bc250_llm_mode.release_evidence import (
     EVIDENCE_SCHEMA_VERSION,
     EvidenceRejectionCode,
     validate_evidence_record,
 )
 from bc250_llm_mode.release_gate import (
+    CandidateIdentity,
     ReleaseDecision,
     check_release_checkout,
     evaluate_release,
@@ -34,6 +36,24 @@ from bc250_llm_mode.release_policy import (
 )
 
 _SHA = "a" * 64
+
+
+def _candidate(version="1.0.0", commit="c" * 40, ref=None, policy=None):
+    """G1: a full candidate identity bound to the reviewed policy digest.
+    Final versions ride their exact protected tag by default."""
+    policy = policy or default_release_policy()
+    if ref is None:
+        is_final = all(part.isdigit() for part in version.split("."))
+        ref = f"refs/tags/v{version}" if is_final else "refs/heads/main"
+    return CandidateIdentity(
+        version=version, source_commit=commit, source_ref=ref,
+        repository="local", policy_digest=policy.policy_digest())
+
+
+# The evidence fixtures name one wheel subject; the inventory matches it.
+_INVENTORY = ArtifactInventory(artifacts=(
+    Artifact(name="wheel", sha256=_SHA, size=4,
+             media_type="application/wheel"),))
 
 
 def _record(kind, *, version="1.0.0", commit="c" * 40, result="PASS",
@@ -83,7 +103,9 @@ def _full_evidence(version="1.0.0", commit="c" * 40):
 
 def test_policy_vocabularies_are_closed_and_digest_deterministic():
     assert len(EVIDENCE_KINDS) == 18
-    assert len(GATE_CODES) == 19
+    # G1 extended the closed gate-code vocabulary with the candidate-identity
+    # binding codes (CANDIDATE_REF_MISMATCH, POLICY_DIGEST_MISMATCH): 19 + 2.
+    assert len(GATE_CODES) == 21
     p1 = default_release_policy()
     p2 = default_release_policy()
     assert p1.policy_digest() == p2.policy_digest()
@@ -159,7 +181,8 @@ def test_duplicate_and_superseded_evidence_rejected():
 # --- evaluator -------------------------------------------------------------
 
 def test_empty_evidence_blocks_with_exact_codes():
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = evaluate_release(
+        evidence=[], candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.eligible_for_1_0_0 is False
     assert decision.eligible_for_rc is False
     for code in ("SIGNATURE_MISSING_OR_INVALID", "SBOM_MISSING_OR_MISMATCHED",
@@ -174,11 +197,11 @@ def test_empty_evidence_blocks_with_exact_codes():
 def test_evaluation_is_deterministic_regardless_of_order():
     evidence = _full_evidence()
     d_forward = evaluate_release(
-        evidence=list(evidence), candidate_version="1.0.0",
-        source_commit="c" * 40, unavailable_capabilities=frozenset())
+        evidence=list(evidence), candidate=_candidate(),
+        artifacts=_INVENTORY)
     d_reversed = evaluate_release(
-        evidence=list(reversed(evidence)), candidate_version="1.0.0",
-        source_commit="c" * 40, unavailable_capabilities=frozenset())
+        evidence=list(reversed(evidence)), candidate=_candidate(),
+        artifacts=_INVENTORY)
     assert d_forward.blocking_codes == d_reversed.blocking_codes
     assert d_forward.eligible_for_1_0_0 == d_reversed.eligible_for_1_0_0
     assert d_forward.evidence_used == d_reversed.evidence_used
@@ -187,8 +210,7 @@ def test_evaluation_is_deterministic_regardless_of_order():
 def test_full_valid_evidence_reaches_eligibility():
     evidence = _full_evidence()
     decision = evaluate_release(
-        evidence=evidence, candidate_version="1.0.0",
-        source_commit="c" * 40, unavailable_capabilities=frozenset())
+        evidence=evidence, candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.blocking_codes == ()
     assert decision.eligible_for_1_0_0 is True
     assert decision.eligible_for_rc is True
@@ -196,12 +218,19 @@ def test_full_valid_evidence_reaches_eligibility():
     assert decision.evidence_rejected == ()
 
 
-def test_mandatory_unavailable_capability_blocks_even_with_evidence():
+def test_mandatory_unavailable_capability_blocks_even_with_evidence(monkeypatch):
+    """G1: the unavailable set is DERIVED from the reviewed product state
+    (release_state.KNOWN_UNAVAILABLE_CAPABILITIES), never a caller default."""
+    import bc250_llm_mode.release_state as rs
+
+    monkeypatch.setattr(rs, "KNOWN_UNAVAILABLE_CAPABILITIES", (
+        {"capability": "backup-restore-publish",
+         "reason": "simulated unavailable mandatory capability",
+         "visible_in": "test"},
+    ))
     evidence = _full_evidence()
     decision = evaluate_release(
-        evidence=evidence, candidate_version="1.0.0",
-        source_commit="c" * 40,
-        unavailable_capabilities=frozenset({"backup-restore-publish"}))
+        evidence=evidence, candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.eligible_for_1_0_0 is False
     assert ReleaseGateCode.CAPABILITY_UNAVAILABLE.value in decision.blocking_codes
 
@@ -212,8 +241,7 @@ def test_limitation_without_acceptance_record_blocks():
     evidence = [e for e in evidence
                 if e["kind"] != EvidenceKind.KNOWN_LIMITATION_ACCEPTANCE.value]
     decision = evaluate_release(
-        evidence=evidence, candidate_version="1.0.0",
-        source_commit="c" * 40, unavailable_capabilities=frozenset())
+        evidence=evidence, candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.eligible_for_1_0_0 is False
     assert ReleaseGateCode.LIMITATION_ACCEPTANCE_MISSING.value in decision.blocking_codes
 
@@ -221,8 +249,7 @@ def test_limitation_without_acceptance_record_blocks():
 def test_wrong_commit_evidence_is_rejected_and_counted():
     evidence = _full_evidence(commit="d" * 40)  # wrong commit
     decision = evaluate_release(
-        evidence=evidence, candidate_version="1.0.0",
-        source_commit="c" * 40, unavailable_capabilities=frozenset())
+        evidence=evidence, candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.eligible_for_1_0_0 is False
     assert decision.evidence_used == ()
     assert len(decision.evidence_rejected) == len(evidence)
@@ -252,10 +279,14 @@ def test_eligible_decision_cannot_be_constructed_directly():
 
 
 def test_decision_serializes_without_private_key():
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0")
+    decision = evaluate_release(
+        evidence=[], candidate=_candidate(), artifacts=_INVENTORY)
     doc = decision.to_dict()
     assert "_evaluator_key" not in doc
-    assert doc["decision_schema_version"] == 2
+    # G1: decision schema v3 carries the candidate identity + inventory digest.
+    assert doc["decision_schema_version"] == 3
+    assert doc["source_commit"] == "c" * 40
+    assert doc["inventory_digest"]
     json.dumps(doc)
 
 
@@ -279,9 +310,12 @@ def test_checkout_check_rejects_untracked_without_deleting(tmp_path):
 # --- golden manifest v2 ----------------------------------------------------
 
 def test_golden_v2_decision_is_canonical():
-    decision = evaluate_release(evidence=[], candidate_version="1.0.0rc1")
+    cand = _candidate(version="1.0.0rc1")
+    decision = evaluate_release(
+        evidence=[], candidate=cand, artifacts=_INVENTORY)
     doc_a = decision.to_dict()
-    doc_b = evaluate_release(evidence=[], candidate_version="1.0.0rc1").to_dict()
+    doc_b = evaluate_release(
+        evidence=[], candidate=cand, artifacts=_INVENTORY).to_dict()
     assert json.dumps(doc_a, sort_keys=True) == json.dumps(doc_b, sort_keys=True)
     assert doc_a["candidate_version"] == "1.0.0rc1"
 
@@ -291,7 +325,8 @@ def test_golden_v2_decision_is_canonical():
 def test_secret_and_prompt_canaries_never_appear_in_decision():
     rec = _record(EvidenceKind.SECURITY_REVIEW.value,
                   measurements={"api_key": "super-secret", "prompt": "hello"})
-    decision = evaluate_release(evidence=[rec], candidate_version="1.0.0")
+    decision = evaluate_release(
+        evidence=[rec], candidate=_candidate(), artifacts=_INVENTORY)
     blob = json.dumps(decision.to_dict())
     assert "super-secret" not in blob
     assert "hello" not in blob

@@ -2,7 +2,64 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G0 COMPLETE (audit contract frozen as red tests).**
+**RELEASE-GATE REMEDIATION — G1 COMPLETE (evaluator is the sole eligibility
+authority) on top of G0.** G0 froze the audit contract as red tests below.
+G1 deleted both eligibility bypasses and made every release decision
+candidate-bound:
+
+- `bc250_llm_mode/release_artifacts.py` (NEW) — pure `Artifact` /
+  `ArtifactInventory` identity types with a canonical `inventory_digest()`
+  (sorted (name, sha256) pairs); the disk I/O stays in `tools/release/
+  artifacts.py`, which re-exports the names.
+- `release_gate.py` — NEW `CandidateIdentity` (fail-closed construction:
+  full 40-char lowercase commit, never all-zeros; full `refs/…` ref;
+  non-empty version/repository; `sha256:<64 hex>` policy digest).
+  `evaluate_release` now REQUIRES `candidate=` + `artifacts=` keyword inputs
+  (TypeError otherwise — the sourceless `candidate_version=`/optional
+  `source_commit=None` surface is DELETED); binds the candidate policy digest
+  (POLICY_DIGEST_MISMATCH blocks, so a weaker caller policy can never qualify
+  a reviewed-digest candidate); enforces the final-tag rule (a final version
+  must ride exactly `refs/tags/v<version>`, CANDIDATE_REF_MISMATCH blocks);
+  DERIVES the unavailable-capability set from the reviewed product state
+  (`release_state.KNOWN_UNAVAILABLE_CAPABILITIES` via module attribute, never
+  a caller default) and limitations from the reviewed policy alone
+  (`declared_limitations` parameter deleted). `ReleaseDecision` schema v3
+  carries source_ref/repository/inventory_digest and never serializes the
+  private marker. Gate-code vocabulary extended 19 → 21 (the two binding
+  codes).
+- `release_state.py` — `evidence_satisfied` field DELETED (constructing one
+  raises TypeError); `may_tag_1_0_0()` is a non-authoritative constant False
+  pointing at the evaluator (plan §15.1 explicit compatibility decision);
+  manifest facade keeps the known limitations visible.
+- `tools/release/__main__.py` — `evaluate` REQUIRES `--source-commit`
+  (argparse exit 2), gains `--source-ref`/`--repository`, constructs the
+  CandidateIdentity against the REVIEWED default policy only, and passes the
+  artifact inventory (diagnostics-only empty inventory until G3 makes
+  `--artifacts` mandatory).
+- Migrated with explicit compatibility decisions: `test_release_state.py`
+  (facade-never-tags replaces the "legitimate 1.0 path" test),
+  `test_release_gate_v2.py` (evaluator-based unavailable-capability block),
+  `test_release_gate_c1.py` (candidate/inventory fixtures; vocabulary count
+  21; decision schema 3). NEW single-authority architecture guard: no
+  `may_tag_1_0_0`/`evidence_satisfied` reference outside the authority pair.
+
+G1 verification: all 8 G0 gate-remediation red tests GREEN (+ guard); focused
+release suite **104/104**; authoritative collection **1140** (1139 + guard);
+chunked default suite **1077 passed + 63 intended red** (the remaining reds
+are exactly the G2 evidence-v2, G3 artifact-binding, and G4 workflow-
+hardening scopes; zero unrelated regressions); compileall + `git diff --check`
+clean. Note: `test_red_validated_but_unverified_evidence_cannot_qualify`
+passes early at G1 (v2 records rejected by the still-v1 schema check) and
+continues to enforce the G2 verified-boundary contract after schema v2 lands.
+
+Next: **G2 — evidence schema v2 + verification boundary**: mandatory 18-field
+envelope, value-based secret detection, kind contracts, bounds, supersession
+set rules, Raw/Validated/Verified types with a verifier-sentinel, attestation
+verification adapter, policy content revision 3.
+
+---
+
+**G0 record (baseline + red gates for the remediation).**
 Active subordinate authority: `RELEASE_GATE_AND_PIPELINE_REMEDIATION_IMPLEMENTATION_PLAN.md`
 (committed `df222c9`), under the V1_0 release-closure plan. It repairs the
 audited release-control defects BEFORE any C4/C5/C6/C8 evidence collection:

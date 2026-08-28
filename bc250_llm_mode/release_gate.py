@@ -7,14 +7,35 @@ fail-closed: any missing required evidence, unavailable mandatory capability,
 or unaccepted limitation yields stable blocking codes. ``check_release_checkout``
 is a read-only strict-checkout gate that rejects untracked build inputs without
 deleting the developer's files.
+
+G1 (§4/§7, RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): the evaluator is the
+SOLE eligibility authority.
+
+* Every evaluation requires an immutable ``CandidateIdentity`` (full 40-char
+  lowercase commit, full ref, repository identity, policy digest) and an
+  ``ArtifactInventory``. There is NO sourceless evaluation path: the legacy
+  optional ``source_commit=None`` / ``candidate_version=`` surface is deleted.
+* The candidate's policy digest must equal the evaluating policy's digest
+  (POLICY_DIGEST_MISMATCH blocks), so a caller-supplied weaker policy can
+  never qualify a candidate bound to the reviewed digest.
+* A FINAL release version must ride exactly its protected tag
+  ``refs/tags/v<version>`` (CANDIDATE_REF_MISMATCH blocks); a moving branch
+  name is never sufficient identity for a final release.
+* The unavailable-capability set is derived from the reviewed product state
+  (``release_state.KNOWN_UNAVAILABLE_CAPABILITIES``), never a caller default.
+* The decision carries the candidate identity + inventory digest and never
+  serializes the private evaluator marker.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import release_state
+from .release_artifacts import ArtifactInventory
 from .release_evidence import (
     EvidenceRejectionCode,
     collect_superseded_ids,
@@ -27,11 +48,79 @@ from .release_policy import (
     default_release_policy,
 )
 
-RELEASE_DECISION_SCHEMA_VERSION = 2
+RELEASE_DECISION_SCHEMA_VERSION = 3
 
 # Module-private sentinel: only evaluate_release may produce an eligible
 # decision (§4.5 — no caller instantiates "eligible" directly).
 _EVALUATOR_KEY = object()
+
+_FULL_GIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
+_HEX64_RE = re.compile(r"[0-9a-f]{64}")
+# A FINAL release version is pure dotted numerics (no rc/dev/a/b/post suffix).
+_FINAL_VERSION_RE = re.compile(r"[0-9]+(\.[0-9]+)*")
+
+
+def is_final_release_version(version: str) -> bool:
+    """True when the version names a final release (e.g. ``1.0.0``), not a
+    pre-release such as ``1.0.0rc1`` or ``0.9.0.dev0``."""
+    return bool(isinstance(version, str) and _FINAL_VERSION_RE.fullmatch(version))
+
+
+def final_tag_ref(version: str) -> str:
+    """The exact protected ref a final release must run from."""
+    return f"refs/tags/v{version}"
+
+
+@dataclass(frozen=True)
+class CandidateIdentity:
+    """The immutable identity of one release candidate (plan §4.2).
+
+    Construction is fail-closed: abbreviated/malformed/uppercase/all-zero
+    commit hashes, refs that are not full ``refs/…`` names, empty version or
+    repository identities, and malformed policy digests are refused with
+    ``ValueError``. A FINAL release version must additionally ride its exact
+    protected tag (``final_ref_violation``; enforced by the evaluator).
+    """
+
+    version: str
+    source_commit: str
+    source_ref: str
+    repository: str
+    policy_digest: str
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.version, str) or not self.version
+                or len(self.version) > 64
+                or any(c.isspace() for c in self.version)):
+            raise ValueError(
+                "candidate version must be a non-empty bounded string "
+                "without whitespace")
+        if (not isinstance(self.source_commit, str)
+                or not _FULL_GIT_SHA_RE.fullmatch(self.source_commit)):
+            raise ValueError(
+                "candidate source_commit must be a full 40-character "
+                "lowercase git SHA")
+        if set(self.source_commit) == {"0"}:
+            raise ValueError("candidate source_commit must not be all zeros")
+        if (not isinstance(self.source_ref, str)
+                or not self.source_ref.startswith("refs/")
+                or len(self.source_ref) > 256
+                or ".." in self.source_ref.split("/")):
+            raise ValueError(
+                "candidate source_ref must be a full ref under refs/")
+        if (not isinstance(self.repository, str) or not self.repository
+                or len(self.repository) > 256):
+            raise ValueError("candidate repository identity is required")
+        if (not isinstance(self.policy_digest, str)
+                or not self.policy_digest.startswith("sha256:")
+                or not _HEX64_RE.fullmatch(self.policy_digest[7:])):
+            raise ValueError(
+                "candidate policy_digest must be sha256:<64 lowercase hex>")
+
+    def final_ref_violation(self) -> bool:
+        """True when a FINAL version does not ride its exact protected tag."""
+        return (is_final_release_version(self.version)
+                and self.source_ref != final_tag_ref(self.version))
 
 
 @dataclass(frozen=True)
@@ -46,6 +135,9 @@ class ReleaseDecision:
     accepted_limitations: tuple[str, ...] = field(default_factory=tuple)
     candidate_version: str = ""
     source_commit: str | None = None
+    source_ref: str = ""
+    repository: str = ""
+    inventory_digest: str = ""
     evidence_used: tuple[str, ...] = field(default_factory=tuple)
     evidence_rejected: tuple[tuple[str, str], ...] = field(default_factory=tuple)
     policy_digest: str = ""
@@ -69,6 +161,9 @@ class ReleaseDecision:
             "accepted_limitations": list(self.accepted_limitations),
             "candidate_version": self.candidate_version,
             "source_commit": self.source_commit,
+            "source_ref": self.source_ref,
+            "repository": self.repository,
+            "inventory_digest": self.inventory_digest,
             "evidence_used": list(self.evidence_used),
             "evidence_rejected": [list(pair) for pair in self.evidence_rejected],
             "policy_digest": self.policy_digest,
@@ -91,20 +186,43 @@ _EXPLANATIONS: dict[str, str] = {
     ReleaseGateCode.LIMITATION_ACCEPTANCE_MISSING.value: "a declared limitation lacks a reviewed acceptance record",
     ReleaseGateCode.DOCUMENTATION_DRIFT.value: "documentation reconciliation evidence is missing",
     ReleaseGateCode.REPOSITORY_NOT_PUBLISHED.value: "source-checkout/published-repository evidence is missing",
+    ReleaseGateCode.CANDIDATE_REF_MISMATCH.value: "a final release must run from its exact protected tag refs/tags/v<version>",
+    ReleaseGateCode.POLICY_DIGEST_MISMATCH.value: "the candidate's policy digest does not match the evaluating policy",
 }
 
 
 def evaluate_release(
     *,
     evidence: list[dict[str, Any]],
-    candidate_version: str,
-    source_commit: str | None = None,
+    candidate: CandidateIdentity,
+    artifacts: ArtifactInventory,
     policy: ReleasePolicyV1 | None = None,
-    declared_limitations: list[str] | None = None,
-    unavailable_capabilities: frozenset[str] = frozenset(),
 ) -> ReleaseDecision:
-    """Pure, deterministic, fail-closed release evaluation."""
+    """Pure, deterministic, fail-closed release evaluation.
+
+    G1: the SOLE eligibility authority. Requires a full ``CandidateIdentity``
+    and an ``ArtifactInventory`` — there is no sourceless or artifact-less
+    qualifying path. The candidate's policy digest must match the evaluating
+    policy, and a final release must ride its exact protected tag.
+    """
+    if not isinstance(candidate, CandidateIdentity):
+        raise TypeError(
+            "evaluate_release requires a CandidateIdentity — sourceless "
+            "evaluation no longer exists")
+    if not isinstance(artifacts, ArtifactInventory):
+        raise TypeError("evaluate_release requires an ArtifactInventory")
     policy = policy or default_release_policy()
+
+    blocking: set[str] = set()
+
+    # Candidate/policy binding (G1.3): a weaker caller policy can never
+    # qualify a candidate bound to the reviewed digest.
+    if candidate.policy_digest != policy.policy_digest():
+        blocking.add(ReleaseGateCode.POLICY_DIGEST_MISMATCH.value)
+
+    # Final-tag rule (G1.2): a final release rides exactly its protected tag.
+    if candidate.final_ref_violation():
+        blocking.add(ReleaseGateCode.CANDIDATE_REF_MISMATCH.value)
 
     supersedes = collect_superseded_ids(evidence)
     seen_ids: set[str] = set()
@@ -115,8 +233,8 @@ def evaluate_release(
 
     for record in evidence:
         ok, code = validate_evidence_record(
-            record, candidate_version=candidate_version,
-            source_commit=source_commit, supersedes=supersedes,
+            record, candidate_version=candidate.version,
+            source_commit=candidate.source_commit, supersedes=supersedes,
             seen_ids=seen_ids)
         rid = str(record.get("evidence_id") or "<missing-id>") if isinstance(record, dict) else "<malformed>"
         if not ok:
@@ -132,8 +250,6 @@ def evaluate_release(
             if covered:
                 limitation_acceptances.add(str(covered))
 
-    blocking: set[str] = set()
-
     # Required evidence kinds for 1.0.
     for kind in policy.one_zero_required_kinds:
         if kind not in accepted_kinds:
@@ -142,12 +258,15 @@ def evaluate_release(
                 blocking.add(gate)
 
     # Mandatory capabilities that remain unavailable block the release.
+    # G1.3: derived from the reviewed product state, never a caller default.
+    unavailable = {c["capability"]
+                   for c in release_state.KNOWN_UNAVAILABLE_CAPABILITIES}
     mandatory = policy.mandatory_capabilities()
-    if mandatory & unavailable_capabilities:
+    if mandatory & unavailable:
         blocking.add(ReleaseGateCode.CAPABILITY_UNAVAILABLE.value)
 
-    # Limitations (declared + policy-classified) need an acceptance record.
-    effective_limitations = set(declared_limitations or []) | policy.limitation_capabilities()
+    # Limitations come from the reviewed policy and need acceptance records.
+    effective_limitations = policy.limitation_capabilities()
     accepted_limitations: list[str] = []
     for limitation in sorted(effective_limitations):
         if limitation in limitation_acceptances:
@@ -174,8 +293,11 @@ def evaluate_release(
         blocking_codes=codes,
         blocking_explanations=explanations,
         accepted_limitations=tuple(accepted_limitations),
-        candidate_version=candidate_version,
-        source_commit=source_commit,
+        candidate_version=candidate.version,
+        source_commit=candidate.source_commit,
+        source_ref=candidate.source_ref,
+        repository=candidate.repository,
+        inventory_digest=artifacts.inventory_digest(),
         evidence_used=tuple(sorted(accepted_ids)),
         evidence_rejected=tuple(sorted(rejected)),
         policy_digest=policy.policy_digest(),

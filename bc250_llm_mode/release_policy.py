@@ -48,7 +48,12 @@ EVIDENCE_KINDS: tuple[str, ...] = tuple(k.value for k in EvidenceKind)
 
 
 class ReleaseGateCode(str, Enum):
-    """Closed blocking-reason vocabulary (§C1.2)."""
+    """Closed blocking-reason vocabulary (§C1.2).
+
+    G1 (§G1.2/§G1.4, RELEASE_GATE_AND_PIPELINE_REMEDIATION plan) extends the
+    vocabulary with the candidate-identity binding codes: a release decision
+    must name a full candidate commit/ref and the exact policy digest.
+    """
 
     MILESTONE_EVIDENCE_MISSING = "MILESTONE_EVIDENCE_MISSING"
     TEST_EVIDENCE_MISSING = "TEST_EVIDENCE_MISSING"
@@ -69,6 +74,9 @@ class ReleaseGateCode(str, Enum):
     DOCUMENTATION_DRIFT = "DOCUMENTATION_DRIFT"
     REPOSITORY_NOT_PUBLISHED = "REPOSITORY_NOT_PUBLISHED"
     UNKNOWN_EVIDENCE = "UNKNOWN_EVIDENCE"
+    # G1: candidate-identity binding codes.
+    CANDIDATE_REF_MISMATCH = "CANDIDATE_REF_MISMATCH"
+    POLICY_DIGEST_MISMATCH = "POLICY_DIGEST_MISMATCH"
 
 
 GATE_CODES: tuple[str, ...] = tuple(c.value for c in ReleaseGateCode)

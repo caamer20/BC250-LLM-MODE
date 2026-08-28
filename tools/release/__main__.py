@@ -2,12 +2,20 @@
 
 Usage:
   python -m tools.release validate <evidence_dir>
-  python -m tools.release evaluate --candidate 1.0.0rc1 [--source-commit C]
+  python -m tools.release evaluate --candidate 1.0.0rc1 --source-commit C
+                                   [--source-ref refs/heads/main]
+                                   [--repository local]
                                    [--evidence <dir>] [--artifacts <dir>]
   python -m tools.release manifest --candidate 1.0.0rc1 --output <path>
   python -m tools.release verify <manifest.json> <dist_dir>
 
 Exit codes: 0 success / 1 gate-or-verification failure / 2 usage error.
+
+G1 (§G1.2/§G1.3, RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): ``evaluate``
+REQUIRES ``--source-commit`` and constructs the immutable CandidateIdentity
+against the REVIEWED default policy (a candidate whose policy digest does not
+match is blocked by the evaluator, never silently re-bound). Without
+``--artifacts`` the evaluation is diagnostics-only over an empty inventory.
 """
 
 from __future__ import annotations
@@ -22,8 +30,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from bc250_llm_mode.release_artifacts import ArtifactInventory  # noqa: E402
 from bc250_llm_mode.release_evidence import validate_evidence_record  # noqa: E402
-from bc250_llm_mode.release_gate import evaluate_release  # noqa: E402
+from bc250_llm_mode.release_gate import (  # noqa: E402
+    CandidateIdentity, evaluate_release,
+)
+from bc250_llm_mode.release_policy import default_release_policy  # noqa: E402
 from bc250_llm_mode.release_state import (  # noqa: E402
     RELEASE_MANIFEST_SCHEMA_VERSION, ReleaseState, build_release_manifest,
 )
@@ -52,9 +64,25 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     records, errors = load_evidence_dir(args.evidence) if args.evidence else ([], [])
     for name, reason in errors:
         print(f"REJECT {name}: {reason}", file=sys.stderr)
+    # G1.3: production tooling evaluates against the REVIEWED policy only.
+    policy = default_release_policy()
+    try:
+        candidate = CandidateIdentity(
+            version=args.candidate,
+            source_commit=args.source_commit,
+            source_ref=args.source_ref,
+            repository=args.repository,
+            policy_digest=policy.policy_digest())
+    except ValueError as exc:
+        print(f"invalid candidate identity: {exc}", file=sys.stderr)
+        return 2
+    # G1.2: without --artifacts this is diagnostics-only (empty inventory);
+    # G3 makes --artifacts mandatory for RC/final evaluation.
+    artifacts = (build_inventory(args.artifacts) if args.artifacts
+                 else ArtifactInventory())
     decision = evaluate_release(
-        evidence=records, candidate_version=args.candidate,
-        source_commit=args.source_commit)
+        evidence=records, candidate=candidate, artifacts=artifacts,
+        policy=policy)
     print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
     print(f"eligible_for_rc={decision.eligible_for_rc} "
           f"eligible_for_1_0_0={decision.eligible_for_1_0_0}")
@@ -101,7 +129,10 @@ def main(argv: list[str] | None = None) -> int:
 
     p_eval = sub.add_parser("evaluate", help="run the release evaluator")
     p_eval.add_argument("--candidate", required=True)
-    p_eval.add_argument("--source-commit", default=None)
+    # G1: a sourceless evaluation no longer exists.
+    p_eval.add_argument("--source-commit", required=True)
+    p_eval.add_argument("--source-ref", default="refs/heads/main")
+    p_eval.add_argument("--repository", default="local")
     p_eval.add_argument("--evidence", default=None)
     p_eval.add_argument("--artifacts", default=None)
     p_eval.set_defaults(func=_cmd_evaluate)

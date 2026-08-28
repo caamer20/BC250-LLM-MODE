@@ -1,20 +1,23 @@
-"""P9 §15.1/§15.2 + C1 §C1.2 + C7 §C7.1–§C7.3: release state & manifest (pure).
+"""P9 §15.1/§15.2 + C1 §C1.2 + C7 §C7.1–§C7.3 + G1 §G1.1: release state (pure).
 
-Pins the 1.0-qualification semantics: the build may NOT be tagged 1.0.0 while
-any blocking gap remains (milestone gates, hardware qualification, human
-acceptance, security review), and the known-unavailable capabilities are ALWAYS
-visible in the release manifest rather than implying completeness.
+Pins the release-state semantics: the facade is INFORMATIONAL ONLY. G1
+(RELEASE_GATE_AND_PIPELINE_REMEDIATION plan) deleted the ``evidence_satisfied``
+authority field and made ``may_tag_1_0_0()`` a non-authoritative constant
+``False`` — the ONLY eligibility authority is the ``ReleaseDecision`` from
+``release_gate.evaluate_release``. The known-unavailable capabilities stay
+VISIBLE in the release manifest rather than implying completeness.
 
-C7 reconciliation: ``backup-restore-publish`` was IMPLEMENTED by C2, so it is no
-longer an "unavailable capability" — its remaining 1.0 requirement is hardware
-qualification evidence (tracked by the evidence gate + ``blocking_gaps``). The
-single genuinely unavailable capability is ``model-conversion``
-(DEFERRED_NOT_ADVERTISED). C7 adds the unclassified-limitation gate:
-``may_tag_1_0_0()`` can never be true while a known limitation lacks a scope
-classification in the release policy.
+C7 reconciliation: ``backup-restore-publish`` was IMPLEMENTED by C2, so it is
+no longer an "unavailable capability" — its remaining 1.0 requirement is
+hardware qualification evidence (tracked by the evidence gate +
+``blocking_gaps``). The single genuinely unavailable capability is
+``model-conversion`` (DEFERRED_NOT_ADVERTISED). Every known limitation must
+carry a scope classification in the release policy.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from bc250_llm_mode.release_state import (
     KNOWN_UNAVAILABLE_CAPABILITIES,
@@ -47,10 +50,8 @@ def test_current_state_is_not_1_0_ready():
 
 
 def test_all_green_booleans_alone_are_not_1_0_ready():
-    """C1.2: the deprecated approval booleans can never qualify a release on
-    their own — they never satisfy the evidence requirement. (C7: there is no
-    longer an unavailable mandatory capability, so the block here is purely the
-    unsatisfied evidence.)"""
+    """C1.2 + G1: the informational approval booleans can never qualify a
+    release — the facade has no eligibility authority at all."""
     state = _state(
         milestone_gates_green=True,
         hardware_qualification_green=True,
@@ -60,27 +61,34 @@ def test_all_green_booleans_alone_are_not_1_0_ready():
     assert state.blocking_gaps() == []  # no INFORMATIONAL gaps...
     # ...and C7: no mandatory capability is unavailable anymore...
     assert state.unavailable_mandatory_capabilities() == []
-    # ...but booleans never satisfy the evidence requirement.
-    assert state.evidence_satisfied is False
+    # ...but the facade still can never assert eligibility.
     assert state.may_tag_1_0_0() is False
 
 
-def test_all_green_plus_evidence_is_the_legitimate_1_0_path():
-    """C7: once backup-restore-publish is implemented (C2) and every blocking
-    gap is cleared, the ONLY remaining authority is validated evidence. With all
-    gaps green and evidence satisfied, the facade may tag — evidence_satisfied
-    can only be set through the evidence-driven evaluator, which itself requires
-    the hardware/security/human records, so this is not a boolean bypass."""
+def test_no_public_release_state_construction_can_ever_tag():
+    """G1 §G1.1/§15.1 (explicit compatibility decision): the facade's
+    eligibility authority is DELETED. Constructing with the removed
+    ``evidence_satisfied`` field raises ``TypeError``, and
+    ``may_tag_1_0_0()`` is a non-authoritative constant ``False`` even with
+    every informational boolean green. The ONLY eligibility authority is the
+    ``ReleaseDecision`` from ``release_gate.evaluate_release``."""
+    with pytest.raises(TypeError):
+        _state(
+            milestone_gates_green=True,
+            hardware_qualification_green=True,
+            human_acceptance_green=True,
+            security_review_signed_off=True,
+            evidence_satisfied=True,
+        )
     state = _state(
         milestone_gates_green=True,
         hardware_qualification_green=True,
         human_acceptance_green=True,
         security_review_signed_off=True,
-        evidence_satisfied=True,
     )
     assert state.unavailable_mandatory_capabilities() == []
     assert state.unclassified_limitations() == []
-    assert state.may_tag_1_0_0() is True
+    assert state.may_tag_1_0_0() is False
 
 
 def test_unavailable_capabilities_always_visible():
@@ -104,9 +112,9 @@ def test_backup_restore_publish_no_longer_unavailable():
     assert "model-conversion" in unavailable
 
 
-def test_unclassified_limitation_blocks_the_tag(monkeypatch):
-    """C7 exit gate: may_tag_1_0_0() can never be true while a known limitation
-    has no scope classification in the release policy."""
+def test_unclassified_limitation_is_surfaced_and_blocks(monkeypatch):
+    """C7 gate preserved under G1: an unclassified known limitation is always
+    surfaced, and the facade itself can never tag regardless."""
     import bc250_llm_mode.release_state as rs
 
     state = _state(
@@ -114,9 +122,9 @@ def test_unclassified_limitation_blocks_the_tag(monkeypatch):
         hardware_qualification_green=True,
         human_acceptance_green=True,
         security_review_signed_off=True,
-        evidence_satisfied=True,
     )
-    assert state.may_tag_1_0_0() is True  # baseline: fully classified
+    assert state.unclassified_limitations() == []  # baseline: fully classified
+    assert state.may_tag_1_0_0() is False  # G1: never from the facade
 
     # Inject an unclassified known limitation.
     monkeypatch.setattr(rs, "KNOWN_UNAVAILABLE_CAPABILITIES", (
