@@ -2,6 +2,97 @@
 
 ## Current state
 
+**RELEASE-GATE REMEDIATION — G0 COMPLETE (audit contract frozen as red tests).**
+Active subordinate authority: `RELEASE_GATE_AND_PIPELINE_REMEDIATION_IMPLEMENTATION_PLAN.md`
+(committed `df222c9`), under the V1_0 release-closure plan. It repairs the
+audited release-control defects BEFORE any C4/C5/C6/C8 evidence collection:
+the release-state boolean bypass, the optional source commit, the incomplete
+evidence envelope, unverified attestation references, the ignored `--artifacts`
+flag, verify-without-comparison, mutable action refs, and the unverified
+post-attestation path. Milestone order G0 → G1 → G2 → G3 → G4 → G5 → G6 →
+C4/C5/C6 → C8. The C7/C3/C2/C1/C0 records remain below as history.
+
+G0.1 baseline reconciliation (read-only, at `a649ac7`):
+
+- `main` at `a649ac7`, 71 commits ahead of `origin/main` (remote not updated;
+  push stays owner-gated).
+- Version `0.9.0.dev0` (pyproject + package `__version__`); database schema
+  **v10**; release policy content revision **2**; manifest schema **v2**;
+  evidence schema **v1**; decision schema **v2**.
+- Authoritative collection **1064**; focused release suite **95/95**.
+- Mutable action refs: `setup-python@v5` (×5), `upload-artifact@v4` (×2),
+  `download-artifact@v4` (×3), `attest-build-provenance@v2` (×1); only
+  `actions/checkout` pinned to a full SHA (v4.1.1).
+- Bypasses demonstrated live: `ReleaseState(..., evidence_satisfied=True)
+  .may_tag_1_0_0()` → **True**; `evaluate_release` accepts `source_commit=
+  None`; a record missing evidence_id/issuer/subjects/verification is
+  ACCEPTED; an `hf_…` token under a benign key is ACCEPTED; `evaluate
+  --artifacts <dir>` parses but never consumes the directory; `verify` exits
+  **0** over a fully mismatched dist (prints an inventory, compares nothing).
+- Tracked-clean; **10 owner-controlled untracked files preserved** (3 prior
+  plan docs, `scripts_audit/*` ×5, `tests/conftest_trace_tmp.py`; the
+  remediation plan itself is now tracked).
+- Direct git network access to github.com verified (`git ls-remote` resolves
+  upstream tags) — G4 action SHA pinning will be network-verified, never
+  guessed.
+
+G0.2 landed (this commit): four red-test files, **75 tests = 72 RED for the
+intended reasons + 3 always-green guards**, in the default collection (no
+marker), per plan §G0.3:
+
+- `tests/test_release_gate_remediation.py` (8 red) — ReleaseState
+  `evidence_satisfied` bypass; sourceless evaluation; CLI `--source-commit`
+  mandatory; `CandidateIdentity` commit/ref/repository/policy-digest
+  validation; final-tag rule (`refs/tags/v1.0.0` exactly); policy-digest
+  mismatch blocks; decision must name candidate + inventory digest.
+- `tests/test_release_evidence_v2.py` (38 red) — bare field-less records
+  accepted today; each of the 18 schema-v2 mandatory envelope fields required
+  (MISSING_FIELD); UNKNOWN_FIELD; value-based secret patterns (hf_/ghp_/PEM/
+  bearer/URL-userinfo) → SECRET_MATERIAL; empty `artifact_subjects` for
+  artifact-bound kinds → EMPTY_FIELD; missing verification block →
+  MISSING_FIELD; unverified verification block → BAD_VERIFICATION;
+  future-dated `issued_at` → BAD_TIMESTAMP; evidence policy-digest binding →
+  POLICY_DIGEST_MISMATCH; kind contracts → KIND_CONTRACT_UNMET; oversize/
+  overdeep → RECORD_OVERSIZE; validated-but-unverified records cannot
+  qualify; supersession set rules (unknown target / cross-kind / cycle).
+- `tests/test_release_artifact_binding.py` (16 red) — evidence subject ↔
+  inventory binding (+ matching control); CLI `--artifacts` mandatory and the
+  decision JSON binds the inventory digest; `verify` fails on content
+  mutation / added / removed artifact / SBOM-subject ≠ wheel digest;
+  inventory v2 schema version + roles + canonical digest + duplicate-role
+  refusal; SBOM duplicate-component refusal + real TOML parsing; manifest v3
+  BLOCKED labeling; final manifest refuses ineligible decisions; manifest
+  digest changes with any candidate/artifact change.
+- `tests/test_release_workflow_hardening.py` (10 red + 3 green guards) —
+  every `uses:` a full 40-char SHA; no TODO(C3); Dependabot for
+  github-actions; workflow runs the authoritative evaluator; final-evaluation
+  gates approval + publish; post-attestation verification before approval;
+  SBOM check via `tools.release verify`; build-once emits the complete
+  release set; candidate ref/qualification-level inputs; publish consumes
+  decision verification (not a bypassable shell line). Guards (green now,
+  must stay green): no wildcard artifact selection in publish; PR paths
+  cannot attest/publish; current checkout not publishable.
+
+Red failure classes: AssertionError (audited permissiveness reproduced),
+ImportError (remediated modules not yet written), TypeError (remediated
+binding signatures not yet present). **No production file changed at G0.**
+
+G0 verification: authoritative collection **1139** (1064 + 75); focused
+release suite still **95/95**; default suite green across nine deterministic
+alphabetical chunks except the 72 intended red tests — chunk reconciliation
+114+128+103+129+151+180+144+114+76 = 1139, i.e. **1067 passed + 72 intended
+red** (all failures inside the four new files; zero unrelated regressions);
+compileall + `git diff --check` clean.
+
+Next: **G1 — eliminate eligibility bypasses**: delete
+`ReleaseState.evidence_satisfied` (make `may_tag_1_0_0()` non-authoritative),
+introduce the mandatory immutable `CandidateIdentity` + package-level
+`ArtifactInventory` evaluator inputs, bind the policy digest, add
+CANDIDATE_REF_MISMATCH / POLICY_DIGEST_MISMATCH gate codes, migrate release
+tooling + affected tests, and guard the single evaluator authority.
+
+---
+
 **RELEASE CLOSURE — C7 COMPLETE (known-limitation & conversion decision).**
 C0 + C1 + C2 + C3 remain the baseline records below. C7 resolved the "1.0 ready
 while a mandatory capability is listed unavailable" contradiction: it refined the
