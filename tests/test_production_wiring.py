@@ -87,15 +87,15 @@ def test_host_mode_service_methods_reach_real_modules(tmp_path, monkeypatch):
 
     monkeypatch.setattr(
         llmmode, "stage_desktop_boot",
-        lambda st, rn: calls.append("stage") or st.update(boot_policy="desktop"),
+        lambda st, rn, **_kwargs: calls.append("stage") or st.update(boot_policy="desktop"),
     )
     monkeypatch.setattr(
         llmmode, "apply_llm_mode",
-        lambda st, rn: calls.append("apply") or st.update(system_mode="llm-session"),
+        lambda st, rn, **_kwargs: calls.append("apply") or st.update(system_mode="llm-session"),
     )
     monkeypatch.setattr(
         desktop, "switch_to_desktop_mode",
-        lambda st, rn, *, activate_now=False: calls.append("switch"),
+        lambda st, rn, *, activate_now=False, **_kwargs: calls.append("switch"),
     )
 
     result = application.host_mode.enforce_desktop_next_boot(view, runner)
@@ -119,7 +119,7 @@ def test_component_lifecycle_provisions_and_routes_runtime_to_durable_command(
     runner = QuietRunner()
 
     monkeypatch.setattr(env, "setup_environment",
-                        lambda st, rn: {"ok": True})
+                        lambda st, rn, **_kwargs: {"ok": True})
     assert application.component.provision_environment(view, runner) == {
         "ok": True
     }

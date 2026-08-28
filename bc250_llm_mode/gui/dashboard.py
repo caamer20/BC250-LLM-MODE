@@ -16,9 +16,7 @@ from typing import Any
 
 from ..catalog import catalog_rows, model_by_id
 from ..chat import benchmark
-from ..desktop import switch_to_desktop_mode
 from ..hardware import detect_hardware
-from ..llmmode import apply_llm_mode, stage_desktop_boot
 from ..local_models import (
     LocalModel,
     discover_local_models,
@@ -132,7 +130,10 @@ class DashboardMixin:
         ).pack(anchor="w", pady=(0, 6))
         ttk.Label(
             inner,
-            text="Next boot: Bazzite graphical desktop · LLM auto-start: OFF",
+            text=(
+                f"Next boot: {self.application.platform.profile.label} "
+                "graphical desktop · LLM auto-start: OFF"
+            ),
             foreground="#207020",
         ).pack(anchor="w", pady=(0, 6))
 
@@ -298,9 +299,13 @@ class DashboardMixin:
         ttk.Button(
             management,
             text="Ensure desktop on next boot",
-            command=lambda: self._dashboard_action(lambda r: stage_desktop_boot(self.state_data, r)),
+            command=lambda: self._dashboard_action(
+                lambda r: self.application.host_mode.enforce_desktop_next_boot(
+                    self.state_data, r
+                )
+            ),
         ).pack(side="left", padx=5)
-        ttk.Button(management, text="Return to Bazzite desktop mode", command=self._dashboard_desktop_mode).pack(side="right")
+        ttk.Button(management, text="Return to desktop mode", command=self._dashboard_desktop_mode).pack(side="right")
 
         command = "python -m bc250_llm_mode chat"
         entry = ttk.Entry(inner)
@@ -787,7 +792,7 @@ class DashboardMixin:
     def _dashboard_desktop_mode(self) -> None:
         if not messagebox.askyesno(
             "Return to desktop mode",
-            "Stop inference, restore Bazzite graphical boot and sleep defaults, and preserve all models?",
+            "Stop inference, restore graphical boot and sleep defaults, and preserve all models?",
         ):
             return
         def action(runner: CommandRunner) -> None:

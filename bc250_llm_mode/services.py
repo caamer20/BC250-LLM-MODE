@@ -257,7 +257,9 @@ class SetupService:
                 evidence=evidence,
             )
 
-    def mark_tkinter_staged(self, evidence: Any = None) -> dict[str, Any]:
+    def mark_tkinter_staged(
+        self, evidence: Any = None, *, reboot_required: bool = True
+    ) -> dict[str, Any]:
         with self._units.begin() as conn:
             return self._transition(
                 conn,
@@ -266,7 +268,7 @@ class SetupService:
                 evidence=evidence,
                 extra_settings={
                     "bootstrap_tkinter_staged": True,
-                    "reboot_required": True,
+                    "reboot_required": bool(reboot_required),
                 },
             )
 
@@ -835,25 +837,30 @@ def persist_state_diff(
 
 
 class HostModeService:
-    """Boot-policy intent and current-boot LLM mode transitions."""
+    """Platform-gated boot-policy and current-boot mode transitions."""
 
-    def __init__(self, units) -> None:
+    def __init__(self, units, platform=None) -> None:
         self._units = units
+        self._platform = platform
 
     def enforce_desktop_next_boot(self, view, runner) -> dict[str, Any]:
         from .llmmode import stage_desktop_boot
 
         before = dict(view)
-        stage_desktop_boot(view, runner)
+        stage_desktop_boot(view, runner, platform=self._platform)
         persist_state_diff(self._units, before, view)
         return {"boot_policy": view.get("boot_policy", "desktop")}
 
     def enter_llm_mode(self, view, runner, *, install_service_fn=None,
-                       install: bool = False) -> dict[str, Any]:
+                       install: bool = False,
+                       mask_desktop_services: bool = False) -> dict[str, Any]:
         from .llmmode import apply_llm_mode
 
         before = dict(view)
-        apply_llm_mode(view, runner)
+        apply_llm_mode(
+            view, runner, platform=self._platform,
+            mask_desktop_services=mask_desktop_services,
+        )
         if install and install_service_fn is not None:
             install_service_fn(view, runner)
         persist_state_diff(self._units, before, view)
@@ -863,7 +870,9 @@ class HostModeService:
         from .desktop import switch_to_desktop_mode
 
         before = dict(view)
-        switch_to_desktop_mode(view, runner, activate_now=activate_now)
+        switch_to_desktop_mode(
+            view, runner, activate_now=activate_now, platform=self._platform
+        )
         persist_state_diff(self._units, before, view)
         return {"boot_policy": view.get("boot_policy", "desktop")}
 
@@ -872,8 +881,9 @@ class ComponentLifecycleService:
     """Environment provisioning; runtime lifecycle lives in the durable
     ``RuntimeLifecycleCommandService`` (ADR 004 D11)."""
 
-    def __init__(self, units) -> None:
+    def __init__(self, units, platform=None) -> None:
         self._units = units
+        self._platform = platform
 
     def record_provenance(self, component: str, describe: str,
                           commit_sha=None) -> None:
@@ -889,7 +899,7 @@ class ComponentLifecycleService:
         from .env import setup_environment
 
         before = dict(view)
-        result = setup_environment(view, runner)
+        result = setup_environment(view, runner, platform=self._platform)
         persist_state_diff(self._units, before, view)
         return result
 
@@ -898,7 +908,7 @@ class ComponentLifecycleService:
         from .env import setup_environment
 
         before = dict(view)
-        result = setup_environment(view, runner)
+        result = setup_environment(view, runner, platform=self._platform)
         persist_state_diff(self._units, before, view)
         return result
 

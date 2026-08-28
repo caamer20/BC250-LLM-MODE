@@ -26,6 +26,7 @@ def test_pyproject_declares_entry_point_and_metadata():
 def test_public_import_surface_is_stable():
     assert bc250_llm_mode.__version__
     from bc250_llm_mode.__main__ import cli  # noqa: F401
+    from bc250_llm_mode.host_platform import HostPlatformService  # noqa: F401
     from bc250_llm_mode.paths import AppPaths  # noqa: F401
     if not _TKINTER_AVAILABLE:
         pytest.skip(
@@ -104,6 +105,8 @@ def test_clean_wheel_smoke_includes_operations(tmp_path):
         "root = Path(tempfile.mkdtemp())\n"
         "# Composition-adjacent modules import WITHOUT the source tree.\n"
         "from bc250_llm_mode.db import initialize_and_close\n"
+        "from bc250_llm_mode.host_platform import HostPlatformService\n"
+        "assert HostPlatformService.detect().status()['schema_version'] == 1\n"
         "from bc250_llm_mode.operations.activation import (\n"
         "    build_activation_workflow,\n"
         ")\n"

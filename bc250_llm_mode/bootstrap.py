@@ -1,4 +1,4 @@
-"""Native dependency bootstrap for immutable Bazzite images lacking tkinter."""
+"""Platform-aware native tkinter bootstrap with the mandatory safety gate."""
 
 from __future__ import annotations
 
@@ -12,6 +12,12 @@ from typing import Any
 
 from .disclaimer import DISCLAIMER_TEXT, acknowledge
 from .hardware import detect_hardware
+from .host_platform import (
+    HostPlatformService,
+    PackageInstallPlan,
+    PackageManager,
+    pacman_install_is_safe,
+)
 from .logging_utils import CommandRunner, configure_logging
 from .privilege import elevated
 
@@ -67,7 +73,13 @@ def _setup_service(store: Any):
     return SetupService(UnitOfWorkFactory(database_path))
 
 
-def _persist_without_save(store: Any, state: dict[str, Any], changes: dict[str, Any]) -> None:
+def _persist_without_save(
+    store: Any,
+    state: dict[str, Any],
+    changes: dict[str, Any],
+    *,
+    evidence: dict[str, Any] | None = None,
+) -> None:
     """Persist setup-scoped settings without a whole-state save.
 
     SQLite stores go through SetupService's unit of work; legacy JSON
@@ -80,7 +92,10 @@ def _persist_without_save(store: Any, state: dict[str, Any], changes: dict[str, 
         if changes.get("disclaimer_ack"):
             service.acknowledge_safety()
         if changes.get("bootstrap_tkinter_staged"):
-            service.mark_tkinter_staged(evidence={"staged_by": "rpm-ostree"})
+            service.mark_tkinter_staged(
+                evidence=evidence,
+                reboot_required=bool(changes.get("reboot_required")),
+            )
         return
     if hasattr(store, "transaction"):
         def mutate(current: dict[str, Any]) -> dict[str, Any]:
@@ -90,16 +105,69 @@ def _persist_without_save(store: Any, state: dict[str, Any], changes: dict[str, 
         store.transaction(mutate)
 
 
-def _stage_tkinter(state: dict[str, Any], store: StateStore, runner: CommandRunner) -> None:
-    runner.run(elevated(["rpm-ostree", "install", "python3-tkinter"]))
+def _ensure_hardware_validation(application: Any, report: Any) -> None:
+    """Advance the native setup workflow before recording Tk readiness.
+
+    The bootstrap runs before the GUI exists, so it must explicitly bridge
+    SAFETY_ACKNOWLEDGED -> HARDWARE_VALIDATED. The old rpm-ostree-only path
+    skipped this transition and could raise SetupConflict on a fresh host.
+    """
+
+    service = getattr(application, "setup", None) or _setup_service(application)
+    if service is None:
+        return
+    stage = service.current_workflow()["stage"]
+    if stage == "WELCOME":
+        read = getattr(application, "read_model", None)
+        snapshot = read() if read is not None else {}
+        if not snapshot.get("disclaimer_ack"):
+            raise RuntimeError(
+                "Safety acknowledgement must be recorded before hardware validation"
+            )
+        service.acknowledge_safety()
+        stage = service.current_workflow()["stage"]
+    if stage == "SAFETY_ACKNOWLEDGED":
+        service.record_hardware_validation(evidence={
+            "valid": bool(getattr(report, "valid", not getattr(report, "errors", []))),
+            "warning_count": len(getattr(report, "warnings", []) or []),
+        })
+
+
+def _stage_tkinter(
+    state: dict[str, Any],
+    store: Any,
+    runner: CommandRunner,
+    plan: PackageInstallPlan,
+) -> None:
+    if not plan.automatic or not plan.argv:
+        raise RuntimeError(plan.guidance)
+    if plan.manager is PackageManager.PACMAN:
+        safe, reason = pacman_install_is_safe(runner)
+        if not safe:
+            raise RuntimeError(reason)
+        runner.emit(reason)
+    runner.run(elevated(list(plan.argv)))
     _persist_without_save(
         store,
         state,
-        {"reboot_required": True, "bootstrap_tkinter_staged": True},
+        {
+            "reboot_required": plan.requires_reboot,
+            "bootstrap_tkinter_staged": True,
+        },
+        evidence={
+            "package_manager": plan.manager.value,
+            "packages": list(plan.packages),
+            "requires_reboot": plan.requires_reboot,
+        },
     )
 
 
-def _terminal_bootstrap(store: StateStore, state: dict[str, Any]) -> bool:
+def _terminal_bootstrap(
+    store: Any,
+    state: dict[str, Any],
+    platform: HostPlatformService,
+    report: Any,
+) -> bool:
     if not sys.stdin.isatty():
         raise RuntimeError(
             "python3-tkinter is absent and no graphical display is available. Re-run from an interactive "
@@ -111,15 +179,23 @@ def _terminal_bootstrap(store: StateStore, state: dict[str, Any]) -> bool:
         _persist_without_save(
             store, state, {"disclaimer_ack": True, "ack_timestamp": state.get("ack_timestamp")}
         )
+    _ensure_hardware_validation(store, report)
+    plan = platform.profile.tkinter_plan()
+    package_text = " ".join(plan.packages) or "the required tkinter package"
+    action = "stage" if plan.requires_reboot else "install"
     answer = input(
-        "Stage the native python3-tkinter package with rpm-ostree now? A reboot is required. [y/N]: "
+        f"{action.title()} {package_text} with {plan.manager.value} now? "
+        f"{plan.guidance} [y/N]: "
     ).strip().lower()
     if answer not in {"y", "yes"}:
         print("Not staged; no additional system changes were made.")
         return False
     runner = CommandRunner(configure_logging(state["logs_dir"]), print)
-    _stage_tkinter(state, store, runner)
-    print("python3-tkinter is staged. Reboot, then launch BC250 LLM MODE again.")
+    _stage_tkinter(state, store, runner, plan)
+    if plan.requires_reboot:
+        print("Tkinter is staged. Reboot, then launch BC250 LLM MODE again.")
+    else:
+        print("Tkinter is installed. Relaunch BC250 LLM MODE to continue.")
     return False
 
 
@@ -133,6 +209,13 @@ def bootstrap_tkinter(application: Any) -> bool:
         return True
     read = getattr(application, "read_model", None)
     state = read() if read is not None else application.load()
+    platform = getattr(application, "platform", None) or HostPlatformService.detect()
+    if platform.profile.integration_tier.value == "unsupported":
+        detail = "; ".join(platform.profile.blockers) or "unsupported host profile"
+        raise RuntimeError(
+            f"Native dependency bootstrap is unavailable on "
+            f"{platform.profile.label}: {detail}. Run `bc250-llm-mode platform status`."
+        )
     report = detect_hardware(state["models_dir"])
     if report.errors:
         if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
@@ -143,14 +226,19 @@ def bootstrap_tkinter(application: Any) -> bool:
         ])
         return False
     if state.get("bootstrap_tkinter_staged"):
-        message = "python3-tkinter is staged but not active. Reboot, then launch BC250 LLM MODE again."
+        message = (
+            "Tkinter is staged but not active. Reboot, then launch BC250 LLM MODE again."
+            if state.get("reboot_required")
+            else "Tkinter was installed but is not importable by this Python. "
+                 "Relaunch the app with the system Python, or run `bc250-llm-mode platform plan`."
+        )
         if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
             _zenity(["--info", "--title=BC250 LLM MODE — Reboot required", f"--text={message}"])
         else:
             print(message)
         return False
     if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        return _terminal_bootstrap(store, state)
+        return _terminal_bootstrap(application, state, platform, report)
     if not shutil.which("zenity"):
         raise RuntimeError("python3-tkinter is absent and the native Zenity bootstrap is unavailable.")
     if not state.get("disclaimer_ack"):
@@ -182,20 +270,32 @@ def bootstrap_tkinter(application: Any) -> bool:
             return False
         acknowledge(state)
         _persist_without_save(
-            store, state, {"disclaimer_ack": True, "ack_timestamp": state.get("ack_timestamp")}
+            application, state,
+            {"disclaimer_ack": True, "ack_timestamp": state.get("ack_timestamp")}
         )
+    _ensure_hardware_validation(application, report)
+    plan = platform.profile.tkinter_plan()
+    if not plan.automatic or not plan.argv:
+        raise RuntimeError(plan.guidance)
+    package_text = " ".join(plan.packages)
+    reboot_text = " A reboot will be required." if plan.requires_reboot else " Relaunch afterward."
     proceed = _zenity([
         "--question", "--title=BC250 LLM MODE — Native GUI dependency",
-        "--text=The Bazzite host needs the python3-tkinter package for the local wizard. Stage it now with rpm-ostree? A reboot will be required.",
-        "--ok-label=Stage package", "--cancel-label=Not now", "--width=620",
+        f"--text={platform.profile.label} needs {package_text} for the local wizard. "
+        f"Apply the reviewed {plan.manager.value} package plan now?{reboot_text}",
+        "--ok-label=Install package", "--cancel-label=Not now", "--width=620",
     ])
     if proceed.returncode:
         return False
     runner = CommandRunner(configure_logging(state["logs_dir"]), print)
-    _stage_tkinter(state, store, runner)
+    _stage_tkinter(state, application, runner, plan)
     _zenity([
-        "--info", "--title=BC250 LLM MODE — Reboot required",
-        "--text=python3-tkinter has been staged. Reboot, then launch BC250 LLM MODE again; setup will resume.",
+        "--info", "--title=BC250 LLM MODE — Dependency installed",
+        "--text=" + (
+            "Tkinter has been staged. Reboot, then launch BC250 LLM MODE again; setup will resume."
+            if plan.requires_reboot else
+            "Tkinter has been installed. Relaunch BC250 LLM MODE; setup will resume."
+        ),
         "--width=620",
     ])
     return False

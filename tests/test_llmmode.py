@@ -1,6 +1,7 @@
 import subprocess
 
 from bc250_llm_mode import llmmode
+from bc250_llm_mode.host_platform import HostPlatformService
 
 
 class FakeRunner:
@@ -19,6 +20,17 @@ class FakeRunner:
 
 
 def test_llm_mode_is_runtime_only_and_next_boot_is_desktop(tmp_path, monkeypatch):
+    os_release = tmp_path / "os-release"
+    os_release.write_text(
+        'ID=bazzite\nPRETTY_NAME="Bazzite Test"\nID_LIKE="fedora"\n',
+        encoding="utf-8",
+    )
+    platform = HostPlatformService.detect(
+        os_release_path=os_release,
+        command_exists=lambda _name: True,
+        path_exists=lambda path: path == "/run/systemd/system",
+        platform_name="linux",
+    )
     persistent = tmp_path / "etc" / "99-amdgpu-nosleep.rules"
     persistent.parent.mkdir(parents=True)
     persistent.write_text(llmmode.UDEV_RULE, encoding="utf-8")
@@ -36,7 +48,7 @@ def test_llm_mode_is_runtime_only_and_next_boot_is_desktop(tmp_path, monkeypatch
     }
     runner = FakeRunner()
 
-    llmmode.apply_llm_mode(state, runner)
+    llmmode.apply_llm_mode(state, runner, platform=platform)
 
     commands = [command for command, _kwargs in runner.commands]
     assert ["systemctl", "set-default", "graphical.target"] in commands

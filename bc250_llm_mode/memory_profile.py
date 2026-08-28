@@ -50,7 +50,7 @@ def analyze_memory_profile(report: Any) -> MemoryProfileAdvice:
         supported = False
         risk = "critical"
         recommendation = (
-            "This split leaves too little host RAM for Bazzite, Podman, mmap bookkeeping, and the AMD driver. "
+            "This split leaves too little host RAM for Linux, Podman, mmap bookkeeping, and the AMD driver. "
             "Return to approximately 12 GiB GPU / 4 GiB OS in firmware and reboot. The UMA carve-out cannot "
             "be resized safely while Linux is running."
         )

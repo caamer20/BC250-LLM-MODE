@@ -25,7 +25,7 @@ def test_desktop_mode_preserves_setup_and_stops_services(monkeypatch):
     monkeypatch.setattr(
         desktop,
         "revert_llm_mode",
-        lambda state, runner: calls.append("llm") or state.update(reboot_required=True) or state,
+        lambda state, runner, **_kwargs: calls.append("llm") or state.update(reboot_required=True) or state,
     )
     state = {
         "setup_complete": True,
@@ -51,7 +51,7 @@ def test_desktop_mode_now_isolates_graphical_target(monkeypatch):
     monkeypatch.setattr(desktop, "elevated", lambda command: command)
     monkeypatch.setattr(desktop.shutil, "which", lambda command: None)
     monkeypatch.setattr(desktop, "revert_optimizations", lambda state, runner: state)
-    monkeypatch.setattr(desktop, "revert_llm_mode", lambda state, runner: state)
+    monkeypatch.setattr(desktop, "revert_llm_mode", lambda state, runner, **_kwargs: state)
     runner = FakeRunner()
 
     desktop.switch_to_desktop_mode({}, runner, activate_now=True)

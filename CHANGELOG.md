@@ -5,6 +5,34 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### CachyOS and capability-driven Linux hosts
+
+- Added a bounded, read-only host-platform authority with native Bazzite and
+  CachyOS profiles, Arch/Fedora/Debian/SUSE compatibility tiers, systemd and
+  boot-manager detection, fixed package plans, and pre-composition
+  `platform status|plan` JSON diagnostics.
+- Added the CachyOS Tkinter bootstrap (`pacman -S --needed tk`) with a
+  fail-closed pending-upgrade preflight. The app never runs `pacman -Sy` or an
+  automatic full upgrade; Podman/Distrobox/RADV dependencies remain a
+  previewed operator plan, while the existing Fedora Distrobox stays the
+  controlled inference guest.
+- Removed `rpm-ostree` from CachyOS current-boot LLM Mode. Host-mode now uses
+  the systemd display-manager alias, keeps graphical/no-autostart reboot
+  safety, and reports external systemd-boot/GRUB/Limine/rEFInd kernel
+  arguments without editing them.
+- Routed CLI, chat, setup, and dashboard host actions through one composed
+  service; added platform data to status, doctor, appliance home, and support
+  bundles without persisting host observations.
+- Capability-gated Cyan clock tuning. Hosts without the Cyan governor disable
+  unsafe clock controls while retaining thermal monitoring and the latched
+  emergency stop.
+- Fixed the pre-GUI bootstrap stage order: a fresh install now records
+  hardware validation before Tk readiness instead of raising a setup-stage
+  conflict.
+- Accepted ADR 007 (`docs/adr/007-capability-driven-linux-hosts.md`). Physical
+  CachyOS BC-250 qualification remains evidence-pending and must not be
+  inferred from developer tests.
+
 ### Release-gate remediation G0–G5 (audit remediation of the C-series delivery)
 
 An independent audit found release-control defects in the original C-series

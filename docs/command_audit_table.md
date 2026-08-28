@@ -1,3 +1,9 @@
+# Historical R1.3 raw command-site snapshot
+
+This table is preserved as the evidence snapshot produced during R1.3. It is
+not a current line-number census; see `command_audit.md` for subsequent dated
+reconciliations and the live architecture guards.
+
 | Site | Classes | Code |
 | --- | --- | --- |
 | bc250_llm_mode/__main__.py:277 | check=False | `unit_text = quiet_runner.run(["cat", unit_path], check=False).stdout` |

@@ -124,10 +124,12 @@ class HomeQueryService:
         paths: AppPaths,
         *,
         clock: Callable[[], str] | None = None,
+        platform: Any = None,
     ) -> None:
         self._units = units
         self._paths = paths
         self._clock = clock or _utcnow
+        self._platform = platform
 
     # --- cards ---------------------------------------------------------------
 
@@ -520,15 +522,32 @@ class HomeQueryService:
         return card, dim
 
     def _host_card(self, settings: dict, now: str):
-        # Host capability probing runs subprocesses (rocm-smi etc.) and
-        # therefore belongs to doctor, not to the query-only snapshot.
-        # The card reports the durable summary if one was recorded.
-        capability = settings.get("host_capability_summary")
+        # The composed platform detector is bounded and read-only (os-release,
+        # command/path presence). Hardware subprocess probes remain in doctor.
+        # Legacy durable summaries are accepted only when no detector was
+        # injected; current observations are never persisted as truth.
+        capability = (
+            self._platform.status() if self._platform is not None
+            else settings.get("host_capability_summary")
+        )
+        observed_at = now if self._platform is not None else settings.get(
+            "host_capability_observed_at"
+        )
         if capability:
+            tier = str(capability.get("integration_tier") or "")
+            state = (
+                H.READY if self._platform is None
+                else H.UNAVAILABLE if tier == "unsupported"
+                else H.READY if tier == "native"
+                else H.UNVERIFIED
+            )
             dim = H.dimension(
-                "host", H.READY, basis=H.BASIS_OBSERVED,
-                evidence="host capability summary recorded",
-                as_of=settings.get("host_capability_observed_at") or now,
+                "host", state, basis=H.BASIS_OBSERVED,
+                evidence=(
+                    f"host integration tier {tier}" if tier
+                    else "host capability summary recorded"
+                ),
+                as_of=observed_at or now,
             )
         else:
             dim = H.dimension(
@@ -538,9 +557,11 @@ class HomeQueryService:
             )
         card = {
             "capability": capability,
-            "unsupported_reasons": settings.get(
-                "host_unsupported_reasons") or [],
-            "as_of": settings.get("host_capability_observed_at"),
+            "unsupported_reasons": (
+                capability.get("blockers", []) if self._platform is not None
+                else settings.get("host_unsupported_reasons") or []
+            ),
+            "as_of": observed_at,
             "stale": False,
             "stale_reason": None if capability else "never probed",
             "health": dim.to_dict(),

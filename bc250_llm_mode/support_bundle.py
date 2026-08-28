@@ -207,6 +207,7 @@ class SupportBundleService:
         *,
         home: Any = None,
         doctor: Any = None,
+        platform: Any = None,
         clock: Callable[[], str] | None = None,
         redact_model_filenames: bool = True,
     ) -> None:
@@ -214,6 +215,7 @@ class SupportBundleService:
         self._paths = paths
         self._home = home
         self._doctor = doctor
+        self._platform = platform
         self._clock = clock or _utcnow
         self._redact_model_filenames = redact_model_filenames
 
@@ -258,11 +260,14 @@ class SupportBundleService:
         emit("home.json", self._dump(self._home_snapshot(), redactor))
         # 2) doctor report.
         emit("doctor.json", self._dump(self._doctor_report(), redactor))
-        # 3) redacted settings.
+        # 3) disposable host-platform observations (never durable truth).
+        if self._platform is not None:
+            emit("platform.json", self._dump(self._platform.status(), redactor))
+        # 4) redacted settings.
         emit("settings.json", self._dump(self._settings(redactor), redactor))
-        # 4) bounded operations summary.
+        # 5) bounded operations summary.
         emit("operations.json", self._dump(self._operations(), redactor))
-        # 5) bounded, redacted log tails.
+        # 6) bounded, redacted log tails.
         for rel, text in self._log_tails(redactor, cancel):
             emit(rel, text)
 

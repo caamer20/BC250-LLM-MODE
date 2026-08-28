@@ -1,4 +1,4 @@
-"""Optional Tailscale lifecycle management for a systemd-based Bazzite host."""
+"""Optional Tailscale lifecycle management for a systemd-based Linux host."""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def tailscale_status(runner: CommandRunner) -> dict[str, Any]:
 
 def _require_tailscale() -> None:
     if not shutil.which("tailscale") and not shutil.which("tailscaled"):
-        raise RuntimeError("Tailscale is not installed. Install it on Bazzite, then retry.")
+        raise RuntimeError("Tailscale is not installed. Install it through the host distribution, then retry.")
 
 
 def start_tailscale(runner: CommandRunner) -> dict[str, Any]:

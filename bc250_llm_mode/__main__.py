@@ -19,10 +19,8 @@ from .catalog import (
 )
 from .chat import benchmark, benchmark_repeat, run_chat
 from .constants import KNOWN_GOOD_LLAMACPP
-from .desktop import switch_to_desktop_mode
 from .disclaimer import require_acknowledgment
 from .hardware import detect_hardware
-from .llmmode import apply_llm_mode, stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
 from .memory_profile import analyze_memory_profile
@@ -123,6 +121,13 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
+    )
+    platform = sub.add_parser(
+        "platform",
+        help="Detect host compatibility and show reviewed package/boot plans",
+    )
+    platform.add_argument(
+        "action", choices=("status", "plan"), nargs="?", default="status"
     )
     support_bundle = sub.add_parser(
         "support-bundle",
@@ -231,7 +236,7 @@ def _parser() -> argparse.ArgumentParser:
     desktop = sub.add_parser(
         "desktop-mode",
         aliases=["desktop"],
-        help="Restore normal Bazzite desktop mode without deleting models",
+        help="Restore the normal Linux desktop mode without deleting models",
     )
     desktop.add_argument(
         "--now",
@@ -348,6 +353,25 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "import-state":
         return _import_state_entry(args)
 
+    if args.command == "platform":
+        # This diagnostic is intentionally pre-composition: it creates no
+        # profile directories or database and remains usable during repair.
+        from .host_platform import HostPlatformService
+
+        payload = HostPlatformService.detect().status()
+        if args.action == "plan":
+            payload = {
+                "schema_version": payload["schema_version"],
+                "distribution": payload["distribution"],
+                "integration_tier": payload["integration_tier"],
+                "boot_manager": payload["boot_manager"],
+                "persistent_kernel_policy": payload["persistent_kernel_policy"],
+                "plans": payload["plans"],
+                "blockers": payload["blockers"],
+            }
+        print(json.dumps(payload, indent=2))
+        return 2 if payload["integration_tier"] == "unsupported" else 0
+
     application = Application.compose()
     if args.command == "repair-retry":
         if not application.operational and args.state:
@@ -396,7 +420,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "status":
         report = detect_hardware(state["models_dir"])
-        result: dict[str, object] = {"hardware": report.to_dict(), "state": state}
+        result: dict[str, object] = {
+            "hardware": report.to_dict(),
+            "platform": application.platform.status(),
+            "state": state,
+        }
         result["memory_profile"] = analyze_memory_profile(report).to_dict()
         logger = configure_logging(state["logs_dir"])
         quiet_runner = CommandRunner(logger)
@@ -418,7 +446,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "doctor":
         logger = configure_logging(state["logs_dir"])
         quiet_runner = CommandRunner(logger)
-        report: dict[str, Any] = {"state_path": str(application.paths.database_path), "state_readable": True}
+        report: dict[str, Any] = {
+            "state_path": str(application.paths.database_path),
+            "state_readable": True,
+            "platform": application.platform.status(),
+        }
         try:
             hardware = detect_hardware(state["models_dir"])
             report["hardware"] = hardware.to_dict()
@@ -678,6 +710,7 @@ def main(argv: list[str] | None = None) -> int:
         service = SupportBundleService(
             application.units, application.paths,
             home=application.home, doctor=application.doctor,
+            platform=application.platform,
             redact_model_filenames=not args.keep_model_filenames,
         )
         manifest = service.build(args.output)

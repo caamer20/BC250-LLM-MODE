@@ -1,6 +1,6 @@
 # BC250 LLM MODE
 
-BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
+BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite or CachyOS into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
 The interface is a real local `tkinter` window—not a web app. The window code lives in the `bc250_llm_mode/gui/` package: `app.py` (shell, threading, navigation), `steps.py` (setup wizard screens), `dashboard.py` (operations dashboard, catalog browser, llama.cpp runtime card), and `forms.py` (model/optimization forms with unit-tested pure decision helpers); the composed `Wizard` surface is frozen by a headless contract test. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, a searchable catalog browser with live VRAM fit badges and one-click install, one-click benchmarks, llama.cpp updates/rollback, context, Open WebUI, Tailscale HTTPS sharing, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
 
@@ -38,17 +38,19 @@ This application is intentionally hardware- and operating-system-specific.
 | --- | --- |
 | Device | AMD BC-250 / GFX1013 (RDNA1, integrated UMA GPU) |
 | Memory | 16 GB total with approximately 12 GiB assigned to GPU UMA and 4 GiB left for the OS |
-| Operating system | Bazzite, using its Fedora Atomic/immutable, `rpm-ostree`, `systemd`, Podman, and Distrobox environment |
-| Desktop | Bazzite KDE Plasma or another Bazzite desktop capable of opening a local `tkinter` window |
+| Operating system | Bazzite (`rpm-ostree`) or CachyOS (`pacman`), with systemd, Podman, Distrobox, AMDGPU, and RADV |
+| Desktop | A local graphical desktop capable of opening a `tkinter` window |
 | Python | Python 3.11 or newer |
 | Inference backend | `llama.cpp` built with Vulkan; CUDA and ROCm are not used |
 | Model format | Standard per-tensor-layout GGUF models; fused/MAX/imatrix-MAX repacks are forbidden |
 
-The software has been developed and tested for the BC-250 on Bazzite. It is not a general-purpose installer for Windows, macOS, Ubuntu, unrelated AMD GPUs, NVIDIA GPUs, or Apple Silicon. Other Fedora Atomic variants may look similar but are not currently supported or validated.
+The Bazzite and CachyOS host integrations are implemented and covered by deterministic command, detection, bootstrap, and regression tests. Physical BC-250 qualification evidence remains pending for the release candidate. Arch-family, Fedora, Debian-family, and openSUSE hosts may be reported as `compatible-unqualified` when their required capabilities are present; they are not advertised as qualified until the hardware matrix is completed. Windows, macOS, non-systemd hosts, unrelated AMD GPUs, NVIDIA GPUs, and Apple Silicon are refused.
+
+Run `bc250-llm-mode platform status` for the detected distribution, package manager, boot manager, service manager, optional GPU-tuning backend, blockers, and support tier. `bc250-llm-mode platform plan` prints read-only reviewed package plans; it never changes the system.
 
 The BC-250 has no Re-Size BAR/Above-4G option that this tool can enable. Changing the recommended 12/4 UMA split does not solve the card's per-allocation limit, and fused/MAX repacks remain unsupported even when total free VRAM appears sufficient.
 
-The UMA carve-out is established by firmware before Linux boots. It cannot be safely changed on the fly. In particular, a 14 GiB GPU / 2 GiB OS split is rejected as host-starved: Bazzite, Podman, the AMD driver, and mmap bookkeeping need the supported approximately 4 GiB host allocation.
+The UMA carve-out is established by firmware before Linux boots. It cannot be safely changed on the fly. In particular, a 14 GiB GPU / 2 GiB OS split is rejected as host-starved: Linux, Podman, the AMD driver, and mmap bookkeeping need the supported approximately 4 GiB host allocation.
 
 ## Before installation
 
@@ -59,7 +61,14 @@ The UMA carve-out is established by firmware before Linux boots. It cannot be sa
 5. Connect the BC-250 to the network for the initial Fedora container, build dependencies, `llama.cpp`, Python packages, and model downloads.
 6. Back up important data. The wizard makes privileged system changes only after its mandatory acknowledgment screen, but this is still beta software.
 
-Bazzite normally includes Podman and Distrobox. The wizard checks both and reports a clear error if either is unavailable.
+Bazzite normally includes Podman and Distrobox. On CachyOS, complete a normal full system upgrade first, then install the reviewed host dependencies:
+
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed podman distrobox vulkan-radeon vulkan-tools tk
+```
+
+BC250 LLM MODE never runs `pacman -Sy`, never initiates an automatic full-system upgrade, and refuses its Tkinter bootstrap when Pacman reports pending upgrades. The wizard checks Podman and Distrobox and reports a platform-specific recovery plan if either is unavailable. Build tooling and Python model utilities remain inside the controlled Fedora Distrobox on both hosts.
 
 ## Installation
 
@@ -83,13 +92,17 @@ The wizard invokes `pkexec` when available or falls back to `sudo` for privilege
 
 ### If the native GUI does not open
 
-Bazzite may package `tkinter` separately. When `python3-tkinter` is absent, BC250 LLM MODE first shows the same mandatory safety gate using Zenity or an interactive terminal. After acknowledgment, it can stage the package with:
+Bazzite and CachyOS package `tkinter` differently. When it is absent, BC250 LLM MODE first shows the same mandatory safety gate using Zenity or an interactive terminal. After acknowledgment, the reviewed platform plan is:
 
-```text
+```bash
+# Bazzite (reboot required)
 rpm-ostree install python3-tkinter
+
+# CachyOS (relaunch required; fully update the system first)
+sudo pacman -S --needed tk
 ```
 
-Reboot after the package is staged, return to the Bazzite desktop, and run the launch command again. Progress is saved.
+On Bazzite, reboot after the package is staged. On CachyOS, relaunch the application after installation. Setup progress is saved in both cases.
 
 A plain SSH session cannot display the local desktop window unless graphical forwarding is configured. For the normal experience, launch the wizard from a terminal on the BC-250's physical desktop. SSH can still be used for commands such as `status`.
 
@@ -100,7 +113,7 @@ The wizard is resumable and each step is designed to be safe to run again:
 1. **Hardware validation** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks VRAM, GTT, host RAM, disk space, Vulkan identity, and whether the boot-time memory profile matches the supported 12/4 split.
 2. **Mandatory safety warning** — requires three checkboxes and the exact typed text `I ACCEPT` before any setup change.
 3. **LLM Mode** — starts a current-boot inference session with runtime-only sleep masks and a vendor-matched GPU-awake rule. It simultaneously stages normal `graphical.target` desktop mode and disables model auto-start for the next boot.
-4. **Inference environment** — creates or reuses the `llm` Distrobox/Podman container, builds `llama.cpp` with Vulkan, creates the model-preparation Python environment, and runs a Vulkan smoke test.
+4. **Inference environment** — creates or reuses the Fedora `llm` Distrobox/Podman container, prepares the bounded build/Python prerequisites, installs the pinned runtime through the durable runtime workflow, and runs a Vulkan smoke test.
 5. **Model selection** — offers the curated BC-250 catalog and GGUF models already present on disk, with live context/VRAM fit estimates.
 6. **Optimize** — applies only the bounded options selected by the user. Host-level performance changes are opt-in.
 7. **Download** — checks free space before transfer, performs a resumable Hugging Face download, verifies a publisher SHA-256 manifest when provided, or skips the network entirely for an existing local GGUF.
@@ -122,8 +135,8 @@ Runtime tuning (applied to the generated launcher, always reversible through the
 
 Host-level options (all opt-in and reverted by `revert-optimizations`/uninstall):
 
-- **Governor profiles** — `cool-quiet` (500–1400 MHz), `balanced` (500–1850 MHz, default), `maximum` (800–2000 MHz), or a custom range, applied through the cyan-skillfish SMU governor.
-- **Thermal watchdog** — when `thermal_watchdog_enabled`, each poll reads the GPU hwmon sensor and applies hysteresis: at `thermal_throttle_c` the clock ceiling is capped through the governor, at `thermal_recovery_c` the profile is restored, and at `thermal_stop_c` the model server is stopped (it stays stopped until a human restarts it). Drive it with `bc250-llm-mode thermals status|once|watch`.
+- **Governor profiles** — `cool-quiet` (500–1400 MHz), `balanced` (500–1850 MHz, default), `maximum` (800–2000 MHz), or a custom range, available only when the cyan-skillfish SMU governor is detected. The controls are disabled on a standard CachyOS host rather than guessing at an unsafe clock interface.
+- **Thermal watchdog** — when `thermal_watchdog_enabled`, each poll reads the GPU hwmon sensor and applies hysteresis. With the reviewed Cyan backend, the clock ceiling is capped and restored; without it, the app reports degraded throttling but continues monitoring and still stops the server at `thermal_stop_c`. A thermal stop stays latched until a human safely resets it. Drive it with `bc250-llm-mode thermals status|once|watch`.
 - **Service memory guards** — with safeguards enabled, `bc250-llm.service` runs under `MemoryHigh`/`MemoryMax` sized for the ~4 GiB host share, with `OOMScoreAdjust` and idle I/O scheduling so an out-of-memory event takes out the server, never the desktop.
 - **Memory/service trimming** — bounded swappiness and optional stopping of listed game-oriented services.
 - **`autotune`** — opt-in sweep over `{ubatch 256/512} × {kv q8_0/q4_0} × {flash-attention auto/on}`: each combo is fit-checked, restarted, benchmarked, and rolled back on failure; the fastest safe winner stays applied and results are kept in state history.
@@ -141,10 +154,12 @@ Operations run in the foreground: keep the window/terminal open until the outcom
 
 LLM Mode is intentionally limited to the current boot. Every setup, repair, and **Start current-boot LLM Mode** action guarantees that:
 
-- the next boot target is Bazzite's normal `graphical.target`;
+- the next boot target is the host's normal systemd `graphical.target`;
 - `bc250-llm.service` is disabled for boot, although an explicitly started model may continue running now;
 - sleep/display-manager masks and the AMD GPU-awake udev rule are runtime-only;
-- any older persistent `amdgpu.runpm=0` kernel argument and `/etc` udev rule are removed from the next deployment.
+- any older app-owned Bazzite `amdgpu.runpm=0` kernel argument and `/etc` udev rule are removed from the next deployment.
+
+On CachyOS, LLM Mode does not add or edit persistent kernel arguments. CachyOS may use systemd-boot, GRUB, Limine, or rEFInd; the active manager is reported, and an externally supplied `amdgpu.runpm=0` is surfaced with manual recovery guidance instead of being edited by guesswork.
 
 After a reboot, the desktop starts normally and no LLM model is loaded. Starting inference again is an explicit dashboard, CLI, or chat action.
 
@@ -158,7 +173,7 @@ Running `bc250-llm-mode` after setup opens the native management dashboard direc
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - recent model-server and setup logs in the existing live log pane;
-- terminal chat launch, optimization controls, repair, current-boot LLM Mode, and non-destructive Bazzite desktop mode.
+- terminal chat launch, platform diagnostics, optimization controls, repair, current-boot LLM Mode, and non-destructive desktop mode.
 
 The dashboard refreshes live service, API, WebUI, Tailscale, sharing, and memory-profile state every five seconds, so changes made from another terminal appear without reopening the app. Model, context, and user-slot activations are transactional: if a new configuration fails its health check, the application restores and restarts the last working configuration.
 
@@ -319,6 +334,7 @@ bc250-llm-mode                         Open setup or the completed management GU
 bc250-llm-mode setup                   Open/resume the native wizard
 bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON
+bc250-llm-mode platform [status|plan]  Detect host support and print read-only package/boot plans
 bc250-llm-mode memory-profile          Analyze the fixed boot-time UMA split and host-RAM safety
 bc250-llm-mode chat                    Start terminal chat
 bc250-llm-mode llm <action>            start | stop | restart | status | ensure
@@ -352,12 +368,12 @@ bc250-llm-mode llm-mode                Start LLM Mode for the current boot only
 bc250-llm-mode install-model <id>      Install a curated catalog model; without --quant the
   [--quant <quant>] [--ctx <tokens>]   best-fitting quantization is chosen automatically
 bc250-llm-mode switch <model-id>       Switch the single server to an installed model
-bc250-llm-mode desktop-mode [--now]    Restore regular Bazzite desktop mode
+bc250-llm-mode desktop-mode [--now]    Restore the regular Linux desktop mode
 bc250-llm-mode uninstall               Remove the service and revert LLM Mode
   [--remove-container] [--remove-models]
 ```
 
-## Returning to regular Bazzite desktop mode
+## Returning to regular desktop mode
 
 This is the non-destructive way to leave dedicated LLM Mode while keeping downloaded models and setup data:
 
@@ -365,7 +381,7 @@ This is the non-destructive way to leave dedicated LLM Mode while keeping downlo
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop-mode --now
 ```
 
-It stops/disables the model service, stops retained LLM/Open WebUI containers, restores `graphical.target`, unmasks sleep and display-manager units, removes the GPU-awake rule and `amdgpu.runpm=0`, and reverts opted-in host optimizations. `--now` starts the graphical target in the current boot. Without it, the graphical desktop starts after the next reboot.
+It stops/disables the model service, stops retained LLM/Open WebUI containers, restores `graphical.target`, unmasks sleep and display-manager units, removes the GPU-awake rule, and reverts opted-in host optimizations. App-owned `amdgpu.runpm=0` is removed automatically on Bazzite; externally managed CachyOS boot arguments are reported without being guessed or edited. `--now` starts the graphical target in the current boot. Without it, the graphical desktop starts after the next reboot.
 
 Reboot when the command reports that a kernel-argument change is pending:
 
@@ -454,7 +470,7 @@ tail -n 100 /var/log/bc250-llm-server.log
 
 Common failure guidance:
 
-- **No native window:** launch from the local Bazzite desktop; if prompted, stage `python3-tkinter`, reboot, and retry.
+- **No native window:** launch from the local desktop and run `bc250-llm-mode platform plan`. Bazzite stages `python3-tkinter` and requires a reboot; CachyOS installs `tk` and requires an app relaunch.
 - **Low VRAM:** verify the BIOS UMA allocation is approximately 12 GiB GPU / 4 GiB OS.
 - **14/2 or less than 3 GiB usable host RAM:** return to the supported 12/4 firmware split and reboot; this allocation cannot be changed safely at runtime.
 - **Vulkan initialization fails:** run `repair` and repeat the environment smoke test.

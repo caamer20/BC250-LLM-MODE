@@ -1,4 +1,4 @@
-"""Non-destructive switch from dedicated LLM Mode to normal Bazzite desktop mode."""
+"""Non-destructive switch from dedicated LLM Mode to the host desktop."""
 
 from __future__ import annotations
 
@@ -12,10 +12,12 @@ from .privilege import elevated
 
 
 def switch_to_desktop_mode(
-    state: dict[str, Any], runner: CommandRunner, *, activate_now: bool = False
+    state: dict[str, Any], runner: CommandRunner, *, activate_now: bool = False,
+    platform: Any = None,
 ) -> dict[str, Any]:
     """Restore desktop defaults while preserving downloaded models and app data."""
-    runner.emit("Switching BC250 LLM MODE back to normal Bazzite desktop mode")
+    label = getattr(getattr(platform, "profile", None), "label", "Linux")
+    runner.emit(f"Switching BC250 LLM MODE back to normal {label} desktop mode")
 
     # A regular desktop boot must not immediately reclaim the GPU for inference.
     service = str(state.get("service_name", "bc250-llm.service"))
@@ -24,7 +26,7 @@ def switch_to_desktop_mode(
 
     # Restore any opt-in host tuning before restoring the normal boot/power mode.
     revert_optimizations(state, runner)
-    revert_llm_mode(state, runner)
+    revert_llm_mode(state, runner, platform=platform)
 
     # Containers and models are retained, but idle application containers are
     # stopped so the desktop gets the host RAM back. Missing containers are fine.
@@ -44,7 +46,13 @@ def switch_to_desktop_mode(
     state["system_mode"] = "desktop"
     runner.emit("Desktop mode is configured. Models, containers, and application state were preserved.")
     if state.get("reboot_required"):
-        runner.emit("Reboot when convenient to activate the restored kernel power-management default.")
+        if state.get("pending_karg_mode") == "external":
+            runner.emit(
+                "The host boot manager still owns amdgpu.runpm=0. Remove it "
+                "there before rebooting to restore normal power management."
+            )
+        else:
+            runner.emit("Reboot when convenient to activate the restored kernel power-management default.")
     elif not activate_now:
         runner.emit("Reboot, or run desktop-mode --now, to start the graphical desktop.")
     return state

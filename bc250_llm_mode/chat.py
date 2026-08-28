@@ -9,7 +9,6 @@ from typing import Any
 
 from .hardware import detect_hardware
 from .catalog import recommend_models
-from .llmmode import stage_desktop_boot
 from .local_models import discover_local_models
 from .logging_utils import CommandRunner, configure_logging
 from .model_manager import change_context, change_parallel_slots, switch_model
@@ -596,10 +595,8 @@ def run_chat(application) -> None:
             parts = prompt.split()
             action = parts[1] if len(parts) > 1 else "status"
             try:
-                before_boot = dict(state)
                 if action == "desktop":
-                    stage_desktop_boot(state, runner)
-                    application.commit_settings_changes(before_boot, state)
+                    application.host_mode.enforce_desktop_next_boot(state, runner)
                 elif action != "status":
                     raise ValueError("action must be status or desktop")
                 target = runner.run(["systemctl", "get-default"], check=False).stdout.strip()

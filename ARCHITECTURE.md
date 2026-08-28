@@ -1,6 +1,6 @@
 # Architecture
 
-BC250 LLM MODE turns an AMD BC-250 running Bazzite into a dedicated local
+BC250 LLM MODE turns an AMD BC-250 running Bazzite or CachyOS into a dedicated local
 `llama.cpp`/Vulkan inference station, then operates it. This document maps the
 module layout and the invariants that keep the hardware safe.
 
@@ -10,6 +10,7 @@ module layout and the invariants that keep the hardware safe.
 | --- | --- |
 | `constants.py` | Paths, VRAM budgets, the shipped `KNOWN_GOOD_LLAMACPP` pin, tag validation |
 | `hardware.py` / `memory_profile.py` | DRM/GPU discovery, host RAM, BIOS UMA-split inference; card numbers are never cached |
+| `host_platform.py` | Bounded `/etc/os-release`/capability detection; closed Bazzite/CachyOS package, boot, systemd, and optional GPU-tuning contracts |
 | `state.py` | Legacy v5 defaults + boot identity only; no writable runtime JSON |
 | `legacy_schema.py` | Pure v1→v5 canonicalization of pre-SQLite JSON payloads (import source; no file I/O) |
 | `db.py` / `unit_of_work.py` | SQLite connection policy (`open_database`, FKs/WAL/query-only), ordered atomic migrations, per-command units of work |
@@ -17,7 +18,7 @@ module layout and the invariants that keep the hardware safe.
 | `services.py` | Typed domain services (setup, thermal, runtime config, activation, host-mode, component, OpenWebUI, sharing, maintenance) |
 | `runtime_handoff.py` | Sole writer of the mode-0600 `runtime-handoff.json` rendered from committed state |
 | `disclaimer.py` | The mandatory safety gate; privileged or destructive paths call `require_acknowledgment` |
-| `llmmode.py` / `desktop.py` | Reboot safety: LLM mode is per-boot only; the next boot always returns to the desktop |
+| `llmmode.py` / `desktop.py` | Platform-gated reboot safety: LLM mode is per-boot only; the next boot always returns to the desktop |
 | `catalog.py` | Curated model metadata, forbidden-artifact rejection, VRAM fit math (`calculate_fit`), `best_quant`, `search_catalog`, `recommend_models` |
 | `local_models.py` | Bounded GGUF discovery and catalog matching for files already on disk |
 | `download.py` / `prepare.py` | Space-checked resumable downloads (SHA-256 manifest support), guarded GGUF verification/repair, local safetensors→GGUF conversion |
@@ -62,6 +63,10 @@ module layout and the invariants that keep the hardware safe.
    reverted by `revert-optimizations` and uninstall.
 7. **No secrets in argv or state.** Credentials stay in the environment; state
    files are mode `0600`.
+8. **One host-platform authority.** Distribution observations are recomputed
+   at composition and never persisted as truth. Frontends use composed services;
+   Pacman never refreshes its database or performs a partial upgrade, and
+   non-rpm-ostree boot configuration is observed but not guessed or edited.
 
 ## Test strategy
 

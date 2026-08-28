@@ -13,7 +13,6 @@ from tkinter import messagebox, ttk
 from ..catalog import model_by_id
 from ..disclaimer import DISCLAIMER_TEXT, acknowledge, acknowledgment_valid
 from ..hardware import detect_hardware
-from ..llmmode import apply_llm_mode
 from ..local_models import (
     LocalModel,
     discover_local_models,
@@ -103,7 +102,7 @@ class StepsMixin:
     def _llm_mode(self) -> None:
         self._body_label(
             "Starts a current-boot LLM session with runtime-only sleep and GPU-awake rules. "
-            "The model service remains disabled for boot: restarting always returns to normal Bazzite desktop mode with no LLM running."
+            "The model service remains disabled for boot: restarting always returns to the normal host desktop with no LLM running."
         )
         self.mask_desktop = tk.BooleanVar(value=False)
         ttk.Checkbutton(
@@ -177,7 +176,14 @@ class StepsMixin:
             self._advance()
         elif step == 2:
             mask_desktop = self.mask_desktop.get()
-            self._work(lambda: (apply_llm_mode(self.state_data, self.runner(), mask_desktop_services=mask_desktop), self.commit_narrow()), self._after_llm_mode)
+            self._work(
+                lambda: self.application.host_mode.enter_llm_mode(
+                    self.state_data,
+                    self.runner(),
+                    mask_desktop_services=mask_desktop,
+                ),
+                self._after_llm_mode,
+            )
         elif step == 3:
             def provision_and_install_runtime() -> dict:
                 # §15.5: provisioning stays synchronous; the FIRST runtime

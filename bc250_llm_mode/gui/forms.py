@@ -209,6 +209,12 @@ class FormsMixin:
 
     def _optimize(self) -> None:
         settings = normalized_settings(self.state_data.get("optimizations"))
+        profile = getattr(getattr(self.application, "platform", None), "profile", None)
+        self.gpu_tuning_available = bool(
+            profile is None or profile.supports_gpu_tuning
+        )
+        if not self.gpu_tuning_available:
+            settings["gpu_tuning_enabled"] = False
         canvas = tk.Canvas(self.content, highlightthickness=0)
         scrollbar = ttk.Scrollbar(self.content, orient="vertical", command=canvas.yview)
         inner = ttk.Frame(canvas)
@@ -250,10 +256,20 @@ class FormsMixin:
         self.opt_parallel.trace_add("write", lambda *_: self._update_optimization_fit())
         self._update_optimization_fit()
 
-        gpu = ttk.LabelFrame(inner, text="Cyan GPU governor (host change; reversible)", padding=7)
+        gpu_title = (
+            "Cyan GPU governor (host change; reversible)"
+            if self.gpu_tuning_available
+            else "GPU governor tuning (unavailable on this host)"
+        )
+        gpu = ttk.LabelFrame(inner, text=gpu_title, padding=7)
         gpu.pack(fill="x", pady=4)
         self.opt_gpu = tk.BooleanVar(value=bool(settings["gpu_tuning_enabled"]))
-        ttk.Checkbutton(gpu, text="Tune frequency range and thermal limits", variable=self.opt_gpu).pack(anchor="w")
+        gpu_check = ttk.Checkbutton(
+            gpu, text="Tune frequency range and thermal limits", variable=self.opt_gpu
+        )
+        if not self.gpu_tuning_available:
+            gpu_check.configure(state="disabled")
+        gpu_check.pack(anchor="w")
         gpu_row = ttk.Frame(gpu)
         gpu_row.pack(fill="x", pady=3)
         self.opt_gpu_min = tk.IntVar(value=int(settings["gpu_min_mhz"]))
@@ -264,7 +280,14 @@ class FormsMixin:
         self._labeled_spin(gpu_row, "Max MHz", self.opt_gpu_max, 1500, 2000, 25)
         self._labeled_spin(gpu_row, "Throttle °C", self.opt_throttle, 75, 90, 1)
         self._labeled_spin(gpu_row, "Recover °C", self.opt_recovery, 60, 85, 1)
-        ttk.Label(gpu, text="Recommended: 500–1850 MHz, throttle 85°C, recover 75°C. Values above 1850 MHz are experimental.").pack(anchor="w")
+        gpu_note = (
+            "Recommended: 500–1850 MHz, throttle 85°C, recover 75°C. "
+            "Values above 1850 MHz are experimental."
+            if self.gpu_tuning_available
+            else "The Cyan governor was not detected. Runtime tuning and "
+                 "thermal emergency-stop protection remain available; clock changes are disabled."
+        )
+        ttk.Label(gpu, text=gpu_note).pack(anchor="w")
 
         safeguards = ttk.LabelFrame(inner, text="Server safeguards", padding=7)
         safeguards.pack(fill="x", pady=4)
@@ -314,7 +337,7 @@ class FormsMixin:
         self.opt_batch.set(defaults["batch_size"])
         self.opt_ubatch.set(defaults["ubatch_size"])
         self.opt_parallel.set(defaults["parallel_slots"])
-        self.opt_gpu.set(True)
+        self.opt_gpu.set(bool(getattr(self, "gpu_tuning_available", True)))
         self.opt_gpu_min.set(defaults["gpu_min_mhz"])
         self.opt_gpu_max.set(defaults["gpu_max_mhz"])
         self.opt_throttle.set(defaults["thermal_throttle_c"])
@@ -360,7 +383,11 @@ class FormsMixin:
             "ubatch_size": self.opt_ubatch.get(),
             "kv_cache_type": self.opt_kv.get(),
             "parallel_slots": self.opt_parallel.get(),
-            "gpu_tuning_enabled": self.opt_gpu.get(),
+            "gpu_tuning_enabled": (
+                self.opt_gpu.get()
+                if getattr(self, "gpu_tuning_available", True)
+                else False
+            ),
             "gpu_min_mhz": self.opt_gpu_min.get(),
             "gpu_max_mhz": self.opt_gpu_max.get(),
             "thermal_throttle_c": self.opt_throttle.get(),

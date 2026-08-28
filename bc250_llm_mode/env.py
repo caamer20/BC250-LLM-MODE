@@ -20,14 +20,18 @@ BUILD_PACKAGES = "git cmake ninja-build gcc-c++ vulkan-loader-devel vulkan-tools
 PYTHON_PACKAGES = "huggingface_hub[cli] gguf safetensors numpy sentencepiece protobuf torch --extra-index-url https://download.pytorch.org/whl/cpu"
 
 
-def provision_environment(state: dict, runner: CommandRunner) -> dict:
+def provision_environment(state: dict, runner: CommandRunner, *, platform=None) -> dict:
     """Create/start the distrobox container and the inference venv."""
     require_acknowledgment(state)
     missing = [c for c in ("podman", "distrobox") if not shutil.which(c)]
     if missing:
+        profile = getattr(platform, "profile", None)
+        plan = profile.runtime_host_plan() if profile is not None else None
+        guidance = plan.guidance if plan is not None else (
+            "Install them through the host distribution's supported package workflow."
+        )
         raise RuntimeError(
-            f"Missing host command(s): {', '.join(missing)}. Install them "
-            "through the Bazzite-supported layering path."
+            f"Missing host command(s): {', '.join(missing)}. {guidance}"
         )
     name = str(state.get("container_name", "llm"))
     runner.run(["podman", "container", "exists", name], check=False)
@@ -89,14 +93,14 @@ def verify_vulkan(state: dict, runner: CommandRunner) -> dict:
     return {"vulkan_ok": True}
 
 
-def setup_environment(state: dict, runner: CommandRunner) -> dict:
+def setup_environment(state: dict, runner: CommandRunner, *, platform=None) -> dict:
     """Compatibility entry: provisioning WITHOUT any llama.cpp build.
 
     The wizard composes this with the durable pinned runtime update; the
     llama.cpp clone/build path that used to live here is DELETED (the AST
     guards in tests/test_runtime_architecture.py enforce it).
     """
-    provision_environment(state, runner)
+    provision_environment(state, runner, platform=platform)
     install_python_environment(state, runner)
     ensure_build_prerequisites(state, runner)
     verify_vulkan(state, runner)

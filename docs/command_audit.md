@@ -1,8 +1,11 @@
 # Command-safety audit (R1.3)
 
-Generated from live source analysis; regenerate the raw table with
-`scripts`-equivalent analysis after any command-construction change.
-The full site inventory lives in [`command_audit_table.md`](command_audit_table.md).
+The original R1.3 inventory was generated from the then-live source. Its raw
+historical snapshot lives in
+[`command_audit_table.md`](command_audit_table.md); line numbers and deleted
+pre-operation-engine call sites in that snapshot are not a current census.
+Current command-construction changes are recorded as dated addenda below and
+remain guarded by architecture tests plus the frozen elevation census.
 
 ## Disposition taxonomy
 
@@ -16,8 +19,10 @@ The full site inventory lives in [`command_audit_table.md`](command_audit_table.
 
 ## File-level dispositions
 
-- `bootstrap.py` — `rpm-ostree install python3-tkinter`: ELEVATED-MUTATION
-  (interactive, user-visible, documented in README preflight).
+- `bootstrap.py` — one reviewed platform package plan: Bazzite
+  `rpm-ostree install python3-tkinter` or CachyOS
+  `pacman -S --needed --noconfirm tk`: ELEVATED-MUTATION (interactive,
+  user-visible, documented in README preflight).
 - `desktop.py`, `llmmode.py` — systemctl target/mask/isolate/disable + udev/karg
   mutations: ELEVATED-MUTATION (R5 helper).
 - `env.py` — container probes (PROBE); `dnf`/clone/cmake build scripts
@@ -39,3 +44,18 @@ The full site inventory lives in [`command_audit_table.md`](command_audit_table.
 the read-only `server.service_observation` `systemctl is-active` probe, which
 is elevation-wrapped like every other systemd call). Any new elevation must
 update this document and the guard together; R5 replaces them wholesale.
+
+## 2026-08-28 — ADR 007 CachyOS addendum
+
+- `host_platform.py` constructs package argv only from closed enums and fixed
+  package maps; no detected os-release value enters a command.
+- `pacman -Qu` is a read-only PROBE. Any reported pending upgrade refuses the
+  Tk install. `pacman -Sy` and automatic `pacman -Syu` are absent and guarded
+  by tests.
+- Bootstrap still contains exactly one `elevated()` package-install call site;
+  selecting the Bazzite or CachyOS plan did not increase the frozen census.
+- The Bazzite `rpm-ostree kargs` PROBE moved behind the composed platform
+  authority. CachyOS boot managers are observation-only and produce no
+  persistent boot command.
+- Current-boot systemd/udev mutations still use `llmmode.py`'s existing audited
+  `_run_root` boundary. Frontends no longer import that module directly.

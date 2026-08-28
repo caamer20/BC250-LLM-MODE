@@ -80,6 +80,7 @@ class Application:
     support_bundle: Any = None
     model_library: Any = None
     storage_capacity: Any = None
+    platform: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -152,6 +153,13 @@ class Application:
         resolved.ensure_directories()
         logger = configure_logging(resolved.logs_dir)
 
+        # Host detection is read-only and disposable. Distribution and boot
+        # observations are never persisted as durable truth; every process
+        # recomputes them before any host mutation is offered.
+        from .host_platform import HostPlatformService
+
+        platform = HostPlatformService.detect()
+
         from .legacy_import import LegacyImportError, LegacyImporter
 
         if not resolved.database_path.exists() and resolved.legacy_state_path.exists():
@@ -165,6 +173,7 @@ class Application:
                 return cls(
                     paths=resolved,
                     logger=logger,
+                    platform=platform,
                     operational=False,
                     repair_reason=(
                         f"Legacy state migration failed and was not published: {exc}"
@@ -176,7 +185,9 @@ class Application:
         # no connection; services use short-lived per-command units of work.
         initialize_and_close(resolved.database_path)
 
-        application = cls(paths=resolved, logger=logger, operational=True)
+        application = cls(
+            paths=resolved, logger=logger, platform=platform, operational=True
+        )
         cls._wire_services(application)
         return application
 
@@ -227,7 +238,9 @@ class Application:
         # P5 §11.1: the unified, query-only appliance home snapshot.
         from .home import HomeQueryService
 
-        application.home = HomeQueryService(units, application.paths)
+        application.home = HomeQueryService(
+            units, application.paths, platform=application.platform
+        )
         # P5 §11.3: the read-only doctor (stable findings, no mutations).
         from .doctor import DoctorService
 
@@ -240,6 +253,7 @@ class Application:
         application.support_bundle = SupportBundleService(
             units, application.paths,
             home=application.home, doctor=application.doctor,
+            platform=application.platform,
         )
         # P6 §12.1: the Model Library read model (query-only).
         from .model_library import ModelLibraryQueryService
@@ -468,8 +482,10 @@ class Application:
             worker_profile_dir=application.paths.app_dir,
         )
 
-        application.host_mode = HostModeService(units)
-        application.component = ComponentLifecycleService(units)
+        application.host_mode = HostModeService(units, application.platform)
+        application.component = ComponentLifecycleService(
+            units, application.platform
+        )
         # ADR 005 D3: durable gateway credential management. Constructed with
         # the ONE UnitOfWorkFactory + profile dir; persists ONLY the fingerprint
         # in the DB and the secret in a 0600 profile file, never in state/argv.

@@ -77,6 +77,19 @@ def _service_for(store: Any) -> Any:
     return ThermalStateService.for_database(database_path)
 
 
+def _gpu_throttle_available(store: Any, settings: dict[str, Any]) -> bool:
+    """Use the composed host capability when present.
+
+    Legacy/in-memory test handles predate composition and retain their
+    explicit ``gpu_tuning_enabled`` contract. Production never guesses from a
+    distribution name or attempts the Cyan adapter when it was not observed.
+    """
+    profile = getattr(getattr(store, "platform", None), "profile", None)
+    if profile is not None:
+        return bool(profile.supports_gpu_tuning)
+    return bool(settings.get("gpu_tuning_enabled"))
+
+
 def _persist_stopped(store: Any, state: dict[str, Any]) -> None:
     """Durably record the stop intent BEFORE the host effect (crash safety)."""
     service = _service_for(store)
@@ -127,6 +140,22 @@ def run_watchdog_once(
     )
     service = _service_for(store)
     if action == "throttle":
+        if not _gpu_throttle_available(store, settings):
+            runner.emit(
+                f"Thermal watchdog: {temp:.1f}°C reached the throttle point, "
+                "but no reviewed GPU clock backend is available; continuing "
+                "temperature monitoring and retaining the emergency stop point"
+            )
+            if service is not None:
+                service.mark_hold()
+            state["thermal_watchdog_state"] = THROTTLED
+            return {
+                "state": THROTTLED,
+                "temperature": round(temp, 1),
+                "action": "throttle",
+                "clock_limit_applied": False,
+                "warning": "GPU clock throttling is unavailable on this host",
+            }
         if not state.get("thermal_watchdog_baseline"):
             baseline = {
                 "gpu_max_mhz": int(settings["gpu_max_mhz"]),
@@ -148,6 +177,16 @@ def run_watchdog_once(
         new_state = THROTTLED
     elif action == "resume":
         baseline = state.get("thermal_watchdog_baseline") or {}
+        if not baseline:
+            if service is not None:
+                service.mark_nominal(clear_baseline=True)
+            state["thermal_watchdog_state"] = NOMINAL
+            return {
+                "state": NOMINAL,
+                "temperature": round(temp, 1),
+                "action": "resume",
+                "clock_limit_applied": False,
+            }
         restored = normalized_settings(state.get("optimizations"))
         restored.update(
             governor_profile=baseline.get("governor_profile", restored["governor_profile"]),
