@@ -89,6 +89,9 @@ class ReleaseGateCode(str, Enum):
     # G1: candidate-identity binding codes.
     CANDIDATE_REF_MISMATCH = "CANDIDATE_REF_MISMATCH"
     POLICY_DIGEST_MISMATCH = "POLICY_DIGEST_MISMATCH"
+    # G3: artifact-binding codes.
+    ARTIFACT_SUBJECT_MISMATCH = "ARTIFACT_SUBJECT_MISMATCH"
+    ARTIFACT_INVENTORY_INCOMPLETE = "ARTIFACT_INVENTORY_INCOMPLETE"
 
 
 GATE_CODES: tuple[str, ...] = tuple(c.value for c in ReleaseGateCode)

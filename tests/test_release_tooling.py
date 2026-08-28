@@ -175,25 +175,55 @@ def test_cli_validate_and_evaluate_fail_closed(tmp_path, capsys):
     rc = release_main(["validate", str(ev), "--candidate", "1.0.0rc1",
                        "--source-commit", "c" * 40])
     assert rc == 0
-    # evaluate: still not eligible (most evidence kinds missing) -> exit 1
+    capsys.readouterr()  # discard validate output before evaluate
+
+    # G3: evaluate REQUIRES --artifacts (actually consumed) + --level, and
+    # stdout is ONLY the JSON decision. Still not eligible (most evidence
+    # kinds missing) -> exit 1.
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "pkg.whl").write_bytes(b"data")
     rc2 = release_main(["evaluate", "--candidate", "1.0.0rc1",
-                        "--source-commit", "c" * 40, "--evidence", str(ev)])
+                        "--source-commit", "c" * 40, "--evidence", str(ev),
+                        "--artifacts", str(dist), "--level", "rc"])
     assert rc2 == 1
     out = capsys.readouterr().out
-    assert "eligible_for_1_0_0=False" in out
+    doc = json.loads(out)
+    assert doc["eligible_for_1_0_0"] is False
+
+
+def _write_minimal_release_set(dist, wheel_name="pkg.whl"):
+    """G3: a complete minimal release set (wheel + checksums + SBOM) so the
+    full-comparison verify has every mandatory role to check."""
+    from tools.release.sbom import build_sbom
+
+    dist.mkdir(parents=True, exist_ok=True)
+    wheel = dist / wheel_name
+    wheel.write_bytes(b"data")
+    sha = sha256_file(wheel)
+    (dist / "checksums.sha256").write_text(f"{sha}  {wheel_name}\n")
+    sbom = build_sbom(package_name="pkg", package_version="1.0.0rc1",
+                      dependencies=[], subject_sha256=sha)
+    (dist / "sbom.cdx.json").write_text(json.dumps(sbom, sort_keys=True))
+    return sha
 
 
 def test_cli_manifest_and_verify_round_trip(tmp_path, capsys):
+    # G3: the manifest is decision-derived schema v3 over a full candidate
+    # identity + artifact inventory; a no-evidence draft is labeled BLOCKED.
+    dist = tmp_path / "dist"
+    _write_minimal_release_set(dist)
     out_manifest = tmp_path / "release-manifest.json"
     rc = release_main(["manifest", "--candidate", "1.0.0rc1",
+                       "--source-commit", "c" * 40,
+                       "--artifacts", str(dist),
                        "--output", str(out_manifest)])
     assert rc == 0
     doc = json.loads(out_manifest.read_text())
     assert doc["version"] == "1.0.0rc1"
+    assert doc["manifest_schema_version"] == 3
+    assert doc["release_status"] == "BLOCKED"
 
-    dist = tmp_path / "dist"
-    dist.mkdir()
-    (dist / "pkg.whl").write_bytes(b"data")
     rc2 = release_main(["verify", str(out_manifest), str(dist)])
     assert rc2 == 0
     out = capsys.readouterr().out

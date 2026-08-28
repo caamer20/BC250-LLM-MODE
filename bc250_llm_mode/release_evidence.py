@@ -139,6 +139,8 @@ class EvidenceRejectionCode(str, Enum):
     DUPLICATE_COVERAGE = "DUPLICATE_COVERAGE"
     KIND_CONTRACT_UNMET = "KIND_CONTRACT_UNMET"
     NOT_VERIFIED = "NOT_VERIFIED"
+    # G3: evidence subject ↔ candidate inventory binding.
+    ARTIFACT_SUBJECT_MISMATCH = "ARTIFACT_SUBJECT_MISMATCH"
 
 
 def _is_hex64(value: Any) -> bool:

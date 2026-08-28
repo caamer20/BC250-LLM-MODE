@@ -20,6 +20,7 @@ from pathlib import Path
 
 # G1: pure identity types live in the package; re-exported for compatibility.
 from bc250_llm_mode.release_artifacts import (  # noqa: F401
+    INVENTORY_SCHEMA_VERSION,
     Artifact,
     ArtifactInventory,
 )
@@ -27,6 +28,25 @@ from bc250_llm_mode.release_artifacts import (  # noqa: F401
 MAX_ARTIFACTS = 64
 MAX_ARTIFACT_BYTES = 4 * 1024 * 1024 * 1024  # 4 GiB per artifact
 _CHUNK = 1024 * 1024
+
+# G3 §G3.1: artifact roles assigned from EXACT file names (the release set is
+# a closed, named set — never inferred from content sniffing).
+_ROLES_BY_EXACT_NAME = {
+    "checksums.sha256": "checksums",
+    "sbom.cdx.json": "cyclonedx-sbom",
+    "release-manifest.json": "release-manifest",
+}
+
+
+def role_for(name: str) -> str:
+    """§G3.1 artifact-role classification (empty string = unclassified)."""
+    if name in _ROLES_BY_EXACT_NAME:
+        return _ROLES_BY_EXACT_NAME[name]
+    if name.endswith(".whl"):
+        return "python-wheel"
+    if name.endswith(".tar.gz"):
+        return "python-sdist"
+    return ""
 
 
 def sha256_file(path: str | Path) -> str:
@@ -64,13 +84,23 @@ def build_inventory(dist_dir: str | Path) -> ArtifactInventory:
     files = sorted(p for p in root.iterdir() if not p.is_dir())
     if len(files) > MAX_ARTIFACTS:
         raise ValueError(f"too many artifacts ({len(files)} > {MAX_ARTIFACTS})")
+    roles_seen: dict[str, str] = {}
     for path in files:
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"artifact must be a regular file: {path.name}")
         size = path.stat().st_size
         if size > MAX_ARTIFACT_BYTES:
             raise ValueError(f"artifact too large: {path.name}")
+        # G3 §G3.1: duplicate roles are refused (one wheel, one sdist, ...).
+        role = role_for(path.name)
+        if role:
+            if role in roles_seen:
+                raise ValueError(
+                    f"duplicate artifact role {role!r}: "
+                    f"{roles_seen[role]} and {path.name}")
+            roles_seen[role] = path.name
         artifacts.append(Artifact(name=path.name, sha256=sha256_file(path),
                                   size=size,
-                                  media_type=media_type_for(path.name)))
+                                  media_type=media_type_for(path.name),
+                                  role=role))
     return ArtifactInventory(artifacts=tuple(artifacts))

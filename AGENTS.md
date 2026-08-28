@@ -2,63 +2,84 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G2 COMPLETE (evidence schema v2 + verification
-boundary) on top of G1.** G1 made the evaluator the sole candidate-bound
-eligibility authority. G2 replaced the permissive evidence envelope and made
-parsing ≠ verification:
+**RELEASE-GATE REMEDIATION — G3 COMPLETE (artifact-bound tooling) on top of
+G2/G1.** G2 made evidence parsing ≠ verification; G1 made the evaluator the
+sole candidate-bound eligibility authority. G3 binds every release tool to
+the exact candidate artifacts:
 
-- `release_evidence.py` — EVIDENCE_SCHEMA_VERSION **2**: 18 mandatory
-  envelope fields (identity, candidate binding, policy + inventory digests,
-  issuer, environment, measurements, attachments, verification block,
-  supersedes); unknown fields refused; PINNED validation order (schema
-  version → unknown fields → MISSING_FIELD → BAD_FIELD_TYPE → EMPTY_FIELD →
-  kind vocabulary → result → version → commit → policy-digest binding →
-  timestamps → secret scan → bounds → attachment containment → subject
-  digests → issuer/environment/verification structure → kind contract);
-  VALUE-based credential patterns (hf_/ghp_/PEM/Bearer/URL-userinfo) rejected
-  as SECRET_MATERIAL under any key (with a linear-time trigger pre-filter +
-  scan cap — the bounds check refuses oversized strings right after);
-  RECORD_OVERSIZE bounds (32 KiB strings, depth 16, list sizes, 1 MB total);
-  per-kind measurement contracts (KIND_CONTRACT_UNMET); `validate_evidence_
-  record` now REQUIRES `source_commit` + `policy_digest` binding inputs;
-  NEW `validate_evidence_set` (duplicate ids, unknown/cross-kind/cyclic
-  supersession, duplicate coverage). NEW Raw/Validated/Verified boundary:
-  `VerifiedEvidenceRecord` constructible only through the module-private
-  verifier sentinel; `verify_evidence_attestation` is the production
-  promotion path (verifies bundle integrity + subject binding + approved
-  mechanism + canonical bundle digest — never invents a remote trust root).
-- `release_gate.py` — the evaluator consumes ONLY VerifiedEvidenceRecord;
-  raw/validated dicts are refused with NOT_VERIFIED (`evidence_used` stays
-  empty); record validation binds the candidate's policy digest + the
-  policy's approved mechanisms.
-- `release_policy.py` — policy content revision **3**: adds
-  `approved_verification_mechanisms` (sigstore-bundle, gh-attestation);
-  reviewed snapshot `release/policy-v3.json` (v1/v2 immutable); digest
-  `sha256:1883cbfc7deb694a336b4e2163d8767550a3734e3a93b9f53471b41d15d9ed20`.
-  `release/scope-decision-model-conversion.md` re-bound to v3 via a dated
-  amendment (decision unchanged).
-- `tools/release` CLI — `validate` is candidate-bound (`--source-commit`
-  required; reviewed policy digest; set-level rules reported).
-- NEW test-only factory `tests/release_evidence_fixtures.py`
-  (`make_verified_record` / `wrap_verified` + per-kind contract fixtures;
-  clearly labeled NEVER-commit trust root). Migrated with explicit
-  compatibility decisions: c1 record fixtures → full v2 + verified wrapping
-  (secret-key canary moved under measurements), tooling `_good_record` → v2,
-  C7 policy-version test → 3.
+- `release_artifacts.py` — inventory schema **v2**: `Artifact` gains `role`;
+  `ArtifactInventory.to_dict()` carries `inventory_schema_version: 2` +
+  canonical digest. `tools/release/artifacts.py` assigns roles from EXACT
+  names (python-wheel / python-sdist / checksums.sha256→checksums /
+  sbom.cdx.json→cyclonedx-sbom / release-manifest.json→release-manifest) and
+  refuses duplicate non-empty roles.
+- `release_manifest.py` (NEW package module) — decision-derived manifest
+  schema **v3**: `build_release_manifest(decision=, inventory=, sbom_digest=,
+  final=)`; ineligible drafts labeled `release_status=BLOCKED` with blocking
+  codes; `final=True` refuses an ineligible decision (ValueError); canonical
+  `manifest_digest` bound to candidate + artifact bytes; the manifest file is
+  excluded from its own inventory. (The `release_state` facade manifest stays
+  schema v2 as the informational read facade.)
+- `release_gate.py` — evaluator subject↔inventory binding: a record whose
+  `artifact_inventory_digest` ≠ the candidate inventory digest is refused
+  INVENTORY_DIGEST_MISMATCH; every subject digest must exist in the inventory
+  (ARTIFACT_SUBJECT_MISMATCH). Gate-code vocabulary 21 → 23
+  (+ARTIFACT_SUBJECT_MISMATCH, +ARTIFACT_INVENTORY_INCOMPLETE).
+- `tools/release` CLI — `evaluate` REQUIRES `--artifacts` (actually consumed)
+  + `--level {rc,final}` (exit 0 only for the requested level); stdout is
+  ONLY the JSON decision. `manifest` is decision-derived v3 (candidate +
+  commit + artifacts required; `--level final` refuses ineligible). `verify`
+  performs FULL comparison: inventory equality (added/removed/mutated fail),
+  release-set completeness (wheel+checksums+SBOM roles), checksums cross-
+  check against real file digests, SBOM validated against the ACTUAL wheel
+  digest, manifest digest integrity; the manifest file is excluded from the
+  comparison.
+- `tools/release/sbom.py` — `parse_pyproject_dependencies` now tomllib-based
+  (comments/trailing junk handled); `validate_sbom` refuses duplicate
+  components (SBOM_DUPLICATE_COMPONENT).
+- NEW `tests/test_release_pipeline_integration.py` — the §17 isolated
+  release fixture pipeline (build once → inventory v2 → SBOM → attest fixture
+  → verify attestation → evaluate → manifest v3 → full verify) + its negative
+  twin (tampered bundle → candidate stays blocked). TEST-ONLY trust root; the
+  real-wheel install+smoke step stays in the existing slow clean-wheel gate.
+  Migrations: c1 gate-code count → 23; tooling CLI tests → v3 manifest/
+  verify shape + `--artifacts`/`--level`.
 
-G2 verification: all 38 G0 evidence-v2 red tests GREEN; focused release
-suite **142/142**; authoritative collection **1140** (unchanged); chunked
-default suite **1115 passed + 25 intended red** (15 G3 artifact-binding +
-10 G4 workflow-hardening; zero unrelated regressions); compileall +
-`git diff --check` clean. The artifact-binding matching-control test turned
-green with G2 (happy path consumed); the subject↔inventory MISMATCH
-enforcement stays red for G3.
+G3 verification: all 16 G0 artifact-binding red tests GREEN; focused release
+suite **152/152** (+ pipeline 2/2); authoritative collection **1142**
+(1140 + 2 pipeline); chunked default suite **1129 passed + 10 intended red**
+(exactly the G4 workflow-hardening scope) + 3 platform skips (tkinter +
+Linux renameat2 ×2) = 1142 reconciled; compileall + `git diff --check` clean.
 
-Next: **G3 — artifact-bound tooling**: inventory v2 roles + decision-derived
-manifest v3, CLI `--artifacts`/`--level` with JSON-only stdout, full `verify`
-comparison (digests/roles/checksums/SBOM subject == wheel digest), evidence
-subject↔inventory binding in the evaluator, SBOM tomllib + duplicate-
-component refusal, and the §17 isolated release fixture pipeline test.
+Next: **G4 — pin actions + harden CI/release workflows**: every `uses:` a
+network-verified full 40-char SHA, no TODO(C3), Dependabot for
+github-actions, release.yml restructure (build-once → verify → attest →
+verify-attestations → final-evaluation gating approval+publish →
+approval-environment → publish consuming decision verification), workflow
+inputs candidate_ref/qualification_level.
+
+---
+
+**G2 record (evidence schema v2 + verification boundary, superseded as
+"next" by G3).** `release_evidence.py` EVIDENCE_SCHEMA_VERSION **2**: 18
+mandatory envelope fields; unknown fields refused; PINNED validation order;
+VALUE-based credential patterns (hf_/ghp_/PEM/Bearer/URL-userinfo) rejected
+as SECRET_MATERIAL under any key (linear-time trigger pre-filter + scan cap);
+RECORD_OVERSIZE bounds; per-kind measurement contracts (KIND_CONTRACT_UNMET);
+`validate_evidence_record` REQUIRES `source_commit` + `policy_digest`;
+`validate_evidence_set` (duplicate ids, unknown/cross-kind/cyclic
+supersession, duplicate coverage); Raw/Validated/Verified boundary
+(`VerifiedEvidenceRecord` via module-private sentinel;
+`verify_evidence_attestation` verifies bundle integrity + subject binding +
+approved mechanism + canonical digest — never invents a remote trust root).
+Evaluator consumes ONLY VerifiedEvidenceRecord (dicts → NOT_VERIFIED).
+Policy content revision **3** (`approved_verification_mechanisms`;
+snapshot `release/policy-v3.json`; digest
+`sha256:1883cbfc7deb694a336b4e2163d8767550a3734e3a93b9f53471b41d15d9ed20`;
+scope-decision record re-bound via dated amendment). CLI `validate`
+candidate-bound. NEW test-only factory `tests/release_evidence_fixtures.py`.
+Verification: 38/38 red tests green; focused 142/142; collection 1140;
+chunked 1115 passed + 25 intended red.
 
 ---
 
@@ -495,478 +516,52 @@ throughout. Schema advanced to v9. The `elevated()` call-site census stayed at
 acceptance, security sign-off, artifact signing, and the 1.0.0 tag), recorded
 as pending and never fabricated.
 
-P8 landed (commits in order):
+Compressed milestone records (full detail in git history P0→P9 commits):
 
-- `db81d60` P8.1 (§14.1): `backup_manifest.py` PURE manifest model —
-  `BACKUP_MANIFEST_SCHEMA_VERSION=1`; frozen `BackupManifest` with every §14.1
-  identity field (release + schema version, legacy-import provenance, runtime
-  builds + known-good lineage, model artifact metadata + aliases with
-  model_bytes_included default False, settings/thermal/operation-history
-  policy, gateway config metadata, per-file digest/size/mode + relative
-  containment, tool version) + canonical `manifest_digest`; refuses secret-like
-  keys and non-contained paths (fail-closed). 5 tests.
-- `7960ed1` P8.2 (§14.2/§14.3): `backup_restore.py` PURE dry-run restore gate —
-  closed `RestoreRefusalCode` vocabulary; `validate_restore` checks manifest
-  integrity -> completeness -> key -> containment -> schema -> space ->
-  permissions -> identity, refusing BEFORE any mutation with a typed result.
-  12 tests.
-- `1e25770` P8.3 (§14.4): `repair_center.py` PURE Repair Center — closed
-  `REPAIR_ACTIONS` catalogue (the eight §14.4 repairs), every action idempotent
-  + auditable and available ONLY when every precondition is met;
-  `findings_from_conditions` maps conditions to read-only findings (newer-schema
-  is FAIL routed to upgrade). 6 tests.
-- `5c70cb8` P8.4 (§14.5): `tests/test_upgrade_matrix.py` — a hand-built v8 DB
-  (operations + model_installations + model_artifacts + known_good_runtime
-  lineage + gateway_credentials) upgrades to v9 preserving EVERY durable row +
-  adding model_library_meta; fresh install reaches SCHEMA_VERSION with every
-  migration recorded. 2 tests.
-
-§14 exit gate: backup manifest secret-free + digest-verified (P8.1); tampered/
-partial/wrong-key/path-traversal/newer-schema/low-space/permission failures
-leave the current profile untouched (P8.2 refusal matrix); Repair Center
-resolves seeded supported failures via precondition-gated idempotent actions
-without manual SQLite/filesystem edits (P8.3); upgrade tests prove the database,
-managed artifacts, and runtime lineage are preserved (P8.4). **Pending evidence
-(never fabricated): a full BACKUP_CREATE/BACKUP_RESTORE durable-operation
-round-trip on physical BC250 hardware + post-restore inference verification
-requires hardware; the restore PUBLISH step (atomic profile-level swap) is
-designed fail-closed here but its live execution is hardware-gated.**
-
-Verification: authoritative collection **939** (`pytest tests
---collect-only -q`); default suite green across deterministic alphabetical
-chunks (937 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 939
-reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
-clean-wheel 4/4); compileall + `git diff --check` clean.
-
-Next: **P9 — release engineering and 1.0 qualification (§15), then final
-reconciliation.**
-
-P7 landed (commits in order):
-
-- `70c05ff` P7.1 (§13.1/§13.2): `chat_lifecycle.py` PURE shared contract —
-  `ChatRequest` (request_id + conversation_id + bounded `ChatDeadline`
-  connect/read/write/total, never None + prompt/generation token caps),
-  thread-safe `ChatCancellation`, closed `ChatResultClassification`
-  (COMPLETED/CANCELLED/TIMEOUT/SERVER_UNAVAILABLE/MODEL_MISMATCH/THERMAL_STOP/
-  MALFORMED_RESPONSE/UNKNOWN) with deterministic precedence, duck-typed
-  `classify_exception` (no httpx import), pure `should_retry` (never after
-  tokens emitted; transient pre-response only; at most once), redacted
-  `ChatEventRecord` (no prompt/completion), `recoverable_message` (request ID,
-  never a traceback). `chat.py` integrates `format_chat_error` into both
-  generate() handlers. 10 tests.
-- `51a8b9e` P7.2 (§13.3): `conversation_ux.py` PURE presentation contract —
-  model/context/slot profile indicator, "active model changed since last
-  message" signal, rename/archive/delete confirmation + recovery policy
-  (delete is the only destructive action), export privacy warning + optional
-  redaction (redacted export never stores content), bounded search, accessible
-  streaming status indicator. Local-only defaults preserved. 8 tests.
-- `b135098` P7.3 (§13.4): `benchmark_ux.py` PURE contract — tested-vs-
-  estimated comparison, model/runtime/config attribution, thermal-condition
-  notice, cancellation/partial-result semantics, bounded retention (last 20),
-  prompt-content canary, "apply winner" as a SEPARATE verified operation.
-  `tests/test_chat_privacy_gate.py` pins the cross-module privacy exit gate
-  (redacted event record; benchmark shape carries no prompt; support bundle
-  never references conversations_dir; chat.py has no timeout=None; closed
-  operation decoders reject unknown fields). 7 + 5 tests.
-
-§13 exit gate: chat has no unbounded HTTP call or accumulation path
-(`timeout=None` guard + bounded CHAT_HTTP_TIMEOUT); Stop/timeout/server-death/
-thermal-latch/model-swap classification tested end to end (precedence +
-duck-typed exception matrix); conversation content does not enter operation
-history/logs/metrics/support bundles by default (privacy gate); GUI and
-terminal clients share request/result/error semantics (one `chat_lifecycle`
-contract); benchmark/tune results bounded, attributable, safe to apply.
-
-Verification: authoritative collection **914** (`pytest tests
---collect-only -q`); default suite green across deterministic alphabetical
-chunks (912 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 914
-reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
-clean-wheel 4/4); compileall + `git diff --check` clean.
-
-Next: **P8 — backup, restore, repair, and upgrade safety (§14), then P9
-release qualification (§15).**
-
-P6 landed (commits in order):
-
-- `fc2129a` P6.1 (§12.1): migration 009 `model_library_meta` (pinned,
-  last_used_at, last_verified_inference_at, bounded benchmark summary;
-  cascades on alias removal) → `SCHEMA_VERSION = 9`;
-  `ModelLibraryMetaRepository` + `ModelLibraryQueryService`/
-  `ModelLibraryEntry` surfacing every §12.1 field (identity/provenance,
-  digest/size/format/quant/arch/tensor, trust/storage + quarantine reason,
-  license, active/known-good refs, computed fit, usage, pinned, deletion
-  eligibility + blockers); CLI `models library`; AST query-only guard.
-  Schema-version assertions made future-proof. 14 tests.
-- `84bb0f6` P6.2 (§12.2): durable `MODEL_REMOVE v1` — sixth operation;
-  frozen four-step forward-only workflow (resolve_identity → detach_alias →
-  quarantine_bytes → record_removal) on `model-storage`; ONE production
-  adapter refuses blocked removals before mutation, detaches in a
-  transaction, MOVES unreferenced bytes to operation-owned quarantine (never
-  deletes), writes a removal receipt for bounded undo, marks the artifact
-  QUARANTINED; forward-only rules re-verify references/active/known-good
-  before moving bytes. `ModelRemoveCommandService` (query-only accurate
-  dry_run + refuse-or-enqueue remove); CLI `remove-model` (dry-run default,
-  `--yes` behind acknowledgment). 14 tests incl. TWO death/lease-takeover
-  convergence tests.
-- `a0231c1` P6.3 (§12.3): `storage_capacity.py` query-only
-  `StorageCapacityService` — logical-unique vs logical-installed size, dedup
-  savings, physical/staging/quarantine/reserved bytes, free space,
-  configurable low-space warning; ranked cleanup suggestions
-  (staging→quarantine→unreferenced) with exact identities + reasons;
-  dry-run cleanup NEVER deletes; CLI `storage report|cleanup`; AST guard.
-  9 tests.
-- `e8118d2` P6.4 (§12.4): `MODEL_CONVERT v1` gate — known versioned type +
-  request contract, but NO workflow registered and NO converter shipped;
-  `ModelConvertCommandService` refuses every request BEFORE any external
-  effect with the single honest reason; CLI `convert-model` reports
-  UNAVAILABLE (exit 1). 6 tests.
-
-§12 exit gate: Model Library shows provenance/digest/trust/fit/active/
-known-good/verification state (P6.1); duplicate import/acquisition converges
-to one managed artifact (existing acquisition gate, re-verified); invalid/
-untrusted files quarantine safely and never receive an alias (existing +
-P6.2); remove dry-run accurate and active/known-good/referenced models cannot
-be destructively removed (P6.2); cleanup and undo survive process death and
-lease takeover (P6.2 death tests); conversion remains visibly unavailable
-with an honest reason (P6.4).
-
-Verification: authoritative collection **884** (`pytest tests
---collect-only -q`); default suite green across deterministic alphabetical
-chunks (882 passed + 1 Linux-gated skip + 1 tkinter-gated skip = 884
-reconciled); explicit slow battery **51/51** (runtime 6/6, acquisition 41/41,
-clean-wheel 4/4); compileall + `git diff --check` clean.
-
-Next: **P7 — chat reliability, privacy, and daily-use UX (§13), then P8
-backup/restore/repair/upgrade (§14), P9 release qualification (§15).**
-
-P5 landed (commits in order):
-
-- `fddf8a1` P5.1 (§11.1/§11.2): `health.py` typed health model +
-  `home.py` `HomeQueryService`/`ApplianceHomeSnapshot` — ONE read unit,
-  ten cards (identity/runtime/model/inference/thermal/operations/storage/
-  integrations/backup/host) each with `as_of`+`stale_reason`, query-only
-  by construction (AST guard). §11.2: `server.health_check` `model_id` is
-  now the OBSERVED identity from the live server (never the desired
-  `current_model`), + `desired_model`/`model_matches_desired`;
-  `queries.health()` labels the model desired-only. Composition wires
-  `application.home`; CLI `home` verb. 13 health + 15 home + 2 server tests.
-- `9972b28` P5.2 (§11.3): `doctor.py` read-only `DoctorService` — stable
-  finding ids, bounded severity (FAIL>WARN>INFO>PASS), evidence,
-  recommended command; query-only (AST guard), never deletes; an unreadable
-  DB is itself a finding. Catches all eight seeded failures (DB corruption,
-  stale lease, mismatched handoff, bad digest, thermal latch, low disk,
-  insecure topology, stale backup). CLI doctor merges structured findings.
-  16 tests.
-- `8910f57` P5.3 (§11.3): `support_bundle.py` redacted-by-construction
-  export — conversations never read; credential files read only to feed the
-  scrubber; raw DB/backups/binaries never copied; secret keys masked; free
-  text scrubbed; paths normalized to `<profile>/`; model filenames
-  replaceable with `<model-N>`; per-file+total size bounds; cancellable;
-  manifest records policy + per-file + bundle digests. Embeds home.json +
-  doctor.json from the SAME composed services. CLI `support-bundle` verb.
-  11 tests. Also: `test_public_import_surface_is_stable` skips its tkinter
-  gui import when `_tkinter` is unavailable (mirrors the Linux-gated skip;
-  confirmed pre-existing at P4 in this sandbox).
-- `f88e5e3` P5.4 (§11.4): `home_ux.py` PURE presentation contract (no
-  tkinter/IO; AST guard) — preflight checklist, disk-space estimates, model
-  fit explanation, downloaded/installed/active/verified separation,
-  recovery-after-frontend-close instructions, bounded redacted copy-
-  diagnostic-details, exact operation-history commands. GUI dashboard gains
-  an "Appliance home" panel + "Copy diagnostic details" fed by the composed
-  `application.home`. 10 home_ux + 1 GUI-contract test.
-
-§11 exit gate: home snapshot query-only and consistent across CLI (`home`
-verb), GUI (home panel), and support bundle (home.json) — all read the one
-composed `HomeQueryService`; every green readiness claim has a bounded
-evidence source; doctor catches all eight seeded failures; support bundles
-pass secret/path/prompt canaries + size limits. **Pending evidence (never
-fabricated): the novice-user moderated acceptance test (resolving seeded
-common failures using only the UI's recommended-action text) requires a
-non-developer operator.**
-
-Verification: authoritative collection **841** (`pytest tests
---collect-only -q`); default suite green across deterministic alphabetical
-chunks (135+110+94+167+115+135+85 = 841), 839 passed + 1 Linux-gated skip
-+ 1 tkinter-gated skip = 841 reconciled; explicit slow battery **51/51**
-(runtime 6/6, acquisition 41/41, clean-wheel 4/4); compileall + `git diff
---check` clean.
-
-Next: **P6 — model library and storage lifecycle v2 (§12), then P7 chat
-reliability (§13), P8 backup/restore/repair/upgrade (§14), P9 release
-qualification (§15).**
-
-P4 landed (commits in order):
-
-- `ea87984` ADR 005 threat model (plan §10.1 prerequisite).
-- `2fd40b0` gateway core (`bc250_llm_mode/gateway.py`):
-  `GATEWAY_API_VERSION=1`; scopes `inference:read|inference:stream|
-  models:list`; `CredentialStore` (fingerprint-only, `hmac.compare_
-  digest`, provisioning record/rotate/revoke); `GatewayPolicy.authorize`
-  scope matrix; `validate_body_bounds` (4 MiB body, 512 B secret,
-  131072 ctx / 8192 gen token caps); `RateLimiter`; `GatewayServer`
-  forwarding to the backend with typed timeouts + content-free audit;
-  `make_gateway_socket_server` (ThreadingHTTPServer, loopback default).
-  16 tests (`tests/test_gateway.py`).
-- `b4edcf6` live-socket gate (`tests/test_gateway_live.py`, 2 tests on
-  REAL loopback sockets: no-credential fail-closed; inference-through-
-  gateway end-to-end) + end-to-end production gate.
-- `2cf47a9` Open WebUI digest pin + container hardening
-  (`bc250_llm_mode/openwebui.py`): `IMAGE_REF` pinned to
-  `ghcr.io/open-webui/open-webui@sha256:f784534835ebbe57ba4f6093040702
-  ff962ddab1e9aa2767f88cf3119d474721` (v0.6.14 amd64/linux, resolved via
-  the real GHCR token flow); digest mismatch refuses install/start;
-  named volume `bc250-open-webui` preserved across install/upgrade;
-  UI publish bound to `127.0.0.1:3000:8080`; container security
-  canaries (no-new-privileges, dropped capabilities, read-only rootfs
-  where supported).
-- `e613bfc` sharing routes ONLY through the gateway
-  (`bc250_llm_mode/sharing.py`): `API_TARGET` is the gateway port 9071
-  (never the raw backend); `https_sharing_status` reports §10.3 fields
-  (topology/gateway_state/auth_state/backend_identity/last_verified_at);
-  `start_https_sharing` REFUSES before any mutation unless
-  `gateway_state == "verified"`; AST guard
-  `test_architecture.py::test_gateway_is_the_only_bridge_to_the_backend`
-  forbids the raw backend address as a serve target in sharing/openwebui
-  forever.
-- (this commit) durable credential slice (ADR 005 D3): migration 008
-  `gateway_credentials` singleton row (fingerprint CHECK length=64 hex,
-  scopes, created/rotated/revoked, revision) → `SCHEMA_VERSION = 8`;
-  `bc250_llm_mode/gateway_command.py` `GatewayCredentialService`
-  (provision/rotate/revoke/verify; secret persists ONLY in a 0600
-  profile file `gateway-credential` via mkstemp+fchmod+atomic replace+
-  dir fsync; DB holds the fingerprint alone; `write_state_fields`
-  refreshes `gateway_provisioned/verified/backend_identity/
-  last_verified_at/credential_file` into view snapshots;
-  `resolve_credential_file` for the container mount); composition wires
-  it in `app.py` and `OpenWebUIService` refreshes it before every
-  install/start/restart/status and passes the credential file to the
-  container (`OPENAI_API_KEY_FROM_FILE`); `gateway` CLI verb
-  (status/provision/rotate/revoke/verify, `--secret` optional,
-  mutating actions behind `require_acknowledgment`, PermissionError →
-  exit 1 at the console boundary); serve/webui/gateway paths refresh
-  gateway fields into the working snapshot. 9 service tests
-  (`tests/test_gateway_credentials.py`, incl. v7→v8 upgrade preserving
-  operations rows) + 5 CLI smoke tests (`tests/test_gateway_cli.py`,
-  real composed application: fail-closed status, ack-gated provision,
-  full provision→verify→rotate→revoke lifecycle with 0600 checks,
-  secret-never-in-DB canary). `gateway.py` recorded in the bounded-
-  execution inventory (`already_bounded`: typed gateway timeouts, never
-  `timeout=None`).
-
-§10.4 exit gate: raw backend unreachable from remote/container topology
-(AST guard + gateway-only targets + loopback publish); no-credential
-fail-closed (gateway 401 + CLI/service fail-closed tests); scope/rate/
-size/rotation/revoke/audit tests pass (16 gateway + 9 credential + 5
-CLI); Open WebUI inference-through-gateway (BACKEND_URL =
-`http://host.containers.internal:9071/v1` with the mounted credential
-file; live-socket end-to-end gate); digest mismatch refuses start;
-container security canaries green; clean install+upgrade preserves the
-named volume. **Pending evidence (never fabricated): hardware soak and
-human-acceptance on physical BC250 hardware / non-developer operators.**
-
-Verification: authoritative collection **773** (`pytest tests
---collect-only -q`); default suite green across six deterministic
-alphabetical chunks (114+121+114+135+134+155), 4 slow-marked
-deselected + 1 Linux-gated skip = 773 reconciled; explicit slow
-battery **51/51** (runtime 6/6, acquisition 41/41, clean-wheel 4/4);
-compileall + `git diff --check` clean.
-
-(P5 followed and is recorded above.)
-
-P3 landed:
-
-- `gui/activity.py`: Activity Center reachable from a dashboard button
-  (`_open_activity_center`, Toplevel + bounded polling that never blocks
-  the GUI thread and never cancels work on close). The §8.2 presentation
-  contract is PURE: `headline/message_copy/progress_text/severity_of/
-  severity_rank/action_plan/support_text` — plain-language labels for
-  every durable state, progress clamped to 99% until terminal
-  verification, recovery-required rendered as prominent attention with
-  "nothing deleted" safety copy, actions derived ONLY from
-  OperationSummary flags, support text reusing view redaction.
-- Widget layer is thin (Treeview + labels + action bar) over
-  `operation_query`/`operation_commands` from composition; status strip
-  shows working/paused/recovery counts and worker-lock ownership.
-- Headless gates: the full state matrix (QUEUED/RUNNING/PAUSED/
-  SUCCEEDED/FAILED_SAFE/RECOVERY_REQUIRED) rendered over REAL durable
-  rows; action availability per state; routing through operation_commands
-  verified by mutating durable state from a frame action; AST guard
-  forbids sqlite/subprocess/repository/engine/worker imports in the
-  module forever. Existing frozen Wizard surface untouched.
-
-Verification: authoritative collection **722**; default suite green
-across nine deterministic chunks: 721 passed + 1 Linux-gated skip = 722
-reconciled; compileall + diff-check clean. (Slow gates unchanged from P1:
-runtime 6/6, acquisition 41/41, clean-wheel 4/4.)
-
-Next: **P3 — one bounded process port (`ProcessCommandSpec` v2) and a
-bounded HTTP transport policy; migrate every production caller of raw
-subprocess/HTTP; AST guards against regressions; secret canaries.**
-
----
-
-Previous checkpoint: **P1 (Operation command/query API, U1.4)
-COMPLETE on top of P0**
-
-P1 landed:
-
-- **Views** (`operations/views.py`): frozen `OperationSummary/Detail/
-  StepView/EventView/LeaseView/WaitResult/Page/ActiveSummary` with
-  schema version 1 serialization; absolute paths redacted to
-  `file:<basename>` labels; closed event codes degrade to UNKNOWN.
-- **Query** (`operations/query_service.py`): list/show/steps/events/
-  leases/wait/active_summary; every method one READ unit; windowed SQL
-  (no N+1); pagination bounds (page_size ≤ 200, events ≤ 500) refused
-  with ValueError; stale leases reported expired while work stays
-  recoverable; wait is bounded with an injectable condition waiter
-  (production default: bounded-interval poller, never timeout=0).
-- **Commands** (`operations/command_service.py`): cancel/resume/retry/
-  recover/dismiss/detach, every mutation revision-fenced (CAS) and
-  audit-evented. Retry creates a NEW operation from the immutable
-  request with `parent_operation_id` lineage; recover takes over ONLY
-  interrupted work whose every lease has expired behind `--confirm`
-  and REFUSES RECOVERY_REQUIRED barriers with kind-specific guidance
-  (exit 78 per plan §7.4); dismiss flips durable `dismissed_at`
-  (migration 007) without touching history.
-- **CLI** (`operations_cli.py`, wired in `__main__.py`): the full §7.4
-  verb set; `--json` emits one schema-versioned document to stdout;
-  human output compact with next-action lines; exit codes 0/1/2/78/130.
-- **Generic detach (§7.5)**: `OperationCommandService.detach` hands a
-  QUEUED operation to THE ONE worker entry point via the ONE spawn
-  helper, now profile-bound (`--profile APP_DIR` so the child serves
-  the same database) and marked detachable per kind. Exit gate: a real
-  detached child completes a production MODEL_IMPORT exactly once
-  THROUGH this API.
-- **Migration 007**: `operations.dismissed_at` + default-view partial
-  index; DATABASE_SCHEMA_VERSION now **7**.
-
-Verification: authoritative collection **715**
-(`pytest tests --collect-only -q`); default suite green across nine
-deterministic alphabetical chunks: 714 passed + 1 Linux-gated skip =
-715 reconciled; slow gates explicit: runtime stress **6/6**, acquisition
-stress **41/41**, clean-wheel incl. runtime workflows AND worker-module
-and CLI wheel gates **4/4**; compileall + `git diff --check` clean.
-
-Next: **P2 Activity Center v1** — GUI over `operation_query` +
-`operation_commands` only (no sqlite/subprocess imports), full
-state/action matrix headless-tested, then P3 bounded execution platform.
-
----
-
-Previous checkpoint: **P0 (foundation correction) COMPLETE**
-
-P0 landed three boundaries:
-
-- **P0.2** — the process-wide `faulthandler.dump_traceback_later(20,
-  exit=True)` import-time watchdog in `tests/test_operation_worker.py`
-  is DELETED. `tests/support_diagnostics.py` provides
-  `ScopedTracebackDiagnostics` (dumps stacks for ONE block/wait without
-  exiting, always cancels) and `wait_with_diagnostics` (bounded child
-  wait → structured `(returncode, timed_out)`, kills the child's whole
-  process group). Guards: AST scan over `tests/` forbids
-  `exit=True`/`os._exit`; a child-interpreter probe proves importing the
-  previously poisoned module arms nothing.
-- **P0.1** — DEF-001 closed: `bc250_llm_mode/worker_main.py` is a REAL
-  thin entry (`main(argv)->int`, argparse `--profile/--quiet-period/
-  --lease-ttl` with bounded ranges, absolute-path + symlink refusal,
-  missing-database → exit 4 with stable codes; 0 idle-exit / 2 usage /
-  3 already-running / 4 repair / 5 run-failed / 130 interrupted).
-  `worker_service.run_worker_main` now delegates (dead `json_safe`
-  removed). Mandatory gates: a session-detached child completes a REAL
-  production MODEL_IMPORT v1 of a tiny valid GGUF exactly once after
-  parent handoff (artifact+alias exactly once, staging cleaned, boot
-  policy untouched); no-work/paused/cancelled/poisoned/lock-conflict/
-  malformed-policy cases covered; slow clean-wheel gate runs
-  `python -m bc250_llm_mode.worker_main --help` and the repair path from
-  an installed wheel with repo root off sys.path.
-- **P0 findings fixed in production code**: (a) engine failure
-  classification is now exception-safe — a step's classification probe
-  that itself raises classifies that step UNCERTAIN so durable
-  compensation still decides (previously the exception escaped
-  `execute_one`, leaving operations RUNNING under live leases);
-  regression tests added for both fail-safe and compensate branches;
-  (b) `app.py _wire_services` bound `ThermalStateRepository` (latent
-  NameError on the composed runtime thermal barrier), pinned by a new
-  symtable composition-hygiene guard (`tests/test_composition_hygiene.py`)
-  proving every referenced name in `app.py` resolves through some
-  enclosing scope.
-- **P0.3** — baseline reconciled (see Verification); CHANGELOG P0 section
-  added; user-owned untracked files preserved untouched.
-
-Verification (this sandbox still requires chunked execution):
-authoritative collection **689** (`pytest tests --collect-only -q`);
-default suite green across nine deterministic alphabetical chunks:
-688 passed + 1 Linux-gated skip = 689 reconciled; slow gates explicit:
-runtime stress/canaries **6/6**, acquisition stress **41/41**,
-clean-wheel incl. runtime workflow execution **2/2** plus the NEW
-worker-module clean-wheel gate (**3/3** in `-m slow tests/test_packaging.py
-tests/test_worker_main_entry.py::test_installed_wheel_runs_worker_module_without_repository_root`);
-compileall + `git diff --check` clean.
-
-Next: **P1 Operation command/query API (U1.4)** — typed view models,
-`OperationQueryService`, fenced `OperationCommandService`,
-`bc250 operations …` CLI, generic detach contract; then P2 Activity
-Center.
-
-Previous checkpoint (U1.3): explicit worker lifecycle landed on top of
-the closed Session 6B / U1.2 durable llama.cpp runtime lifecycle gate.
-
-- One durable runtime path: CLI (`llamacpp update|rollback|resume|
-  status`), wizard step 3, dashboard buttons, and initial setup all reach
-  the composed `RuntimeLifecycleCommandService`
-  (`runtime_lifecycle_command.py`), which enqueues through the shared
-  `EnqueueService` and drives ONE operation via the shared engine factory
-  alongside `MODEL_ACTIVATE v1`, `MODEL_ACQUIRE v1`, and `MODEL_IMPORT v1`.
-- `RUNTIME_UPDATE v1` resolves the requested ref to a full immutable
-  commit BEFORE any fetch/build mutation (moved refs refuse as
-  `SOURCE_REF_MOVED`), builds an operation-owned candidate with bounded,
-  cancellable typed-argv processes (no shell anywhere), freezes image +
-  toolchain + recipe + per-binary sha256 into a canonical manifest, and
-  derives a content build ID `llamacpp:sha256:<hex>` — tags are display
-  metadata only.
-- Active cutover is ONE no-gap atomic exchange via a fixed,
-  digest-verified `renameat2(RENAME_EXCHANGE)` helper; unsupported
-  filesystems fail safely before mutation. Initial installs publish with
-  a no-replace rename instead.
-- Success requires the seven-link identity chain: active manifest → live
-  binary digest → handoff schema v2 binding → launcher start receipt →
-  NEW systemd invocation marker → expected model/context/slots → bounded
-  inference. Promotion is one generation-CAS database unit of work that
-  also advances known-good identity.
-- Any unproven state becomes `RECOVERY_REQUIRED`: both trees retained,
-  both leases held as the barrier, remediation data persisted; cleanup
-  never touches protected/uncertain paths.
-- Rollback selects the repository's current rollback target, revalidates
-  identities, and toggles lineage so an accidental rollback is itself
-  reversible without rebuilding.
-- Phase-scoped leases (ADR 002 §17): builds hold only
-  `runtime-installation`; `runtime-active` joins at the activation
-  boundary through promotion. Conflicts refuse/pause BEFORE any work.
-- Handoff schema v2 + launcher start receipt (0600) bind configuration to
-  the exact component; stale receipts and swapped binaries fail closed.
-- Legacy routes DELETED with hard AST guards: `env.update_llamacpp`,
-  `env.rollback_llamacpp`, `record_llamacpp_build`, `llamacpp_status`,
-  mutable `llamacpp_history`, fixed `-staging/-backup/-rolled` paths,
-  `ComponentLifecycleService.update/rollback`; setup cannot clone/build
-  llama.cpp; frontends import no runtime infrastructure.
-- Operations survive frontend closure: `llamacpp update --detach` hands
-  the queued operation to ONE profile-scoped `WorkerHost`
-  (`operations/worker_host.py`, spawned via `worker_service.py`) that
-  resumes abandoned work exactly once, idles out after a bounded quiet
-  period, pauses poisoned operations after bounded failures, and never
-  changes reboot policy. Composition/boot/frontends never auto-start it
-  (hard guards). Foreground remains the default; second Ctrl-C pauses
-  durably with exit 130 and resume instructions.
-
-Verification record for the U1.3 checkpoint (superseded by the P0 record
-above; kept for count provenance): authoritative collection **662**;
-chunked default execution green across eight deterministic alphabetical
-chunks, 1 Linux-gated skip; slow gates explicit: runtime stress/canaries
-**6/6**, acquisition stress **41/41**, clean-wheel incl. runtime workflow
-execution **2/2**; compile/diff-check clean.
-
-~~Next: U1.4 Operation command/query API~~ → now **P1** of
-`FINAL_PRODUCTION_READINESS_IMPLEMENTATION_PLAN.md`.
+- **P8** (`db81d60`/`7960ed1`/`1e25770`/`5c70cb8`): PURE backup manifest v1
+  (secret-free, digest-verified, contained paths), dry-run restore gate with
+  closed refusal vocabulary (refuses BEFORE mutation), Repair Center (eight
+  idempotent precondition-gated actions), v8→v9 upgrade matrix preserving
+  every durable row. Collection **939**.
+- **P7** (`70c05ff`/`51a8b9e`/`b135098`): `chat_lifecycle.py` bounded shared
+  contract (never timeout=None; closed result classification; redacted event
+  records), `conversation_ux.py` + `benchmark_ux.py` presentation contracts,
+  cross-module privacy gate (conversation content never enters operations/
+  logs/metrics/support bundles). Collection **914**.
+- **P6** (`fc2129a`/`84bb0f6`/`a0231c1`/`e8118d2`): migration 009 model
+  library meta → schema v9; durable `MODEL_REMOVE v1` (quarantine, never
+  deletes, undo receipt); query-only storage capacity + dry-run cleanup;
+  `MODEL_CONVERT v1` gate — visibly UNAVAILABLE, honest reason. Collection
+  **884**.
+- **P5** (`fddf8a1`/`9972b28`/`8910f57`/`f88e5e3`): typed health + home
+  snapshot (ONE composed read unit across CLI/GUI/support bundle), read-only
+  doctor (eight seeded failures caught), redacted-by-construction support
+  bundle, pure home UX contract. Collection **841**.
+- **P4** (`ea87984`/`2fd40b0`/`b4edcf6`/`2cf47a9`/`e613bfc` + migration
+  008): ADR 005 threat model; gateway (scopes, fingerprint-only credentials,
+  rate/size bounds) as the ONLY bridge to the backend (AST guard); Open WebUI
+  digest-pinned container; sharing refuses before mutation unless gateway
+  verified; 0600 credential file, DB holds fingerprint only. Collection
+  **773**.
+- **P3**: Activity Center GUI over operation query/commands only (AST guard
+  forbids sqlite/subprocess imports); full durable-state matrix headless-
+  tested. Collection **722**.
+- **P2**: Activity Center v1 scaffolding (collection 722).
+- **P1**: frozen operation views, windowed query service (bounded
+  pagination), revision-fenced command service (cancel/resume/retry/recover/
+  dismiss/detach; exit 78 on RECOVERY_REQUIRED), operations CLI (0/1/2/78/
+  130), generic detach through ONE worker entry; migration 007. Collection
+  **715**.
+- **P0**: faulthandler watchdog poison deleted (scoped diagnostics instead);
+  `worker_main.py` real thin entry; engine failure classification made
+  exception-safe; composition-hygiene symtable guard. Collection **689**.
+- **U1.3** (pre-P0 checkpoint, collection **662**): explicit worker
+  lifecycle — one durable runtime path via `RuntimeLifecycleCommandService`;
+  `RUNTIME_UPDATE v1` full-commit resolution before mutation, content build
+  IDs, seven-link identity chain, atomic digest-verified RENAME_EXCHANGE
+  cutover, phase-scoped leases, handoff schema v2 + start receipts, legacy
+  routes deleted with AST guards, profile-scoped WorkerHost for detached
+  work (never auto-started).
 
 The application is a `llama.cpp` Vulkan server behind a single systemd
 service, with a resumable native tkinter wizard/dashboard and a terminal

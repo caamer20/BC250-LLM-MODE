@@ -255,6 +255,22 @@ def evaluate_release(
         if not ok:
             rejected.append((rid, code or EvidenceRejectionCode.MALFORMED.value))
             continue
+        # G3 §G3.2 (audit finding 8): evidence must be bound to THIS exact
+        # inventory — a record verified against different artifacts is refused,
+        # and every subject digest must exist in the candidate inventory.
+        if record.get("artifact_inventory_digest") != artifacts.inventory_digest():
+            rejected.append((
+                rid, EvidenceRejectionCode.INVENTORY_DIGEST_MISMATCH.value))
+            continue
+        inventory_shas = {a.sha256 for a in artifacts.artifacts}
+        subject_shas: set[str] = set()
+        for subject in record.get("artifact_subjects") or []:
+            sha = str(subject.get("sha256") or "") if isinstance(subject, dict) else ""
+            subject_shas.add(sha[7:] if sha.startswith("sha256:") else sha)
+        if subject_shas and not subject_shas <= inventory_shas:
+            rejected.append((
+                rid, EvidenceRejectionCode.ARTIFACT_SUBJECT_MISMATCH.value))
+            continue
         seen_ids.add(rid)
         kind = record["kind"]
         accepted_kinds.add(kind)

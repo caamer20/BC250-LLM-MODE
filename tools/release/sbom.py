@@ -64,28 +64,18 @@ def sbom_digest(sbom: dict[str, Any]) -> str:
 def parse_pyproject_dependencies(pyproject_text: str) -> list[tuple[str, str]]:
     """Extract the runtime ``dependencies`` list as (name, specifier) pairs.
 
-    Bounded, dependency-name-only parse (no TOML library required): reads the
-    ``dependencies = [ ... ]`` array under ``[project]``.
+    G3 §G3.6: parsed with the standard-library TOML parser (``tomllib``), so
+    comments, trailing junk, and multi-line arrays are handled correctly —
+    never a line-oriented partial parse.
     """
+    import tomllib
+
+    data = tomllib.loads(pyproject_text)
     deps: list[tuple[str, str]] = []
-    in_deps = False
-    for line in pyproject_text.splitlines():
-        stripped = line.strip()
-        if re.match(r"^dependencies\s*=\s*\[", stripped):
-            in_deps = True
-            if "]" in stripped:  # single-line array
-                in_deps = False
-            continue
-        if in_deps:
-            if stripped.startswith("]"):
-                in_deps = False
-                continue
-            item = stripped.strip(",").strip().strip('"').strip("'")
-            if not item:
-                continue
-            match = re.match(r"^([A-Za-z0-9._-]+)\s*(.*)$", item)
-            if match:
-                deps.append((match.group(1), match.group(2).strip()))
+    for item in (data.get("project") or {}).get("dependencies") or []:
+        match = re.match(r"^([A-Za-z0-9._-]+)\s*(.*)$", str(item).strip())
+        if match:
+            deps.append((match.group(1), match.group(2).strip()))
     return deps
 
 
@@ -164,6 +154,14 @@ def validate_sbom(
     component = metadata.get("component") or {}
     if component.get("name") != package_name:
         return False, "SBOM_PACKAGE_MISSING"
+    # G3 §G3.6: duplicate components are refused (a dependency listed twice is
+    # an ambiguous SBOM, never silently deduplicated).
+    component_keys = set()
+    for c in sbom.get("components", []):
+        key = (c.get("type"), c.get("name"), c.get("version"))
+        if key in component_keys:
+            return False, "SBOM_DUPLICATE_COMPONENT"
+        component_keys.add(key)
     names = {c.get("name") for c in sbom.get("components", [])}
     for dep in required_dependencies:
         if dep not in names:

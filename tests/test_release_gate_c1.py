@@ -122,7 +122,9 @@ def test_policy_vocabularies_are_closed_and_digest_deterministic():
     assert len(EVIDENCE_KINDS) == 18
     # G1 extended the closed gate-code vocabulary with the candidate-identity
     # binding codes (CANDIDATE_REF_MISMATCH, POLICY_DIGEST_MISMATCH): 19 + 2.
-    assert len(GATE_CODES) == 21
+    # G3 added the artifact-binding codes (ARTIFACT_SUBJECT_MISMATCH,
+    # ARTIFACT_INVENTORY_INCOMPLETE): 21 + 2.
+    assert len(GATE_CODES) == 23
     p1 = default_release_policy()
     p2 = default_release_policy()
     assert p1.policy_digest() == p2.policy_digest()
