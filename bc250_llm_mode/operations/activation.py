@@ -282,13 +282,17 @@ class ActivationHost(Protocol):
         candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1,
         external_effect_id: str,
+        pulse: Any = None,
     ) -> RestartEvidenceV1: ...
 
     def observe_restart(
-        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1
+        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1,
+        pulse: Any = None,
     ) -> ProbeResult: ...
 
-    def check_health(self, candidate: CandidateRuntimeV1) -> HealthEvidenceV1: ...
+    def check_health(
+        self, candidate: CandidateRuntimeV1, pulse: Any = None,
+    ) -> HealthEvidenceV1: ...
 
     def check_inference(
         self, candidate: CandidateRuntimeV1
@@ -309,10 +313,12 @@ class ActivationHost(Protocol):
         prior: PriorRuntimeSnapshotV1,
         candidate: CandidateRuntimeV1,
         restoration_id: str,
+        pulse: Any = None,
     ) -> RestorationEvidenceV1: ...
 
     def observe_restoration(
-        self, prior: PriorRuntimeSnapshotV1, candidate: CandidateRuntimeV1
+        self, prior: PriorRuntimeSnapshotV1, candidate: CandidateRuntimeV1,
+        pulse: Any = None,
     ) -> ProbeResult: ...
 
 
@@ -405,17 +411,22 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
     # Steps 3-5 and 8 share the aggregate restoration protocol (§9).
     def compensate_via_restoration(ctx: EffectContext) -> dict[str, Any]:
         restoration = host.restore_prior(
-            _prior(ctx), _candidate(ctx), ctx.external_effect_id
+            _prior(ctx), _candidate(ctx), ctx.external_effect_id,
+            pulse=ctx.pulse,
         )
         return evidence_dict(restoration)
 
     def verify_restored(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_restoration(_prior(ctx), _candidate(ctx))
+        result = host.observe_restoration(
+            _prior(ctx), _candidate(ctx), pulse=ctx.pulse
+        )
         _require_complete(result, CODE_RESTORATION_UNCERTAIN)
         return {}
 
     def probe_restored(ctx: EffectContext) -> ProbeResult:
-        return host.observe_restoration(_prior(ctx), _candidate(ctx))
+        return host.observe_restoration(
+            _prior(ctx), _candidate(ctx), pulse=ctx.pulse
+        )
 
     # Step 3 — commit_candidate_config (critical; no handoff side effect)
     def commit_execute(ctx: EffectContext) -> dict[str, Any]:
@@ -446,7 +457,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         handoff = host.observe_handoff(candidate, prior)
         if handoff.classification is not RecoveryClass.COMPLETE:
             return handoff
-        runtime = host.observe_restart(candidate, prior)
+        runtime = host.observe_restart(candidate, prior, pulse=ctx.pulse)
         if (
             runtime.classification is RecoveryClass.COMPLETE
             and runtime.reason_code == "CANDIDATE_RUNTIME_VERIFIED"
@@ -486,14 +497,21 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
                 mutation_possible=False,
             )
         return evidence_dict(
-            host.restart_candidate(candidate, _prior(ctx), ctx.external_effect_id)
+            host.restart_candidate(
+                candidate, _prior(ctx), ctx.external_effect_id,
+                pulse=ctx.pulse,
+            )
         )
 
     def restart_probe(ctx: EffectContext) -> ProbeResult:
-        return host.observe_restart(_candidate(ctx), _prior(ctx))
+        return host.observe_restart(
+            _candidate(ctx), _prior(ctx), pulse=ctx.pulse
+        )
 
     def restart_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_restart(_candidate(ctx), _prior(ctx))
+        result = host.observe_restart(
+            _candidate(ctx), _prior(ctx), pulse=ctx.pulse
+        )
         _require_complete(result, CODE_RUNTIME_VERIFIED)
         return {}
 
@@ -501,7 +519,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
     def health_execute(ctx: EffectContext) -> dict[str, Any]:
         from .workflow import StepFailure
 
-        health = host.check_health(_candidate(ctx))
+        health = host.check_health(_candidate(ctx), pulse=ctx.pulse)
         if not health.healthy:
             raise StepFailure(
                 CODE_RUNTIME_VERIFIED,
@@ -511,7 +529,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         return evidence_dict(health)
 
     def health_probe(ctx: EffectContext) -> ProbeResult:
-        health = host.check_health(_candidate(ctx))
+        health = host.check_health(_candidate(ctx), pulse=ctx.pulse)
         if health.healthy:
             return ProbeResult(
                 RecoveryClass.COMPLETE,

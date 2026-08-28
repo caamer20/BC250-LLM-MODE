@@ -174,7 +174,8 @@ def test_launcher_adds_threads_cache_reuse_and_conditional_sync(tmp_path):
     assert "PYS" not in text
     assert '--threads "${CFG[14]}"' not in text, "positional CFG must be gone"
     assert '"--cache-reuse", "256"' in text
-    assert '"--defrag-threshold", "0.1"' in text
+    assert '"--defrag-thold", "0.1"' in text
+    assert "--defrag-threshold" not in text
     assert 'if [ "$FAST_SYNC" != "1" ]; then' in text
     assert "cores.add((socket_id, value))" in handoff
     assert "--no-mmap" not in text

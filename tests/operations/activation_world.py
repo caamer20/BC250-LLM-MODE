@@ -475,6 +475,7 @@ class FakeActivationHost:
         candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1,
         external_effect_id: str,
+        pulse: Any = None,
     ) -> RestartEvidenceV1:
         server = self.server()
         if server.get("running") == candidate.model_alias and (
@@ -496,7 +497,8 @@ class FakeActivationHost:
         return prior.get("observed_model_alias")
 
     def observe_restart(
-        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1
+        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1,
+        pulse: Any = None,
     ) -> ProbeResult:
         server = self.server()
         running = server.get("running")
@@ -532,7 +534,11 @@ class FakeActivationHost:
             RecoveryClass.UNCERTAIN_MANUAL, "SERVICE_IDENTITY_AMBIGUOUS"
         )
 
-    def check_health(self, candidate: CandidateRuntimeV1) -> HealthEvidenceV1:
+    def check_health(
+        self, candidate: CandidateRuntimeV1, pulse: Any = None,
+    ) -> HealthEvidenceV1:
+        if pulse is not None:
+            pulse()
         server = self.server()
         config = self.config()
         healthy = (
@@ -635,6 +641,7 @@ class FakeActivationHost:
         prior: PriorRuntimeSnapshotV1,
         candidate: CandidateRuntimeV1,
         restoration_id: str,
+        pulse: Any = None,
     ) -> RestorationEvidenceV1:
         snapshot = asdict(prior) if prior is not None else None
         if not snapshot:
@@ -707,6 +714,7 @@ class FakeActivationHost:
         self,
         prior: PriorRuntimeSnapshotV1,
         candidate: CandidateRuntimeV1,
+        pulse: Any = None,
     ) -> ProbeResult:
         durable = self._read(self.prior_snapshot_path)
         snapshot = durable or asdict(prior)
