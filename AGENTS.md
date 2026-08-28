@@ -2,10 +2,62 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G6 COMPLETE (developer qualification checkpoint
-+ external-gate handoff); remediation G0→G6 CLOSED.** Every developer-
-executable remediation item is proven closed from a fresh checkout; the
-repository now stops cleanly at the real-world evidence boundary.
+**ADR 007 CACHYOS HOST INTEGRATION — IMPLEMENTED AND DEVELOPER-QUALIFIED;
+PHYSICAL EVIDENCE PENDING.** The durable appliance remains distribution-
+neutral above one new capability-driven host boundary. Bazzite behavior is
+preserved; CachyOS now has a native Pacman/systemd integration without any
+rpm-ostree dependency. The repository again stops at the real-world evidence
+boundary, now expanded to require qualification on both advertised host
+profiles.
+
+**ADR 007 checkpoint (`ccd1777`):**
+
+- Branch: `main`, **82 commits ahead of `origin/main`**; push remains owner-
+  gated. Version `0.9.0.dev0`; database schema v10 and release-control schema/
+  policy revisions are unchanged.
+- New `host_platform.py`: bounded `/etc/os-release`, immutable-root, systemd,
+  command, boot-manager, and Cyan-capability observations; native Bazzite +
+  CachyOS profiles; compatible-unqualified Arch/Fedora/Debian/SUSE families;
+  unknown/non-systemd hosts fail closed. Observations are recomputed and never
+  persisted as durable truth.
+- CachyOS Tk bootstrap is the fixed argv `pacman -S --needed --noconfirm tk`
+  after `pacman -Qu`; pending upgrades refuse with manual `pacman -Syu`
+  guidance. The app never runs `pacman -Sy` or an automatic full upgrade.
+  Runtime host dependencies are preview-only; the Fedora Distrobox remains the
+  controlled guest on both hosts.
+- Current-boot host mode requires only systemd/udev on CachyOS, uses the
+  distribution-neutral display-manager alias, and preserves graphical/no-
+  autostart reboot safety. systemd-boot, GRUB, Limine, and rEFInd are detected
+  but persistent kernel configuration is observation-only; rpm-ostree cleanup
+  remains available only for app-owned Bazzite state.
+- CLI/chat/wizard/dashboard all route through the ONE composed HostModeService.
+  `platform status|plan` is pre-composition/read-only and writes nothing.
+  Status, doctor, appliance home, and support bundles expose the disposable
+  platform result. Cyan controls are disabled when unavailable; the watchdog
+  retains monitoring + its latched emergency stop without guessing a clock
+  backend.
+- Fresh-bootstrap stage-order defect fixed: safety acknowledgement now advances
+  through HARDWARE_VALIDATED before TKINTER_READY.
+- Verification over the exact commit content: default collection **1174**
+  (**1172 passed + 2 platform skips**, exit 0); complete slow battery **52/52**;
+  focused platform/bootstrap/setup/guard battery **43/43**; both clean-wheel
+  packaging gates green with installed `host_platform`; compileall +
+  `git diff --check` clean; elevated-call-site guard remains 45.
+- The nine owner-controlled untracked files remain untouched. Tracked tree is
+  clean.
+- Candidate truth: the old G6 artifact digests below remain historical and do
+  NOT identify `ccd1777`. No release artifact, signature, tag, or PASS hardware
+  record was fabricated. **Next authorized action is C4 on physical BC-250
+  hardware for Bazzite AND CachyOS**, including install/reboot, model inference,
+  host-mode round trip, thermal behavior, runtime rollback, backup/restore, and
+  soak. Any later code change invalidates that candidate-bound evidence.
+
+---
+
+**PRIOR RELEASE-GATE REMEDIATION — G6 COMPLETE (historical predecessor to ADR
+007).** Every developer-executable remediation item was proven closed at its
+then-current checkout; ADR 007 subsequently changed package code and therefore
+supersedes its artifact identity, not its release-control conclusions.
 
 **G6.4 final handoff state:**
 
