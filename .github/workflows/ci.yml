@@ -21,15 +21,14 @@ jobs:
       matrix:
         python-version: ["3.11", "3.14"]
     steps:
-      # C3.1: actions pinned to full-length commit SHAs where the SHA has been
-      # verified against the upstream release. `checkout` is pinned below; the
-      # remaining actions carry a TODO(C3) until their SHAs are verified with
-      # network access (recorded as pending C3 evidence — never guessed).
+      # C3.1/G4.1: EVERY action is pinned to a full-length commit SHA,
+      # network-verified against the upstream tag via `git ls-remote` on
+      # 2026-08-28. Pin updates arrive as reviewed Dependabot changes
+      # (.github/dependabot.yml), never by restoring mutable tags.
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
       - name: Set up Python ${{ matrix.python-version }}
-        # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -103,11 +102,10 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: [test]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build sdist and wheel
@@ -120,8 +118,7 @@ jobs:
           /tmp/wheel-venv/bin/pip install dist/*.whl
           /tmp/wheel-venv/bin/bc250-llm-mode --version
           /tmp/wheel-venv/bin/python -c "import bc250_llm_mode; print('wheel import ok')"
-      # TODO(C3): pin to verified full-length SHA for actions/upload-artifact v4.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dist
           path: dist/

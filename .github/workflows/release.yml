@@ -1,11 +1,16 @@
 name: Release
 
-# C3.2: the release pipeline is SEPARATE from unprivileged CI. It builds the
-# candidate artifacts exactly once, attests them, and publishes only through an
-# approval-gated environment using a short-lived identity. The publish job NEVER
-# rebuilds — it retrieves the exact previously built artifacts and re-verifies
-# their digests before upload. Publication has NOT been performed; running the
-# publish job requires explicit owner authorization (plan §1.3, C8).
+# C3.2 + G4 (RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): the release pipeline
+# is SEPARATE from unprivileged CI. It checks out the exact candidate ref,
+# builds the candidate artifacts exactly once, emits the COMPLETE release set
+# (wheel, sdist, checksums, SBOM, inventory v2, decision-derived manifest),
+# verifies everything, attests, VERIFIES the attestations, runs the
+# authoritative release evaluator as the final gate, and publishes only
+# through an approval-gated environment using a short-lived identity. The
+# publish job NEVER rebuilds — it retrieves the exact previously built
+# artifacts and re-verifies the manifest + digests before upload. Publication
+# has NOT been performed; it requires an eligible final evaluation,
+# environment approval, and explicit owner authorization (plan §1.3, C8).
 
 on:
   workflow_dispatch:
@@ -14,6 +19,15 @@ on:
         description: "Candidate version to release (must match pyproject)"
         required: true
         type: string
+      candidate_ref:
+        description: "Full ref carrying the candidate (refs/heads/… or refs/tags/v…)"
+        required: true
+        type: string
+      qualification_level:
+        description: "Qualification level the evaluator must reach"
+        required: true
+        type: choice
+        options: [rc, final]
 
 # Least privilege by default: every job reads the repository only. The ONLY
 # write/attest/publish permissions are granted job-specifically below, and
@@ -26,8 +40,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
-      - uses: actions/setup-python@v5
+        with:
+          ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Install with test dependencies
@@ -54,20 +69,23 @@ jobs:
 
   build-once:
     runs-on: ubuntu-latest
-    needs: validate-candidate
+    needs: [validate-candidate]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-      # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
-      - uses: actions/setup-python@v5
+        with:
+          ref: ${{ inputs.candidate_ref }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build wheel + sdist exactly once
         run: |
           python -m pip install --upgrade pip build
           python -m build
-      - name: Checksums + SBOM + artifact inventory
+      - name: Emit the complete release set (checksums, SBOM, inventory, manifest)
         run: |
           python -m pip install -e .
+          export PYTHONPATH=.
+          COMMIT=$(git rev-parse HEAD)
           python - <<'PY'
           import json
           from pathlib import Path
@@ -88,25 +106,37 @@ jobs:
               subject_sha256=wheel.sha256)
           (dist / "sbom.cdx.json").write_text(
               json.dumps(sbom, sort_keys=True, indent=2))
-          print("inventory:", [a.name for a in inv.artifacts])
+          # inventory v2 (roles + canonical digest) over the complete set
+          inv2 = build_inventory(dist)
+          (dist / "inventory.json").write_text(
+              json.dumps(inv2.to_dict(), sort_keys=True, indent=2))
+          print("inventory:", [a.name for a in inv2.artifacts])
           PY
-      # TODO(C3): pin to verified full-length SHA for actions/upload-artifact v4.
-      - uses: actions/upload-artifact@v4
+          # decision-derived release-manifest (draft; BLOCKED until the
+          # evaluator sees the full verified evidence set)
+          python -m tools.release manifest \
+            --candidate "${{ inputs.candidate_version }}" \
+            --source-commit "$COMMIT" \
+            --source-ref "${{ inputs.candidate_ref }}" \
+            --artifacts dist \
+            --output dist/release-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-candidate
           path: dist/
 
   verify-artifacts:
     runs-on: ubuntu-latest
-    needs: build-once
+    needs: [build-once]
     steps:
-      # TODO(C3): pin to verified full-length SHA for actions/download-artifact v4.
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ inputs.candidate_ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
           path: dist/
-      # TODO(C3): pin to verified full-length SHA for actions/setup-python v5.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Install exact wheel from job artifact + smoke CLI/worker
@@ -115,55 +145,109 @@ jobs:
           /tmp/verify-venv/bin/pip install dist/*.whl
           /tmp/verify-venv/bin/bc250-llm-mode --version
           /tmp/verify-venv/bin/python -m bc250_llm_mode.worker_main --help
-      - name: Verify checksums + SBOM subject binding
+      - name: Full artifact verification (inventory, checksums, SBOM subject == wheel digest)
         run: |
-          cd dist && sha256sum -c checksums.sha256 && cd ..
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          sbom = json.loads(Path("dist/sbom.cdx.json").read_text())
-          hashes = sbom["metadata"]["component"].get("hashes", [])
-          assert any(h["alg"] == "SHA-256" for h in hashes), "no subject digest"
-          print("sbom subject bound")
-          PY
+          export PYTHONPATH=.
+          python -m tools.release verify dist/release-manifest.json dist
 
   attest:
     runs-on: ubuntu-latest
-    needs: verify-artifacts
-    # Attestations bind the artifact subject digest to build provenance. The
-    # attestation mechanism + its verification are CI/owner-gated (C3.5); an
-    # attestation that is never verified does not satisfy the gate.
+    needs: [verify-artifacts]
+    # Attestations bind the artifact subject digest to build provenance. Every
+    # attestation is VERIFIED by the verify-attestations job below before the
+    # approval environment — an attestation that is never verified does not
+    # satisfy the gate.
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
-      # TODO(C3): pin to verified full-length SHA for actions/download-artifact v4.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
           path: dist/
-      # TODO(C3): pin actions/attest-build-provenance to a verified SHA.
       - name: Attest build provenance (wheel + sdist + SBOM)
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
         with:
           subject-path: |
             dist/*.whl
             dist/*.tar.gz
             dist/sbom.cdx.json
 
+  verify-attestations:
+    # G4.6: post-attestation verification BEFORE the approval environment —
+    # repository, workflow identity, and subject digests are all checked.
+    runs-on: ubuntu-latest
+    needs: [attest]
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: dist/
+      - name: Verify attested subject digests against the checksums file
+        run: cd dist && sha256sum -c checksums.sha256
+      - name: Verify build-provenance attestations (repo + workflow identity)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for subject in dist/*.whl dist/*.tar.gz dist/sbom.cdx.json; do
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY"
+          done
+
+  final-evaluation:
+    # G4.7: the authoritative release evaluator is the gate that BOTH the
+    # approval environment and publish depend on — environment approval can
+    # never override the evaluator.
+    runs-on: ubuntu-latest
+    needs: [verify-attestations]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ inputs.candidate_ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: dist/
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Install candidate tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Run the authoritative release evaluator
+        run: |
+          export PYTHONPATH=.
+          COMMIT=$(git rev-parse HEAD)
+          python -m tools.release evaluate \
+            --candidate "${{ inputs.candidate_version }}" \
+            --source-commit "$COMMIT" \
+            --source-ref "${{ inputs.candidate_ref }}" \
+            --artifacts dist \
+            --level "${{ inputs.qualification_level }}" \
+            --evidence release/evidence
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-decision
+          path: dist/release-manifest.json
+
   approval-environment:
     # Required maintainer approval before publication. The environment gate is
-    # configured in the repository settings with required reviewers.
+    # configured in the repository settings with required reviewers. It runs
+    # ONLY after the final evaluation is eligible — approval can never
+    # override the evaluator.
     runs-on: ubuntu-latest
-    needs: attest
+    needs: [final-evaluation]
     environment: release-approval
     steps:
       - run: echo "Release approved by maintainer; proceeding to publish."
 
   publish:
     runs-on: ubuntu-latest
-    needs: approval-environment
+    needs: [approval-environment]
     environment: release-approval
     # OIDC `id-token: write` exists ONLY here, for short-lived Trusted
     # Publishing identity. No long-lived API token is used.
@@ -172,18 +256,46 @@ jobs:
       id-token: write
     steps:
       # Retrieve the EXACT previously built artifacts — NEVER rebuild here.
-      # TODO(C3): pin to verified full-length SHA for actions/download-artifact v4.
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          ref: ${{ inputs.candidate_ref }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
           path: dist/
-      - name: Re-verify digests before upload
-        run: cd dist && sha256sum -c checksums.sha256
-      - name: Publish (owner-authorized; not yet performed)
-        # Publication is gated on owner authorization (plan §1.3, C8). This step
-        # documents the intended PyPI Trusted Publishing / GitHub Releases path
-        # and MUST NOT run without explicit owner approval.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Install candidate tooling
         run: |
-          echo "Publication requires explicit owner authorization (C8)."
+          python -m pip install --upgrade pip
+          pip install -e .
+      - name: Consume the decision — full manifest + artifact re-verification
+        # G4.8: publication consumes the release decision through the same
+        # full-comparison verification (inventory equality, checksums, SBOM
+        # subject == actual wheel digest, manifest digest integrity).
+        run: |
+          export PYTHONPATH=.
+          python -m tools.release verify dist/release-manifest.json dist
+      - name: Release-state blocker — final evaluation must be eligible
+        # The refusal is a release-state blocker (the evaluator), never a
+        # bypassable shell line: without the full verified evidence set this
+        # step exits non-zero and nothing is published.
+        run: |
+          export PYTHONPATH=.
+          COMMIT=$(git rev-parse HEAD)
+          python -m tools.release evaluate \
+            --candidate "${{ inputs.candidate_version }}" \
+            --source-commit "$COMMIT" \
+            --source-ref "${{ inputs.candidate_ref }}" \
+            --artifacts dist \
+            --level final \
+            --evidence release/evidence
+      - name: Publication (owner-authorized; not yet performed)
+        # Reached only with an eligible FINAL evaluation plus environment
+        # approval. The actual PyPI Trusted Publishing / GitHub Releases
+        # upload is the owner-authorized C8 act and has NOT been performed.
+        run: |
+          echo "Eligible final evaluation + environment approval reached."
+          echo "The upload step is added only with explicit owner authorization (C8)."
           echo "No package has been published by this workflow."
-          exit 1

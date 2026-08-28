@@ -2,61 +2,70 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G3 COMPLETE (artifact-bound tooling) on top of
-G2/G1.** G2 made evidence parsing ≠ verification; G1 made the evaluator the
-sole candidate-bound eligibility authority. G3 binds every release tool to
-the exact candidate artifacts:
+**RELEASE-GATE REMEDIATION — G4 COMPLETE (pinned actions + hardened
+CI/release workflows) on top of G3/G2/G1.** Every audit finding 9–10 defect
+is now structurally frozen green, and the DEFAULT SUITE IS FULLY GREEN for
+the first time since G0:
 
-- `release_artifacts.py` — inventory schema **v2**: `Artifact` gains `role`;
-  `ArtifactInventory.to_dict()` carries `inventory_schema_version: 2` +
-  canonical digest. `tools/release/artifacts.py` assigns roles from EXACT
-  names (python-wheel / python-sdist / checksums.sha256→checksums /
-  sbom.cdx.json→cyclonedx-sbom / release-manifest.json→release-manifest) and
-  refuses duplicate non-empty roles.
-- `release_manifest.py` (NEW package module) — decision-derived manifest
-  schema **v3**: `build_release_manifest(decision=, inventory=, sbom_digest=,
-  final=)`; ineligible drafts labeled `release_status=BLOCKED` with blocking
-  codes; `final=True` refuses an ineligible decision (ValueError); canonical
-  `manifest_digest` bound to candidate + artifact bytes; the manifest file is
-  excluded from its own inventory. (The `release_state` facade manifest stays
-  schema v2 as the informational read facade.)
-- `release_gate.py` — evaluator subject↔inventory binding: a record whose
-  `artifact_inventory_digest` ≠ the candidate inventory digest is refused
-  INVENTORY_DIGEST_MISMATCH; every subject digest must exist in the inventory
-  (ARTIFACT_SUBJECT_MISMATCH). Gate-code vocabulary 21 → 23
-  (+ARTIFACT_SUBJECT_MISMATCH, +ARTIFACT_INVENTORY_INCOMPLETE).
-- `tools/release` CLI — `evaluate` REQUIRES `--artifacts` (actually consumed)
-  + `--level {rc,final}` (exit 0 only for the requested level); stdout is
-  ONLY the JSON decision. `manifest` is decision-derived v3 (candidate +
-  commit + artifacts required; `--level final` refuses ineligible). `verify`
-  performs FULL comparison: inventory equality (added/removed/mutated fail),
-  release-set completeness (wheel+checksums+SBOM roles), checksums cross-
-  check against real file digests, SBOM validated against the ACTUAL wheel
-  digest, manifest digest integrity; the manifest file is excluded from the
-  comparison.
-- `tools/release/sbom.py` — `parse_pyproject_dependencies` now tomllib-based
-  (comments/trailing junk handled); `validate_sbom` refuses duplicate
-  components (SBOM_DUPLICATE_COMPONENT).
-- NEW `tests/test_release_pipeline_integration.py` — the §17 isolated
-  release fixture pipeline (build once → inventory v2 → SBOM → attest fixture
-  → verify attestation → evaluate → manifest v3 → full verify) + its negative
-  twin (tampered bundle → candidate stays blocked). TEST-ONLY trust root; the
-  real-wheel install+smoke step stays in the existing slow clean-wheel gate.
-  Migrations: c1 gate-code count → 23; tooling CLI tests → v3 manifest/
-  verify shape + `--artifacts`/`--level`.
+- Every third-party `uses:` in `ci.yml` + `release.yml` is a full
+  40-character commit SHA, network-verified via `git ls-remote` on
+  2026-08-28: checkout v4.1.1 `b4ffde6…`, setup-python v5.6.0
+  `a26af69…`, upload-artifact v4.6.2 `ea165f8…`, download-artifact v4.3.0
+  `d3f86a1…`, attest-build-provenance v2.4.0 `e8998f9…` (peeled). No
+  TODO(C3) markers remain. NEW `.github/dependabot.yml` manages pin updates
+  (github-actions ecosystem) — never by restoring mutable tags.
+- `release.yml` restructured (§G4.2–§G4.8): inputs `candidate_version` +
+  `candidate_ref` + `qualification_level {rc,final}`; every checkout bound
+  to `candidate_ref`. Jobs: validate-candidate → build-once (emits the
+  COMPLETE release set: wheel/sdist + checksums.sha256 + sbom.cdx.json +
+  inventory v2 JSON + decision-derived release-manifest v3 via
+  `tools.release manifest`) → verify-artifacts (install exact wheel + smoke,
+  then FULL `tools.release verify` incl. SBOM subject == actual wheel
+  digest) → attest (SHA-pinned) → NEW verify-attestations (`gh attestation
+  verify` per subject + checksums cross-check, BEFORE approval) → NEW
+  final-evaluation (`tools.release evaluate --level <input>` — the
+  authoritative evaluator gates approval AND publish transitively;
+  environment approval can never override it) → approval-environment →
+  publish (downloads the exactly named bundle, re-runs `tools.release
+  verify`, then the refusal is the evaluator's final-level exit — a
+  release-state blocker, never a bypassable shell line; publication still
+  NOT performed, owner-gated C8). All `needs:` are lists; least privilege
+  kept (id-token: write only on attest + publish; no pull_request trigger).
+- NEW `tests/test_release_workflow_policy_g4.py` (6 tests, §G4.9): read-only
+  top-level permissions; id-token scoped to attest/publish only; build in
+  exactly one release job; one shared artifact identity across consuming
+  jobs; approval environment attached only to the gated pair; no wildcard
+  upload selection.
 
-G3 verification: all 16 G0 artifact-binding red tests GREEN; focused release
-suite **152/152** (+ pipeline 2/2); authoritative collection **1142**
-(1140 + 2 pipeline); chunked default suite **1129 passed + 10 intended red**
-(exactly the G4 workflow-hardening scope) + 3 platform skips (tkinter +
-Linux renameat2 ×2) = 1142 reconciled; compileall + `git diff --check` clean.
+G4 verification: all 10 G0 workflow-hardening red tests GREEN + the 3
+guards stay green (13/13); G4 policy tests 6/6; focused release suite
+**172/172**; chunked default suite **1139 passed + 0 failed** + 3 platform
+skips = 1142 reconciled — the first fully-green default suite of the
+remediation; authoritative collection **1148** (+6 policy tests);
+compileall + `git diff --check` clean.
 
-Next: **G4 — pin actions + harden CI/release workflows**: every `uses:` a
-network-verified full 40-char SHA, no TODO(C3), Dependabot for
-github-actions, release.yml restructure (build-once → verify → attest →
-verify-attestations → final-evaluation gating approval+publish →
-approval-environment → publish consuming decision verification), workflow
-inputs candidate_ref/qualification_level.
+Next: **G5 — documentation truth reconciliation**: the §G5.1 status
+vocabulary (implemented / developer-qualified / evidence pending / release
+blocked / published), reconcile README/ARCHITECTURE/CHANGELOG/release docs
+with the remediated truth, extend the docs-consistency gate, remove stale
+completion claims.
+
+---
+
+**G3 record (artifact-bound tooling, superseded as "next" by G4).**
+Inventory schema **v2** (`Artifact.role`; roles from exact names; duplicate
+roles refused). NEW `release_manifest.py`: decision-derived manifest schema
+**v3** (BLOCKED drafts, final refusal, canonical `manifest_digest`, manifest
+excluded from its own inventory; `release_state` facade stays v2). Evaluator
+subject↔inventory binding (INVENTORY_DIGEST_MISMATCH /
+ARTIFACT_SUBJECT_MISMATCH); gate codes 21 → 23. CLI: `evaluate` REQUIRES
+`--artifacts` + `--level` (JSON-only stdout); `manifest` decision-derived;
+`verify` FULL comparison (inventory equality, completeness, checksums
+cross-check, SBOM subject == actual wheel digest, manifest digest
+integrity). SBOM: tomllib parsing + SBOM_DUPLICATE_COMPONENT. NEW §17
+isolated release fixture pipeline test + tampered-bundle negative twin.
+Verification: 16/16 red tests green; focused 152/152 (+ pipeline 2/2);
+collection 1142; chunked 1129 passed + 10 intended red.
 
 ---
 

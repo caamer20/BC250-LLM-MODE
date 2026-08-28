@@ -1,0 +1,13 @@
+# G4.1.5 (RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): action pins are full
+# 40-character commit SHAs, network-verified against upstream tags. Pin
+# updates arrive ONLY as reviewed Dependabot pull requests — never by
+# restoring mutable tags.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci(deps)"
+      include: "scope"
