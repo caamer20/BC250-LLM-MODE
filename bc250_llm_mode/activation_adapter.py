@@ -130,6 +130,20 @@ class ActivationHostAdapter:
         view["optimizations"] = optimizations
         return view
 
+    @staticmethod
+    def _context_matches(
+        health: dict[str, Any], candidate: CandidateRuntimeV1,
+    ) -> bool:
+        """Compare like units across current and legacy health payloads."""
+        explicit = health.get("context_per_slot")
+        if explicit is not None:
+            return int(explicit) == candidate.context_per_slot
+        # Compatibility with health seams produced before context units were
+        # explicit: those tests/adapters reported aggregate ``n_ctx``.
+        return int(health.get("n_ctx") or 0) == (
+            candidate.context_per_slot * candidate.parallel_slots
+        )
+
     def _latch(self) -> str:
         with self._units.read() as conn:
             return str(ThermalStateRepository(conn).get().get("latch_state") or "")
@@ -292,7 +306,10 @@ class ActivationHostAdapter:
             )
             if active
             else None,
-            observed_context_total=health.get("n_ctx") if active else None,
+            observed_context_total=(
+                health.get("context_total", health.get("n_ctx"))
+                if active else None
+            ),
             observed_slots=health.get("parallel_slots") if active else None,
             inference_verified=inference_ok,
         )
@@ -445,8 +462,7 @@ class ActivationHostAdapter:
         identity_ok = (
             health.get("healthy")
             and health.get("model_id") == candidate.model_alias
-            and int(health.get("n_ctx") or 0)
-            == candidate.context_per_slot * candidate.parallel_slots
+            and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots
         )
@@ -481,8 +497,7 @@ class ActivationHostAdapter:
         healthy = bool(
             health.get("healthy")
             and health.get("model_id") == candidate.model_alias
-            and int(health.get("n_ctx") or 0)
-            == candidate.context_per_slot * candidate.parallel_slots
+            and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots
         )

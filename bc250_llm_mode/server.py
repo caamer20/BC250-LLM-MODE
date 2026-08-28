@@ -516,6 +516,12 @@ def health_check(
                 if data and isinstance(data[0], dict):
                     observed_model = data[0].get("id")
             desired_model = state.get("current_model")
+            observed_slots = int(
+                props.get("total_slots")
+                if isinstance(props, dict) and props.get("total_slots") is not None
+                else normalized_settings(state.get("optimizations"))["parallel_slots"]
+            )
+            context_per_slot = int(actual_ctx or state.get("current_ctx", 8192))
             result = {
                 "healthy": True,
                 "model_id": observed_model,
@@ -524,13 +530,15 @@ def health_check(
                     observed_model is not None
                     and observed_model == desired_model
                 ),
-                "n_ctx": int(actual_ctx or state.get("current_ctx", 8192)),
+                # llama.cpp's /props ``n_ctx`` is the context available to
+                # each parallel slot.  Publish both units explicitly so
+                # activation never mistakes a healthy per-slot value for a
+                # deficient total allocation.
+                "n_ctx": context_per_slot,
+                "context_per_slot": context_per_slot,
+                "context_total": context_per_slot * observed_slots,
                 "requested_ctx": int(state.get("current_ctx", 8192)),
-                "parallel_slots": int(
-                    props.get("total_slots")
-                    if isinstance(props, dict) and props.get("total_slots") is not None
-                    else normalized_settings(state.get("optimizations"))["parallel_slots"]
-                ),
+                "parallel_slots": observed_slots,
                 "vram_used_mib": metrics.get("vram_used_mib"),
                 "vram_total_mib": metrics.get("vram_total_mib"),
                 "health": health,
@@ -541,7 +549,9 @@ def health_check(
                 runner.emit(
                     f"Server healthy on 127.0.0.1:{port}; model={result['model_id']} "
                     f"(desired={desired_model}) "
-                    f"n_ctx={result['n_ctx']} VRAM={result['vram_used_mib']}/{result['vram_total_mib']} MiB"
+                    f"context_per_slot={result['context_per_slot']} "
+                    f"context_total={result['context_total']} "
+                    f"VRAM={result['vram_used_mib']}/{result['vram_total_mib']} MiB"
                 )
             if pulse is not None:
                 pulse()

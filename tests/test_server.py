@@ -80,6 +80,8 @@ def test_health_reports_actual_server_context_and_slots(monkeypatch):
         {"server_port": 8080, "current_model": "lfm", "current_ctx": 131072}, timeout=1
     )
     assert result["n_ctx"] == 128000
+    assert result["context_per_slot"] == 128000
+    assert result["context_total"] == 512000
     assert result["requested_ctx"] == 131072
     assert result["parallel_slots"] == 4
     # §11.2: model_id is the OBSERVED id from /v1/models, and the desired

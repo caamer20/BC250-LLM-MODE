@@ -97,6 +97,8 @@ class FakeServerPort:
             "healthy": self.active,
             "model_id": self.running_model or view.get("current_model"),
             "n_ctx": ctx * slots,
+            "context_per_slot": ctx,
+            "context_total": ctx * slots,
             "parallel_slots": slots,
         }
 
