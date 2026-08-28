@@ -189,7 +189,7 @@ The curated catalog currently includes twenty-four models. Projected totals belo
 | --- | --- | --- | ---: | ---: | ---: |
 | [LFM2.5 2.6B](https://huggingface.co/LiquidAI/LFM2.5-2.6B-GGUF) | Agentic/long-context/multi-user | Q5_K_M | 3.06 GiB | 3.31 GiB | 3.81 GiB |
 | [LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | Small chat/long-context/multi-user | Q5_K_M | 1.97 GiB | 2.16 GiB | 2.54 GiB |
-| [Qwen3.8 9B (Empero distill)](https://huggingface.co/empero-ai/Qwen3.8-9B-GGUF) | Reasoning/function calling | Q4_K_M | 8.63 GiB | 10.88 GiB (tight) | No fit |
+| [Qwen3.8 9B (Empero distill)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill-GGUF) | Reasoning/function calling | Q4_K_M | 8.63 GiB | 10.88 GiB (tight) | No fit |
 | [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 9.52 GiB | 11.77 GiB (tight) | No fit |
 | [Qwen3.8 9B Distill (converted)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) | Reasoning/function calling (local conversion) | Q5_K_M | 9.49 GiB | 11.74 GiB (tight) | No fit |
 | [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |

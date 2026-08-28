@@ -5,6 +5,16 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Acquisition transport fixes
+
+- Follow bounded HTTPS redirects while resolving immutable Hugging Face
+  revisions and downloading model bodies. Cross-origin redirects permanently
+  strip authorization for that chain while preserving safe range-resume
+  headers; unsafe targets, missing locations, and redirect loops still fail
+  closed.
+- Updated the Qwen3.8 9B catalog entry and documentation to Empero's canonical
+  `Qwen3.8-9B-Distill-GGUF` and `Qwen3.8-9B-Distill` repositories.
+
 ### CachyOS and capability-driven Linux hosts
 
 - Added a bounded, read-only host-platform authority with native Bazzite and

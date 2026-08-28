@@ -116,7 +116,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         display_name="Qwen3.8 9B (Empero distill)",
         family="qwen35",
         task_tags=("chat", "reasoning", "function-calling", "general"),
-        repo="empero-ai/Qwen3.8-9B-GGUF",
+        repo="empero-ai/Qwen3.8-9B-Distill-GGUF",
         allow_globs={
             "Q4_K_M": "Qwen3.8-9B-Q4_K_M.gguf",
             "Q5_K_M": "Qwen3.8-9B-Q5_K_M.gguf",
@@ -144,7 +144,7 @@ CATALOG: tuple[ModelEntry, ...] = (
         top_k=20,
         min_p=0.0,
         checksum_manifest="SHA256SUMS",
-        source_repo="empero-ai/Qwen3.8-9B",
+        source_repo="empero-ai/Qwen3.8-9B-Distill",
         true_block_count=32,
         max_context_tokens=262144,
     ),
