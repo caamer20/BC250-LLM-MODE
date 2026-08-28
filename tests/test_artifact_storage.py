@@ -55,6 +55,34 @@ def test_publish_no_replace_is_atomic_and_dedupes(tmp_path):
         storage.publish_no_replace(src2, root, src2_digest)
 
 
+def test_publish_no_replace_pulses_during_every_long_file_pass(tmp_path, monkeypatch):
+    src = tmp_path / "candidate.gguf"
+    src.write_bytes(b"0123456789abcdef")
+    root = tmp_path / "artifacts"
+    digest, _ = storage.streaming_sha256(src)
+    monkeypatch.setattr(storage, "CHUNK_BYTES", 4)
+    pulses: list[int] = []
+
+    dest = storage.publish_no_replace(
+        src,
+        root,
+        digest,
+        on_chunk=pulses.append,
+    )
+
+    # Publication copies and then independently hashes the incoming file.
+    assert len(pulses) >= 8
+    pulses.clear()
+    assert storage.publish_no_replace(
+        src,
+        root,
+        digest,
+        on_chunk=pulses.append,
+    ) == dest
+    # Reuse still hashes the existing destination and must renew its lease.
+    assert len(pulses) >= 4
+
+
 def test_quarantine_moves_candidate_and_writes_receipt(tmp_path):
     candidate = tmp_path / "staging" / "op-1" / "bad.gguf"
     candidate.parent.mkdir(parents=True)
@@ -88,6 +116,36 @@ def test_quarantine_moves_candidate_and_writes_receipt(tmp_path):
         storage.quarantine_candidate(
             candidate, qroot, "../escape", digest, "GGUF_INVALID"
         )
+
+
+def test_quarantine_pulses_during_copy_hash_and_reuse(tmp_path, monkeypatch):
+    candidate = tmp_path / "candidate.gguf"
+    candidate.write_bytes(b"0123456789abcdef")
+    qroot = tmp_path / "quarantine"
+    digest, _ = storage.streaming_sha256(candidate)
+    monkeypatch.setattr(storage, "CHUNK_BYTES", 4)
+    pulses: list[int] = []
+
+    dest = storage.quarantine_candidate(
+        candidate,
+        qroot,
+        "op-pulse",
+        digest,
+        "GGUF_INVALID",
+        on_chunk=pulses.append,
+    )
+
+    assert len(pulses) >= 8
+    pulses.clear()
+    assert storage.quarantine_candidate(
+        candidate,
+        qroot,
+        "op-pulse",
+        digest,
+        "GGUF_INVALID",
+        on_chunk=pulses.append,
+    ) == dest
+    assert len(pulses) >= 4
 
 
 def test_publication_enforces_private_modes_and_temp_cleanup(tmp_path, monkeypatch):

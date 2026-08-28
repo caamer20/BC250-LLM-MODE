@@ -305,7 +305,9 @@ class AcquisitionHostAdapter:
                 raise HostError("LOCAL_SOURCE_CHANGED", "source mutated during copy")
         finally:
             os.close(fd)
-        digest, size = storage.streaming_sha256(dest)
+        digest, size = storage.streaming_sha256(
+            dest, on_chunk=lambda _total: ctx.pulse()
+        )
         return TransferEvidence(
             fingerprint=digest,
             bytes_complete=size,
@@ -361,7 +363,9 @@ class AcquisitionHostAdapter:
             }
         }
         if size and size == identity.total_bytes:
-            digest, _ = storage.streaming_sha256(partial)
+            digest, _ = storage.streaming_sha256(
+                partial, on_chunk=lambda _total: ctx.pulse()
+            )
             payload["transfer"]["fingerprint"] = digest
             payload["transfer"]["validator_digest"] = digest.split(":")[1][:16]
             return ProbeResult(RecoveryClass.COMPLETE, "TRANSFERRED", payload)
@@ -384,7 +388,9 @@ class AcquisitionHostAdapter:
         candidate = self._candidate_path(ctx.operation_id)
         if not candidate.exists():
             shutil.move(str(partial), str(candidate))
-        digest, size = storage.streaming_sha256(candidate)
+        digest, size = storage.streaming_sha256(
+            candidate, on_chunk=lambda _total: ctx.pulse()
+        )
         if size != identity.total_bytes:
             raise HostError("GGUF_DIGEST_MISMATCH", "candidate size mismatch")
         return CandidateEvidence(
@@ -403,7 +409,9 @@ class AcquisitionHostAdapter:
             return ProbeResult(
                 RecoveryClass.ABSENT, "NO_CANDIDATE", {"candidate": stored}
             )
-        digest, size = storage.streaming_sha256(candidate)
+        digest, size = storage.streaming_sha256(
+            candidate, on_chunk=lambda _total: ctx.pulse()
+        )
         if stored and digest != stored.get("content_digest"):
             return ProbeResult(RecoveryClass.DISCARDABLE, "GGUF_DIGEST_MISMATCH")
         evidence = CandidateEvidence(
@@ -421,7 +429,9 @@ class AcquisitionHostAdapter:
         if not candidate.exists():
             raise HostError("NO_CANDIDATE", "validation target missing")
         verdict = gguf_layout_verdict(candidate)
-        digest, size = storage.streaming_sha256(candidate)
+        digest, size = storage.streaming_sha256(
+            candidate, on_chunk=lambda _total: ctx.pulse()
+        )
         ok = verdict == "standard" and size > 0
         return ValidationEvidence(
             verdict="ok" if ok else "invalid",
@@ -450,7 +460,10 @@ class AcquisitionHostAdapter:
         if not content_digest:
             raise HostError("PUBLICATION_IDENTITY_UNCERTAIN", "no candidate digest")
         final = storage.publish_no_replace(
-            candidate, self.paths.model_artifacts_dir, content_digest
+            candidate,
+            self.paths.model_artifacts_dir,
+            content_digest,
+            on_chunk=lambda _total: ctx.pulse(),
         )
         reused = self._publication_receipt_path(
             ctx.operation_id, content_digest
@@ -487,6 +500,7 @@ class AcquisitionHostAdapter:
             ctx.operation_id,
             content_digest,
             validation.reason_code or "GGUF_INVALID",
+            on_chunk=lambda _total: ctx.pulse(),
         )
         return PublicationEvidence(
             content_digest=content_digest,
@@ -519,7 +533,9 @@ class AcquisitionHostAdapter:
         if receipt is None:
             return ProbeResult(RecoveryClass.ABSENT, "NOT_PUBLISHED")
         final = self.paths.models_dir / str(receipt.get("final_rel", ""))
-        identity_digest = storage._identity_via_nofollow(final)
+        identity_digest = storage._identity_via_nofollow(
+            final, on_chunk=lambda _total: ctx.pulse()
+        )
         if identity_digest is None:
             return ProbeResult(RecoveryClass.ABSENT, "NOT_PUBLISHED")
         if identity_digest != content_digest:

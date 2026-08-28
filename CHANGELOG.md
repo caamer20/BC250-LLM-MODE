@@ -14,6 +14,11 @@ versions are tagged in git.
   closed.
 - Updated the Qwen3.8 9B catalog entry and documentation to Empero's canonical
   `Qwen3.8-9B-Distill-GGUF` and `Qwen3.8-9B-Distill` repositories.
+- Recognize the standard `qwen35` GGUF architecture used by Ornith and other
+  Qwen3.5-family models instead of quarantining those artifacts as unknown.
+- Renew operation leases during every long managed publication, quarantine,
+  validation, and recovery hash pass so multi-gigabyte files cannot outlive
+  the foreground worker's lease while they are still making progress.
 
 ### CachyOS and capability-driven Linux hosts
 
