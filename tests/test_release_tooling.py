@@ -17,25 +17,40 @@ from tools.release.evidence_io import load_evidence_dir, read_evidence_file
 from tools.release.__main__ import main as release_main
 
 from bc250_llm_mode.release_evidence import EVIDENCE_SCHEMA_VERSION
+from bc250_llm_mode.release_policy import default_release_policy
 
 
 def _good_record(kind="DEFAULT_TEST_SUITE", version="1.0.0rc1"):
+    """G2-migrated: a COMPLETE schema-v2 record bound to the reviewed policy
+    digest (the only shape the candidate-bound validator accepts)."""
+    from tests.release_evidence_fixtures import KIND_MEASUREMENT_FIXTURES
+
     return {
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence_id": f"ev-{kind}",
         "kind": kind,
         "release_candidate_version": version,
+        "source_repository": "local",
         "source_commit": "c" * 40,
-        "artifact_subjects": [{"name": "w", "sha256": "a" * 64}],
+        "policy_digest": default_release_policy().policy_digest(),
+        "artifact_inventory_digest": "sha256:" + "b" * 64,
+        "artifact_subjects": [{"name": "w", "sha256": "a" * 64,
+                               "media_type": "application/octet-stream"}],
         "issuer": {"type": "ci", "identity": "test"},
         "issued_at": "2026-01-01T00:00:00+00:00",
         "expires_at": None,
         "environment": {"os": "linux", "architecture": "x86_64",
                         "python": "3.14", "runner": "pytest"},
         "result": "PASS",
-        "measurements": {},
+        "measurements": dict(KIND_MEASUREMENT_FIXTURES.get(kind, {})),
         "attachments": [],
-        "signature_or_attestation_reference": "sig",
+        "verification": {
+            "mechanism": "sigstore-bundle",
+            "subject": "a" * 64,
+            "verifier": "tests/test_release_tooling.py",
+            "verified_at": "2026-01-01T00:00:01+00:00",
+            "bundle_digest": "sha256:" + "e" * 64,
+        },
         "supersedes_evidence_id": None,
     }
 
@@ -156,8 +171,9 @@ def test_cli_validate_and_evaluate_fail_closed(tmp_path, capsys):
     ev = tmp_path / "evidence"
     ev.mkdir()
     (ev / "a.json").write_text(json.dumps(_good_record()))
-    # validate: one accepted record
-    rc = release_main(["validate", str(ev), "--candidate", "1.0.0rc1"])
+    # validate: one accepted record (G2: candidate-bound validation)
+    rc = release_main(["validate", str(ev), "--candidate", "1.0.0rc1",
+                       "--source-commit", "c" * 40])
     assert rc == 0
     # evaluate: still not eligible (most evidence kinds missing) -> exit 1
     rc2 = release_main(["evaluate", "--candidate", "1.0.0rc1",

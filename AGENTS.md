@@ -2,8 +2,67 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G1 COMPLETE (evaluator is the sole eligibility
-authority) on top of G0.** G0 froze the audit contract as red tests below.
+**RELEASE-GATE REMEDIATION — G2 COMPLETE (evidence schema v2 + verification
+boundary) on top of G1.** G1 made the evaluator the sole candidate-bound
+eligibility authority. G2 replaced the permissive evidence envelope and made
+parsing ≠ verification:
+
+- `release_evidence.py` — EVIDENCE_SCHEMA_VERSION **2**: 18 mandatory
+  envelope fields (identity, candidate binding, policy + inventory digests,
+  issuer, environment, measurements, attachments, verification block,
+  supersedes); unknown fields refused; PINNED validation order (schema
+  version → unknown fields → MISSING_FIELD → BAD_FIELD_TYPE → EMPTY_FIELD →
+  kind vocabulary → result → version → commit → policy-digest binding →
+  timestamps → secret scan → bounds → attachment containment → subject
+  digests → issuer/environment/verification structure → kind contract);
+  VALUE-based credential patterns (hf_/ghp_/PEM/Bearer/URL-userinfo) rejected
+  as SECRET_MATERIAL under any key (with a linear-time trigger pre-filter +
+  scan cap — the bounds check refuses oversized strings right after);
+  RECORD_OVERSIZE bounds (32 KiB strings, depth 16, list sizes, 1 MB total);
+  per-kind measurement contracts (KIND_CONTRACT_UNMET); `validate_evidence_
+  record` now REQUIRES `source_commit` + `policy_digest` binding inputs;
+  NEW `validate_evidence_set` (duplicate ids, unknown/cross-kind/cyclic
+  supersession, duplicate coverage). NEW Raw/Validated/Verified boundary:
+  `VerifiedEvidenceRecord` constructible only through the module-private
+  verifier sentinel; `verify_evidence_attestation` is the production
+  promotion path (verifies bundle integrity + subject binding + approved
+  mechanism + canonical bundle digest — never invents a remote trust root).
+- `release_gate.py` — the evaluator consumes ONLY VerifiedEvidenceRecord;
+  raw/validated dicts are refused with NOT_VERIFIED (`evidence_used` stays
+  empty); record validation binds the candidate's policy digest + the
+  policy's approved mechanisms.
+- `release_policy.py` — policy content revision **3**: adds
+  `approved_verification_mechanisms` (sigstore-bundle, gh-attestation);
+  reviewed snapshot `release/policy-v3.json` (v1/v2 immutable); digest
+  `sha256:1883cbfc7deb694a336b4e2163d8767550a3734e3a93b9f53471b41d15d9ed20`.
+  `release/scope-decision-model-conversion.md` re-bound to v3 via a dated
+  amendment (decision unchanged).
+- `tools/release` CLI — `validate` is candidate-bound (`--source-commit`
+  required; reviewed policy digest; set-level rules reported).
+- NEW test-only factory `tests/release_evidence_fixtures.py`
+  (`make_verified_record` / `wrap_verified` + per-kind contract fixtures;
+  clearly labeled NEVER-commit trust root). Migrated with explicit
+  compatibility decisions: c1 record fixtures → full v2 + verified wrapping
+  (secret-key canary moved under measurements), tooling `_good_record` → v2,
+  C7 policy-version test → 3.
+
+G2 verification: all 38 G0 evidence-v2 red tests GREEN; focused release
+suite **142/142**; authoritative collection **1140** (unchanged); chunked
+default suite **1115 passed + 25 intended red** (15 G3 artifact-binding +
+10 G4 workflow-hardening; zero unrelated regressions); compileall +
+`git diff --check` clean. The artifact-binding matching-control test turned
+green with G2 (happy path consumed); the subject↔inventory MISMATCH
+enforcement stays red for G3.
+
+Next: **G3 — artifact-bound tooling**: inventory v2 roles + decision-derived
+manifest v3, CLI `--artifacts`/`--level` with JSON-only stdout, full `verify`
+comparison (digests/roles/checksums/SBOM subject == wheel digest), evidence
+subject↔inventory binding in the evaluator, SBOM tomllib + duplicate-
+component refusal, and the §17 isolated release fixture pipeline test.
+
+---
+
+**G1 record (evaluator sole authority, superseded as "next" by G2).**
 G1 deleted both eligibility bypasses and made every release decision
 candidate-bound:
 

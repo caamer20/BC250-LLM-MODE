@@ -143,7 +143,8 @@ def test_red_evidence_bound_to_wrong_candidate_is_rejected():
         "result": "PASS",
     }
     ok, reason = validate_evidence_record(
-        record, candidate_version="1.0.0", source_commit="f" * 40)
+        record, candidate_version="1.0.0", source_commit="f" * 40,
+        policy_digest="sha256:" + "a" * 64)
     assert ok is False
     assert reason  # a stable rejection reason is required
 
@@ -162,12 +163,14 @@ def test_red_bad_evidence_states_are_rejected():
         "result": "FAIL",  # failed evidence
     }
     ok, reason = validate_evidence_record(
-        base, candidate_version="1.0.0", source_commit="f" * 40)
+        base, candidate_version="1.0.0", source_commit="f" * 40,
+        policy_digest="sha256:" + "a" * 64)
     assert ok is False and reason
 
     unknown = dict(base, kind="NOT_A_REAL_KIND", result="PASS")
     ok2, reason2 = validate_evidence_record(
-        unknown, candidate_version="1.0.0", source_commit="f" * 40)
+        unknown, candidate_version="1.0.0", source_commit="f" * 40,
+        policy_digest="sha256:" + "a" * 64)
     assert ok2 is False and reason2
 
 

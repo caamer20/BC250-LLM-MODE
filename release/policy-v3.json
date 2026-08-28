@@ -1,0 +1,47 @@
+{
+  "approved_verification_mechanisms": [
+    "gh-attestation",
+    "sigstore-bundle"
+  ],
+  "capabilities": [
+    {
+      "capability": "backup-restore-publish",
+      "classification": "MANDATORY_FOR_1_0",
+      "reason": "durable backup create/restore publication is required for 1.0 (REL-004); implemented by C2, so hardware qualification evidence is tracked by the evidence gate"
+    },
+    {
+      "capability": "model-conversion",
+      "classification": "DEFERRED_NOT_ADVERTISED",
+      "reason": "no pinned, verified converter ships in this build (REL-008); C7 scope decision DEFERRED_NOT_ADVERTISED, requires an accepted-limitation record"
+    }
+  ],
+  "max_evidence_age_days": 90,
+  "min_soak_hours": 24,
+  "one_zero_required_kinds": [
+    "ARTIFACT_ATTESTATION",
+    "BACKUP_RESTORE_HARDWARE",
+    "BUILD_PROVENANCE",
+    "CLEAN_WHEEL_SMOKE",
+    "CONTAINER_IDENTITY",
+    "DEFAULT_TEST_SUITE",
+    "DOCUMENTATION_RECONCILIATION",
+    "HARDWARE_QUALIFICATION",
+    "HUMAN_ACCEPTANCE",
+    "PACKAGE_PUBLISH_ATTESTATION",
+    "RELEASE_APPROVAL",
+    "SBOM",
+    "SECURITY_REVIEW",
+    "SLOW_SECURITY_STRESS",
+    "SOAK_TEST",
+    "SOURCE_CHECKOUT",
+    "UPGRADE_MATRIX"
+  ],
+  "rc_required_kinds": [
+    "CLEAN_WHEEL_SMOKE",
+    "DEFAULT_TEST_SUITE",
+    "DOCUMENTATION_RECONCILIATION",
+    "SLOW_SECURITY_STRESS",
+    "UPGRADE_MATRIX"
+  ],
+  "release_policy_version": 3
+}

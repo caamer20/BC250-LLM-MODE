@@ -59,6 +59,11 @@ _INVENTORY = ArtifactInventory(artifacts=(
 def _record(kind, *, version="1.0.0", commit="c" * 40, result="PASS",
             evidence_id=None, issued="2026-01-01T00:00:00+00:00",
             expires=None, measurements=None, subjects=None, attachments=None):
+    """G2-migrated: a COMPLETE schema-v2 record dict bound to the reviewed
+    policy digest (validator-level fixture; evaluator-level tests wrap these
+    into VerifiedEvidenceRecord via ``wrap_verified``)."""
+    from tests.release_evidence_fixtures import KIND_MEASUREMENT_FIXTURES
+
     rec = {
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence_id": evidence_id or f"ev-{kind}",
@@ -66,6 +71,8 @@ def _record(kind, *, version="1.0.0", commit="c" * 40, result="PASS",
         "release_candidate_version": version,
         "source_repository": "local",
         "source_commit": commit,
+        "policy_digest": default_release_policy().policy_digest(),
+        "artifact_inventory_digest": _INVENTORY.inventory_digest(),
         "artifact_subjects": subjects if subjects is not None else [
             {"name": "wheel", "sha256": _SHA, "media_type": "application/wheel"}],
         "issuer": {"type": "ci", "identity": "test-runner"},
@@ -74,28 +81,38 @@ def _record(kind, *, version="1.0.0", commit="c" * 40, result="PASS",
         "environment": {"os": "linux", "architecture": "x86_64",
                         "python": "3.14", "runner": "pytest"},
         "result": result,
-        "measurements": measurements or {},
+        "measurements": (measurements if measurements is not None
+                         else dict(KIND_MEASUREMENT_FIXTURES.get(kind, {}))),
         "attachments": attachments or [],
-        "signature_or_attestation_reference": "sigref",
+        "verification": {
+            "mechanism": "sigstore-bundle",
+            "subject": _SHA,
+            "verifier": "tests/test_release_gate_c1.py",
+            "verified_at": "2026-01-01T00:00:01+00:00",
+            "bundle_digest": "sha256:" + "e" * 64,
+        },
         "supersedes_evidence_id": None,
     }
     return rec
 
 
 def _full_evidence(version="1.0.0", commit="c" * 40):
-    """One valid PASS record for every 1.0-required kind + the limitation
-    acceptance for model-conversion."""
+    """One valid PASS verified record for every 1.0-required kind + the
+    limitation acceptance for model-conversion (G2: evaluator consumes only
+    verifier-produced VerifiedEvidenceRecord)."""
+    from tests.release_evidence_fixtures import wrap_verified
+
     policy = default_release_policy()
     records = [
-        _record(kind, version=version, commit=commit,
-                evidence_id=f"ev-{i}-{kind}")
+        wrap_verified(_record(kind, version=version, commit=commit,
+                              evidence_id=f"ev-{i}-{kind}"))
         for i, kind in enumerate(sorted(policy.one_zero_required_kinds))
     ]
-    records.append(_record(
+    records.append(wrap_verified(_record(
         EvidenceKind.KNOWN_LIMITATION_ACCEPTANCE.value,
         version=version, commit=commit,
         evidence_id="ev-limitation-model-conversion",
-        measurements={"capability": "model-conversion"}))
+        measurements={"capability": "model-conversion"})))
     return records
 
 
@@ -141,7 +158,7 @@ def test_policy_vocabularies_are_closed_and_digest_deterministic():
      EvidenceRejectionCode.PATH_TRAVERSAL.value),
     (lambda r: r.update(attachments=[{"name": "x", "location_hint": "/abs"}]),
      EvidenceRejectionCode.PATH_TRAVERSAL.value),
-    (lambda r: r.update(hf_token="secret"),
+    (lambda r: r.update(measurements={"hf_token": "placeholder"}),
      EvidenceRejectionCode.SECRET_MATERIAL.value),
     (lambda r: r.update(measurements={"prompt": "user text"}),
      EvidenceRejectionCode.SECRET_MATERIAL.value),
@@ -150,7 +167,8 @@ def test_evidence_validation_rejects_bad_records(mutate, expected):
     rec = _record(EvidenceKind.DEFAULT_TEST_SUITE.value)
     mutate(rec)
     ok, code = validate_evidence_record(
-        rec, candidate_version="1.0.0", source_commit="c" * 40)
+        rec, candidate_version="1.0.0", source_commit="c" * 40,
+        policy_digest=default_release_policy().policy_digest())
     assert ok is False
     assert code == expected
 
@@ -158,7 +176,8 @@ def test_evidence_validation_rejects_bad_records(mutate, expected):
 def test_valid_evidence_record_is_accepted():
     rec = _record(EvidenceKind.DEFAULT_TEST_SUITE.value)
     ok, code = validate_evidence_record(
-        rec, candidate_version="1.0.0", source_commit="c" * 40)
+        rec, candidate_version="1.0.0", source_commit="c" * 40,
+        policy_digest=default_release_policy().policy_digest())
     assert ok is True and code is None
 
 
@@ -168,12 +187,14 @@ def test_duplicate_and_superseded_evidence_rejected():
     seen = {"dup"}
     ok, code = validate_evidence_record(
         rec_b, candidate_version="1.0.0", source_commit="c" * 40,
+        policy_digest=default_release_policy().policy_digest(),
         seen_ids=seen)
     assert ok is False and code == EvidenceRejectionCode.DUPLICATE.value
 
     superseded = _record(EvidenceKind.SBOM.value, evidence_id="old")
     ok2, code2 = validate_evidence_record(
         superseded, candidate_version="1.0.0", source_commit="c" * 40,
+        policy_digest=default_release_policy().policy_digest(),
         supersedes={"old"})
     assert ok2 is False and code2 == EvidenceRejectionCode.SUPERSEDED.value
 
@@ -237,9 +258,9 @@ def test_mandatory_unavailable_capability_blocks_even_with_evidence(monkeypatch)
 
 def test_limitation_without_acceptance_record_blocks():
     evidence = _full_evidence()
-    # Drop the limitation-acceptance record.
+    # Drop the limitation-acceptance record (G2: unwrap verified items).
     evidence = [e for e in evidence
-                if e["kind"] != EvidenceKind.KNOWN_LIMITATION_ACCEPTANCE.value]
+                if e.record["kind"] != EvidenceKind.KNOWN_LIMITATION_ACCEPTANCE.value]
     decision = evaluate_release(
         evidence=evidence, candidate=_candidate(), artifacts=_INVENTORY)
     assert decision.eligible_for_1_0_0 is False
@@ -264,7 +285,8 @@ def test_artifact_digest_substitution_does_not_cross_artifacts():
                   subjects=[{"name": "wheel", "sha256": "b" * 64}])
     ok, code = validate_evidence_record(
         dict(rec, artifact_subjects=[{"name": "wheel", "sha256": "not-hex"}]),
-        candidate_version="1.0.0", source_commit="c" * 40)
+        candidate_version="1.0.0", source_commit="c" * 40,
+        policy_digest=default_release_policy().policy_digest())
     assert ok is False and code == EvidenceRejectionCode.BAD_DIGEST.value
 
 
@@ -323,10 +345,13 @@ def test_golden_v2_decision_is_canonical():
 # --- canaries --------------------------------------------------------------
 
 def test_secret_and_prompt_canaries_never_appear_in_decision():
+    from tests.release_evidence_fixtures import wrap_verified
+
     rec = _record(EvidenceKind.SECURITY_REVIEW.value,
                   measurements={"api_key": "super-secret", "prompt": "hello"})
     decision = evaluate_release(
-        evidence=[rec], candidate=_candidate(), artifacts=_INVENTORY)
+        evidence=[wrap_verified(rec)], candidate=_candidate(),
+        artifacts=_INVENTORY)
     blob = json.dumps(decision.to_dict())
     assert "super-secret" not in blob
     assert "hello" not in blob

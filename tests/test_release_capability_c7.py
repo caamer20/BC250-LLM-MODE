@@ -35,10 +35,12 @@ def test_capability_vocabulary_is_the_five_scope_classes():
     }
 
 
-def test_policy_v2_classifies_backup_restore_mandatory():
+def test_policy_v3_classifies_backup_restore_mandatory():
+    """G2 migrated: policy content revision 3 (adds the approved verification
+    mechanisms) keeps the C7 capability classification intact."""
     policy = default_release_policy()
-    assert RELEASE_POLICY_VERSION == 2
-    assert policy.policy_version == 2
+    assert RELEASE_POLICY_VERSION == 3
+    assert policy.policy_version == 3
     assert "backup-restore-publish" in policy.mandatory_capabilities()
     by = {c.capability: c.classification for c in policy.capabilities}
     assert by["backup-restore-publish"] == "MANDATORY_FOR_1_0"

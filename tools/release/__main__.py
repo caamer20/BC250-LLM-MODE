@@ -31,7 +31,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from bc250_llm_mode.release_artifacts import ArtifactInventory  # noqa: E402
-from bc250_llm_mode.release_evidence import validate_evidence_record  # noqa: E402
+from bc250_llm_mode.release_evidence import (  # noqa: E402
+    validate_evidence_record, validate_evidence_set,
+)
 from bc250_llm_mode.release_gate import (  # noqa: E402
     CandidateIdentity, evaluate_release,
 )
@@ -47,17 +49,28 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     records, errors = load_evidence_dir(args.evidence_dir)
     for name, reason in errors:
         print(f"REJECT {name}: {reason}")
+    # G2: validation is candidate-bound — commit + reviewed policy digest are
+    # mandatory binding inputs.
+    policy = default_release_policy()
     accepted = rejected = 0
     for record in records:
         ok, code = validate_evidence_record(
-            record, candidate_version=args.candidate)
+            record, candidate_version=args.candidate,
+            source_commit=args.source_commit,
+            policy_digest=policy.policy_digest())
         if ok:
             accepted += 1
         else:
             rejected += 1
             print(f"REJECT {record.get('evidence_id', '?')}: {code}")
+    set_ok, problems = validate_evidence_set(
+        records, candidate_version=args.candidate,
+        source_commit=args.source_commit,
+        policy_digest=policy.policy_digest())
+    for problem in problems:
+        print(f"SET {problem}")
     print(f"accepted={accepted} rejected={rejected} io_errors={len(errors)}")
-    return 0 if (not errors and rejected == 0) else 1
+    return 0 if (not errors and rejected == 0 and set_ok) else 1
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
@@ -125,6 +138,8 @@ def main(argv: list[str] | None = None) -> int:
     p_val = sub.add_parser("validate", help="validate evidence records")
     p_val.add_argument("evidence_dir")
     p_val.add_argument("--candidate", required=True)
+    # G2: candidate-bound validation requires the full commit.
+    p_val.add_argument("--source-commit", required=True)
     p_val.set_defaults(func=_cmd_validate)
 
     p_eval = sub.add_parser("evaluate", help="run the release evaluator")

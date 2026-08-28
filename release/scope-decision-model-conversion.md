@@ -57,10 +57,24 @@ record and policy revision.
 
 ## Acceptance evidence
 
-This limitation is classified in the release policy (`release/policy-v2.json`)
+This limitation is classified in the release policy (`release/policy-v3.json`)
 and is enforced by the release gate: a `1.0.0` tag requires a reviewed
 `KNOWN_LIMITATION_ACCEPTANCE` evidence record covering `model-conversion`
 (`LIMITATION_ACCEPTANCE_MISSING` blocks otherwise). That acceptance record is
 human/owner-gated and is NOT fabricated here; this document is the reviewed
 scope-decision artifact it references. Formal signing of this record is
 owner-gated (plan §1.3: no fabricated evidence).
+
+## Amendment — re-binding to release policy revision 3 (G2)
+
+- **Date:** 2026-08-28
+- **Milestone:** G2 (§G2.4, RELEASE_GATE_AND_PIPELINE_REMEDIATION_IMPLEMENTATION_PLAN.md)
+- **Change:** Release policy content revision 3 adds the approved attestation
+  verification mechanisms (`sigstore-bundle`, `gh-attestation`) to the policy
+  digest input. The decision above is unchanged; only the binding is re-issued.
+- **Re-bound to:** release policy version **3**, policy digest
+  `sha256:1883cbfc7deb694a336b4e2163d8767550a3734e3a93b9f53471b41d15d9ed20`
+  (`release/policy-v3.json`). The v2 binding
+  (`sha256:00a6d4e194767da7bc089a16108e333f9b10e85ec851cf3cb83781afd2ce6c9e`,
+  `release/policy-v2.json`) is superseded by this amendment; `policy-v1.json`
+  and `policy-v2.json` remain immutable history.

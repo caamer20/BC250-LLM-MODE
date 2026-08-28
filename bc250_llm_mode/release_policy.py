@@ -18,7 +18,19 @@ from typing import Any
 # C7 (§C7.1): the reviewed policy content revision. The class schema is still
 # generation 1 (``ReleasePolicyV1``); this field tracks reviewed CONTENT
 # revisions within that schema. Revision 2 is the C7 capability-scope decision.
-RELEASE_POLICY_VERSION = 2
+# G2 (§G2.4, RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): attestation
+# verification mechanisms approved for release evidence. Evidence whose
+# verification block names another mechanism is refused (BAD_VERIFICATION).
+# Test-only policies may extend this set with a fixture mechanism; production
+# candidates bind the reviewed digest of the default policy below.
+APPROVED_VERIFICATION_MECHANISMS: frozenset[str] = frozenset({
+    "sigstore-bundle",
+    "gh-attestation",
+})
+
+# Bumped by G2: the policy content now names the approved verification
+# mechanisms, changing the canonical digest (policy-v2.json stays immutable).
+RELEASE_POLICY_VERSION = 3
 
 
 class EvidenceKind(str, Enum):
@@ -171,6 +183,8 @@ class ReleasePolicyV1:
     rc_required_kinds: frozenset[str] = RC_REQUIRED_KINDS
     one_zero_required_kinds: frozenset[str] = ONE_ZERO_REQUIRED_KINDS
     capabilities: tuple[CapabilityPolicy, ...] = field(default_factory=tuple)
+    approved_verification_mechanisms: frozenset[str] = (
+        APPROVED_VERIFICATION_MECHANISMS)
     max_evidence_age_days: int = 90
     min_soak_hours: int = 24
 
@@ -197,6 +211,8 @@ class ReleasePolicyV1:
             "rc_required_kinds": sorted(self.rc_required_kinds),
             "one_zero_required_kinds": sorted(self.one_zero_required_kinds),
             "capabilities": [c.to_dict() for c in self.capabilities],
+            "approved_verification_mechanisms": sorted(
+                self.approved_verification_mechanisms),
             "max_evidence_age_days": self.max_evidence_age_days,
             "min_soak_hours": self.min_soak_hours,
         }

@@ -38,6 +38,7 @@ from . import release_state
 from .release_artifacts import ArtifactInventory
 from .release_evidence import (
     EvidenceRejectionCode,
+    VerifiedEvidenceRecord,
     collect_superseded_ids,
     validate_evidence_record,
 )
@@ -193,7 +194,7 @@ _EXPLANATIONS: dict[str, str] = {
 
 def evaluate_release(
     *,
-    evidence: list[dict[str, Any]],
+    evidence: list[Any],
     candidate: CandidateIdentity,
     artifacts: ArtifactInventory,
     policy: ReleasePolicyV1 | None = None,
@@ -204,6 +205,9 @@ def evaluate_release(
     and an ``ArtifactInventory`` — there is no sourceless or artifact-less
     qualifying path. The candidate's policy digest must match the evaluating
     policy, and a final release must ride its exact protected tag.
+
+    G2 §G2.3: only verifier-produced ``VerifiedEvidenceRecord`` items can
+    satisfy a gate; raw/validated dict records are refused with NOT_VERIFIED.
     """
     if not isinstance(candidate, CandidateIdentity):
         raise TypeError(
@@ -231,11 +235,22 @@ def evaluate_release(
     rejected: list[tuple[str, str]] = []
     limitation_acceptances: set[str] = set()
 
-    for record in evidence:
+    for item in evidence:
+        # G2 §G2.3: only verifier-produced VerifiedEvidenceRecord can satisfy
+        # a gate. Raw/validated dict records are refused with NOT_VERIFIED.
+        if not isinstance(item, VerifiedEvidenceRecord):
+            rid = "<malformed>"
+            if isinstance(item, dict):
+                rid = str(item.get("evidence_id") or "<missing-id>")
+            rejected.append((rid, EvidenceRejectionCode.NOT_VERIFIED.value))
+            continue
+        record = item.record
         ok, code = validate_evidence_record(
             record, candidate_version=candidate.version,
-            source_commit=candidate.source_commit, supersedes=supersedes,
-            seen_ids=seen_ids)
+            source_commit=candidate.source_commit,
+            policy_digest=candidate.policy_digest,
+            supersedes=supersedes, seen_ids=seen_ids,
+            approved_mechanisms=policy.approved_verification_mechanisms)
         rid = str(record.get("evidence_id") or "<missing-id>") if isinstance(record, dict) else "<malformed>"
         if not ok:
             rejected.append((rid, code or EvidenceRejectionCode.MALFORMED.value))
