@@ -1,10 +1,12 @@
-"""C1 §C1.4: read-only documentation-consistency gate.
+"""C1 §C1.4 + G5 §G5.4: read-only documentation-consistency gate.
 
 Compares the release-relevant claims across the repository and fails on
 contradictions (e.g. a package version that disagrees with ``pyproject.toml``,
 a schema constant that disagrees with the migrations, "P9 complete" without
-the "developer scope" qualification, or "working tree clean" wording when the
-release build contains untracked inputs). Read-only: never mutates.
+the "developer scope" qualification, "working tree clean" wording when the
+release build contains untracked inputs, a policy snapshot that disagrees
+with the live reviewed policy, or a "C3 complete" claim while mutable action
+references remain). Read-only: never mutates.
 """
 
 from __future__ import annotations
@@ -111,5 +113,86 @@ def check_documentation_consistency(
                     "P9_WITHOUT_DEVELOPER_SCOPE",
                     f"{name} says 'P9 complete' without the developer-scope "
                     f"qualification"))
+
+    # G5.4: mutable action references are a hard contradiction.
+    mutable_refs: list[str] = []
+    workflows_dir = ws / ".github" / "workflows"
+    if workflows_dir.is_dir():
+        for wf in sorted(workflows_dir.glob("*.yml")):
+            try:
+                wf_text = wf.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            for m in re.finditer(r"uses:\s*([^\s#]+)", wf_text):
+                ref = m.group(1).partition("@")[2]
+                if ref and not re.fullmatch(r"[0-9a-f]{40}", ref):
+                    mutable_refs.append(f"{wf.name}: {m.group(1)}")
+    for ref in mutable_refs:
+        findings.append(DocsFinding(
+            "ACTION_REF_MUTABLE",
+            f"workflow action reference is not a full commit SHA: {ref}"))
+
+    # G5.4: a 'C3 complete' claim while mutable refs remain is exactly the
+    # historical-report-vs-repository-truth contradiction G5 removes.
+    if mutable_refs:
+        for name, text in (("README.md", readme), ("AGENTS.md", agents),
+                           ("CHANGELOG.md", changelog)):
+            if not text:
+                continue
+            for m in re.finditer(r"C3\s+complete", text, re.I):
+                window = text[m.start():m.start() + 160].lower()
+                if "scaffold" not in window and "remediation" not in window:
+                    findings.append(DocsFinding(
+                        "C3_CLAIM_WITHOUT_REMEDIATION",
+                        f"{name} claims 'C3 complete' while mutable action "
+                        f"references remain (needs the scaffold/remediation "
+                        f"qualification)"))
+
+    # G5.4: policy snapshot ↔ live policy agreement.
+    policy_mod = _read(ws, "bc250_llm_mode/release_policy.py")
+    if policy_mod:
+        m = re.search(r"RELEASE_POLICY_VERSION\s*=\s*(\d+)", policy_mod)
+        if m:
+            live_version = int(m.group(1))
+            snapshots = sorted(
+                (ws / "release").glob("policy-v*.json")) if (
+                    ws / "release").is_dir() else []
+            if snapshots:
+                latest = snapshots[-1]
+                snap_version = re.search(r"policy-v(\d+)\.json", latest.name)
+                if snap_version and int(snap_version.group(1)) != live_version:
+                    findings.append(DocsFinding(
+                        "POLICY_SNAPSHOT_MISMATCH",
+                        f"latest snapshot {latest.name} != live policy "
+                        f"version {live_version}"))
+                try:
+                    import json as _json
+                    snap = _json.loads(latest.read_text(encoding="utf-8"))
+                    from bc250_llm_mode.release_policy import (
+                        default_release_policy)
+                    if snap != default_release_policy().to_dict():
+                        findings.append(DocsFinding(
+                            "POLICY_SNAPSHOT_MISMATCH",
+                            f"{latest.name} content differs from the live "
+                            f"reviewed policy"))
+                except (OSError, ValueError, ImportError):
+                    findings.append(DocsFinding(
+                        "POLICY_SNAPSHOT_MISMATCH",
+                        f"{latest.name} unreadable or live policy import "
+                        f"failed"))
+
+    # G5.4: evidence README must document the current schema version.
+    evidence_readme = _read(ws, "release/evidence/README.md")
+    evidence_mod = _read(ws, "bc250_llm_mode/release_evidence.py")
+    if evidence_readme and evidence_mod:
+        m = re.search(r"EVIDENCE_SCHEMA_VERSION\s*=\s*(\d+)", evidence_mod)
+        if m:
+            claimed = re.search(
+                r"evidence_schema_version[^0-9]*(\d+)", evidence_readme)
+            if claimed and int(claimed.group(1)) != int(m.group(1)):
+                findings.append(DocsFinding(
+                    "EVIDENCE_SCHEMA_DOC_MISMATCH",
+                    f"evidence README documents schema {claimed.group(1)}; "
+                    f"the validator is schema {m.group(1)}"))
 
     return DocsCheckResult(ok=not findings, findings=tuple(findings))

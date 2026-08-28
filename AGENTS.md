@@ -2,53 +2,77 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G4 COMPLETE (pinned actions + hardened
-CI/release workflows) on top of G3/G2/G1.** Every audit finding 9–10 defect
-is now structurally frozen green, and the DEFAULT SUITE IS FULLY GREEN for
-the first time since G0:
+**RELEASE-GATE REMEDIATION — G5 COMPLETE (documentation truth reconciliation)
+on top of G4/G3/G2/G1.** The discrepancy between the historical completion
+reports and what the repository can prove is closed:
 
-- Every third-party `uses:` in `ci.yml` + `release.yml` is a full
-  40-character commit SHA, network-verified via `git ls-remote` on
-  2026-08-28: checkout v4.1.1 `b4ffde6…`, setup-python v5.6.0
-  `a26af69…`, upload-artifact v4.6.2 `ea165f8…`, download-artifact v4.3.0
-  `d3f86a1…`, attest-build-provenance v2.4.0 `e8998f9…` (peeled). No
-  TODO(C3) markers remain. NEW `.github/dependabot.yml` manages pin updates
-  (github-actions ecosystem) — never by restoring mutable tags.
-- `release.yml` restructured (§G4.2–§G4.8): inputs `candidate_version` +
-  `candidate_ref` + `qualification_level {rc,final}`; every checkout bound
-  to `candidate_ref`. Jobs: validate-candidate → build-once (emits the
-  COMPLETE release set: wheel/sdist + checksums.sha256 + sbom.cdx.json +
-  inventory v2 JSON + decision-derived release-manifest v3 via
-  `tools.release manifest`) → verify-artifacts (install exact wheel + smoke,
-  then FULL `tools.release verify` incl. SBOM subject == actual wheel
-  digest) → attest (SHA-pinned) → NEW verify-attestations (`gh attestation
-  verify` per subject + checksums cross-check, BEFORE approval) → NEW
-  final-evaluation (`tools.release evaluate --level <input>` — the
-  authoritative evaluator gates approval AND publish transitively;
-  environment approval can never override it) → approval-environment →
-  publish (downloads the exactly named bundle, re-runs `tools.release
-  verify`, then the refusal is the evaluator's final-level exit — a
-  release-state blocker, never a bypassable shell line; publication still
-  NOT performed, owner-gated C8). All `needs:` are lists; least privilege
-  kept (id-token: write only on attest + publish; no pull_request trigger).
-- NEW `tests/test_release_workflow_policy_g4.py` (6 tests, §G4.9): read-only
-  top-level permissions; id-token scoped to attest/publish only; build in
-  exactly one release job; one shared artifact identity across consuming
-  jobs; approval environment attached only to the gated pair; no wildcard
-  upload selection.
+- **G5.1 status vocabulary** applied everywhere: implemented /
+  developer-qualified / evidence pending / release blocked / published.
+  Current release status: **release blocked** (`eligible_for_1_0_0 = false`;
+  C4/C5/C6/C8 evidence pending; nothing published).
+- **G5.2 documents reconciled**: README.md gains a Release-status section
+  (capability set + evaluator-only qualification + blocked status);
+  ARCHITECTURE.md gains "Release authority (separate from runtime)" and its
+  stale "workers arrive with U1.3" claim is corrected (U1.3 is DONE);
+  CHANGELOG.md gains the G0–G5 remediation section distinguishing original
+  C-series delivery from audit remediation; `release/evidence/README.md`
+  rewritten for schema v2 (18-field envelope, verification boundary, subject
+  binding, bounds, fail-closed codes, candidate-bound CLI); NEW operator
+  runbook `release/RUNBOOK.md` (exact RC / evidence-ingest / final-evaluation
+  / approval / publish commands; publish NOT performed). The owner-controlled
+  untracked release-closure plan is NOT edited (owner authorization required);
+  the delivery-vs-remediation distinction lives in the tracked remediation
+  plan §1 + CHANGELOG instead. C3 record carries a dated reconciliation below.
+- **G5.3 repository-state truth**: at the G5 closeout commit the
+  owner-controlled untracked count is exactly **9** (the G0 "10" included
+  the remediation plan before it was committed): 3 owner artifacts (prior
+  plan docs: FINAL_PRODUCTION_READINESS…, SESSION_6A…, ULTIMATE_BC250…),
+  5 scratch audit files (`scripts_audit/*.py`), 1 scratch test file
+  (`tests/conftest_trace_tmp.py`). None mutated, deleted, or committed.
+  `check_release_checkout` gains G5.3 modes: default stays STRICT (every
+  untracked file blocks); `build_input_prefixes=` (DEFAULT: bc250_llm_mode/,
+  tools/, release/, .github/, pyproject.toml) blocks ONLY files that can
+  affect build/release inputs — all 9 owner files are diagnostic-only under
+  it; `diagnostics_only=True` never fails (developer-checkout mode). Result
+  now carries `blocking` alongside `untracked`; never deletes.
+- **G5.4 docs-consistency gate extended** (`tools/release/docs_check.py`):
+  mutable action refs → ACTION_REF_MUTABLE; "C3 complete" without the
+  scaffold/remediation qualification while mutable refs remain →
+  C3_CLAIM_WITHOUT_REMEDIATION; latest policy snapshot must equal the live
+  reviewed policy (version + content) → POLICY_SNAPSHOT_MISMATCH; evidence
+  README must document the live schema version → EVIDENCE_SCHEMA_DOC_MISMATCH.
+  NEW `tests/test_release_docs_consistency_g5.py` (6 tests): the
+  live-repository consistency test IS the G5 exit gate (currently green);
+  seeded contradictions fail for each new code; checkout scoping +
+  diagnostics modes proven without deleting anything.
 
-G4 verification: all 10 G0 workflow-hardening red tests GREEN + the 3
-guards stay green (13/13); G4 policy tests 6/6; focused release suite
-**172/172**; chunked default suite **1139 passed + 0 failed** + 3 platform
-skips = 1142 reconciled — the first fully-green default suite of the
-remediation; authoritative collection **1148** (+6 policy tests);
-compileall + `git diff --check` clean.
+G5 verification: G5 tests 6/6; tooling + gate regression green; focused
+release suite re-run at commit time; authoritative collection **1154**
+(1148 + 6); compileall + `git diff --check` clean. Historical policy
+snapshots + ADRs untouched (immutable); scope decision already re-bound to
+policy v3 at G2.
 
-Next: **G5 — documentation truth reconciliation**: the §G5.1 status
-vocabulary (implemented / developer-qualified / evidence pending / release
-blocked / published), reconcile README/ARCHITECTURE/CHANGELOG/release docs
-with the remediated truth, extend the docs-consistency gate, remove stale
-completion claims.
+Next: **G6 — developer qualification checkpoint + external-gate handoff**:
+clean-candidate dry-run qualification over the real repository (build once →
+inventory → manifest → verify → evaluate, all local, no publication), the
+external-evidence handoff record for C4/C5/C6/C8, and the final remediation
+closeout.
+
+---
+
+**G4 record (pinned actions + hardened workflows, superseded as "next" by
+G5).** All `uses:` full 40-char SHAs network-verified 2026-08-28 (checkout
+v4.1.1, setup-python v5.6.0, upload-artifact v4.6.2, download-artifact
+v4.3.0, attest-build-provenance v2.4.0 peeled); no TODO(C3); NEW
+`.github/dependabot.yml`. `release.yml`: candidate_version/candidate_ref/
+qualification_level inputs; build-once (complete release set incl. manifest
+v3) → verify-artifacts → attest → verify-attestations (before approval) →
+final-evaluation (evaluator gates approval + publish) → approval-environment
+→ publish (named bundle; refusal = evaluator final-level exit). NEW
+`tests/test_release_workflow_policy_g4.py` (6 §G4.9 tests). Verification:
+13/13 hardening green; focused 172/172; chunked default suite **1139 passed
++ 0 failed** + 3 skips = 1142 (first fully-green default suite); collection
+1148. Commit `1bf0c9e`.
 
 ---
 
@@ -318,6 +342,17 @@ green. **Pending evidence (never fabricated): full-length SHA pinning for the
 remaining actions (requires network verification); live attestation generation +
 verification, artifact signing, and any publication are CI/owner-gated (C3.5/
 C3.6, C8) and have NOT been performed.**
+
+**Dated reconciliation (2026-08-28, G5 §G5.2):** the original C3 completion
+report preceded the release-control audit. Under the G5.1 vocabulary, C3 at
+delivery was "implementation scaffold complete; remediation G1–G4 pending":
+its action refs were still mutable, attestations were never verified, the
+evaluator was never run in the pipeline, and `verify` compared nothing.
+Remediation G1–G4 (commits `6f2fce5`/`f5c8e87`/`57306f2`/`1bf0c9e`) closed
+every one of those findings with frozen green tests, so the C3 scope is now
+**developer-qualified**; live attestation generation/verification and any
+publication remain **evidence pending** (CI/owner-gated C3.5/C3.6, C8). The
+historical record above is preserved unchanged.
 
 ---
 

@@ -7,6 +7,29 @@ The interface is a real local `tkinter` window—not a web app. The window code 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
 
+## Release status
+
+Current version: **0.9.0.dev0** (development line; not `1.0.0`). Status
+vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
+(all executable local/CI checks pass), *evidence pending* (hardware/human/
+external evidence absent), *release blocked* (a policy-required item is
+unsatisfied), *published* (exact artifacts externally published and verified).
+
+- Supported capability set: setup wizard, dashboard operations, model
+  acquisition/import/activation/removal, durable llama.cpp runtime
+  update/rollback, chat/benchmark, backup create/restore (implemented;
+  hardware qualification **evidence pending**), gateway sharing, Open WebUI
+  container. Model conversion is **deferred, not advertised** in 1.0 (no
+  pinned, verified converter ships; see
+  `release/scope-decision-model-conversion.md`).
+- Release qualification is decided ONLY by the evidence-driven evaluator
+  (`python -m tools.release evaluate`); the release workflow builds once,
+  verifies, attests, verifies the attestations, and gates approval/publish on
+  the evaluator. `1.0.0` is **release blocked**: hardware qualification +
+  soak (C4), independent security review (C5), non-developer human acceptance
+  (C6), and owner-authorized publication (C8) are all **evidence pending**.
+  Nothing has been published. Operator commands: `release/RUNBOOK.md`.
+
 ## Supported platform
 
 This application is intentionally hardware- and operating-system-specific.

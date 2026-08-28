@@ -338,23 +338,44 @@ def evaluate_release(
 
 @dataclass(frozen=True)
 class CheckoutCheckResult:
-    """Strict release-checkout verdict (REL-014). Read-only: never deletes."""
+    """Strict release-checkout verdict (REL-014). Read-only: never deletes.
+
+    ``untracked`` lists EVERY untracked file found (diagnostics); ``blocking``
+    is the subset that actually fails the check (G5.3: with
+    ``build_input_prefixes`` only files that can affect build/release inputs
+    block; ordinary developer scratch files stay diagnostic-only).
+    """
 
     ok: bool
     untracked: tuple[str, ...] = field(default_factory=tuple)
+    blocking: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"ok": self.ok, "untracked": list(self.untracked)}
+        return {"ok": self.ok, "untracked": list(self.untracked),
+                "blocking": list(self.blocking)}
+
+
+#: G5.3: paths whose untracked contents can affect build/release inputs.
+DEFAULT_BUILD_INPUT_PREFIXES: tuple[str, ...] = (
+    "bc250_llm_mode/", "tools/", "release/", ".github/", "pyproject.toml",
+)
 
 
 def check_release_checkout(
-    workspace: str | Path, *, tracked_files: list[str]
+    workspace: str | Path, *, tracked_files: list[str],
+    build_input_prefixes: tuple[str, ...] | None = None,
+    diagnostics_only: bool = False,
 ) -> CheckoutCheckResult:
     """Reject untracked inputs in the build workspace WITHOUT deleting them.
 
     ``tracked_files`` are the workspace-relative POSIX paths that belong to the
-    reviewed checkout. Any other regular file present is reported as untracked
-    and fails the check (release builds must come from a clean checkout).
+    reviewed checkout. Any other regular file present is reported as untracked.
+    By default (no ``build_input_prefixes``) the check is STRICT: every
+    untracked file blocks (release builds must come from a clean checkout).
+    With ``build_input_prefixes`` (G5.3), only untracked files at/under those
+    paths block — ordinary developer scratch files elsewhere are reported as
+    diagnostics without failing. ``diagnostics_only=True`` never fails; it
+    only reports (developer-checkout mode).
     """
     root = Path(workspace)
     tracked = {Path(p).as_posix() for p in tracked_files}
@@ -366,4 +387,15 @@ def check_release_checkout(
             rel = path.relative_to(root).as_posix()
             if rel not in tracked:
                 untracked.append(rel)
-    return CheckoutCheckResult(ok=not untracked, untracked=tuple(untracked))
+    if diagnostics_only:
+        return CheckoutCheckResult(ok=True, untracked=tuple(untracked),
+                                   blocking=())
+    if build_input_prefixes is None:
+        blocking = list(untracked)
+    else:
+        normalized = tuple(p.rstrip("/") for p in build_input_prefixes)
+        blocking = [
+            u for u in untracked
+            if any(u == p or u.startswith(p + "/") for p in normalized)]
+    return CheckoutCheckResult(ok=not blocking, untracked=tuple(untracked),
+                               blocking=tuple(blocking))

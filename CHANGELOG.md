@@ -5,6 +5,59 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Release-gate remediation G0–G5 (audit remediation of the C-series delivery)
+
+An independent audit found release-control defects in the original C-series
+delivery (boolean eligibility bypasses, an optional source commit, an
+incomplete evidence envelope, unverified attestation references, an ignored
+`--artifacts` flag, verify-without-comparison, mutable action refs, and an
+unverified post-attestation path). The remediation plan
+(`RELEASE_GATE_AND_PIPELINE_REMEDIATION_IMPLEMENTATION_PLAN.md`) closed every
+finding test-first; the original C-series records remain in git history with
+dated reconciliations. Status vocabulary (G5.1): implemented /
+developer-qualified / evidence pending / release blocked / published.
+
+- **G1** — `evaluate_release` is the SOLE eligibility authority: mandatory
+  `CandidateIdentity` (version + full commit + ref + repository + policy
+  digest) + `ArtifactInventory` inputs; `ReleaseState.evidence_satisfied`
+  deleted and `may_tag_1_0_0()` is a non-authoritative constant False;
+  final-tag rule (a final version must ride exactly `refs/tags/v<version>`);
+  policy-digest binding; decision schema v3; gate codes 19 → 21.
+- **G2** — evidence schema **v2**: 18 mandatory envelope fields, unknown
+  fields refused, pinned validation order, value-based secret refusal under
+  any key, bounds, per-kind measurement contracts, supersession set rules;
+  Raw/Validated/Verified boundary — only `verify_evidence_attestation`
+  promotes a record, and the evaluator consumes only verified records;
+  policy content revision 3 (`release/policy-v3.json`).
+- **G3** — artifact-bound tooling: inventory schema **v2** with roles;
+  decision-derived release manifest schema **v3** (blocked drafts, final
+  refusal, canonical digest); evaluator subject↔inventory binding; CLI
+  `evaluate` requires `--artifacts` + `--level`, `verify` performs FULL
+  comparison (inventory equality, checksums, SBOM subject == actual wheel
+  digest, manifest digest integrity); SBOM tomllib parsing + duplicate-
+  component refusal; gate codes 21 → 23.
+- **G4** — every workflow action pinned to a network-verified full 40-char
+  SHA (checkout v4.1.1, setup-python v5.6.0, upload-artifact v4.6.2,
+  download-artifact v4.3.0, attest-build-provenance v2.4.0) with Dependabot
+  managing updates; `release.yml` restructured: build once → verify →
+  attest → verify attestations (before approval) → final evaluation (the
+  evaluator gates approval AND publish) → approval environment → publish
+  (exactly named bundle; refusal is the evaluator's final-level exit, never
+  a bypassable shell line). Publication still NOT performed (owner-gated).
+- **G5** — documentation truth reconciliation: status vocabulary applied
+  across README/ARCHITECTURE/CHANGELOG; evidence README rewritten for schema
+  v2 + verification boundary; operator runbook (`release/RUNBOOK.md`);
+  release-checkout check gains build-input-scoped blocking + diagnostics-only
+  mode; documentation-consistency gate extended (policy snapshot ↔ live
+  policy, evidence schema doc, mutable action refs, unqualified completion
+  claims).
+
+Release status after G0–G5: **release blocked** — the evaluator truthfully
+reports `eligible_for_1_0_0 = false` (hardware qualification + soak, security
+review, human acceptance, limitation acceptance, and publication evidence all
+remain pending; nothing fabricated). C4/C5/C6/C8 stay hardware/human/owner-
+gated.
+
 ### Release closure C7 — known-limitation and conversion decision
 
 - Capability classification refined from the C1 3-value draft to the reviewed

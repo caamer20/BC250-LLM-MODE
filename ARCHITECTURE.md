@@ -74,6 +74,39 @@ module layout and the invariants that keep the hardware safe.
   method surface must survive refactors.
 - Schema migrations are tested from real legacy JSON shapes.
 
+## Release authority (separate from runtime)
+
+Release qualification is a PURE, candidate-bound evaluation chain that never
+touches runtime state and never depends on release-evidence files at app
+startup:
+
+- `release_policy.py` — the reviewed policy (content revision 3; snapshot
+  `release/policy-v3.json`): closed evidence-kind (18) and gate-code (23)
+  vocabularies, RC vs 1.0 required-evidence sets, capability classification,
+  approved verification mechanisms, canonical policy digest.
+- `release_evidence.py` — schema-v2 envelope validation (pinned order,
+  bounds, kind contracts, value-based secret refusal) plus the
+  Raw/Validated/Verified boundary: only `verify_evidence_attestation`
+  promotes a record to a `VerifiedEvidenceRecord`.
+- `release_gate.py` — `evaluate_release` is the SOLE eligibility authority:
+  it consumes a mandatory `CandidateIdentity` (version + full commit + ref +
+  repository + policy digest) + an `ArtifactInventory`, binds evidence to the
+  exact inventory (subject digests), and derives the decision. No boolean
+  bypass exists (`release_state.may_tag_1_0_0()` is a non-authoritative
+  constant False).
+- `release_artifacts.py` / `release_manifest.py` — inventory v2 (roles +
+  canonical digest) and the decision-derived manifest v3 (blocked drafts,
+  final refusal, manifest digest).
+- `tools/release/` (repository-only, NOT packaged) — validate/evaluate/
+  manifest/verify CLI; `verify` performs full comparison (inventory equality,
+  checksums, SBOM subject == actual wheel digest, manifest digest integrity).
+- `.github/workflows/release.yml` — builds once, emits the complete release
+  set, verifies, attests, verifies attestations, runs the evaluator as the
+  final gate, and publishes only through the approval-gated environment.
+  Every action is pinned to a network-verified full SHA; Dependabot manages
+  pin updates. Runtime code imports none of this; the separation is enforced
+  by the evaluator's pure inputs and the repository-only tooling boundary.
+
 ## Update policy
 
 llama.cpp follows a **pinned known-good channel** realized as a durable
@@ -83,8 +116,10 @@ barriers, and any in-flight foreground operation, and updates are explicit
 user actions. Every update resolves the ref to an exact commit first,
 builds away from the active tree, exchanges atomically, verifies the new
 process end-to-end, and only then promotes — with the prior build retained
-as a verified rollback target. Operations run in the foreground today;
-closing a frontend pauses them safely for resume (supervised background
-workers arrive with U1.3). The model catalog follows the same philosophy —
-new entries are compatibility candidates until they pass an on-card Vulkan
+as a verified rollback target. Foreground execution is the default; closing
+a frontend pauses work safely for resume, and an explicit `--detach` hands a
+queued operation to ONE profile-scoped supervised worker (U1.3) that never
+auto-starts and never touches reboot policy. The model catalog follows the
+same philosophy — new entries are compatibility candidates until they pass
+an on-card Vulkan
 load test.
