@@ -2,61 +2,81 @@
 
 ## Current state
 
-**RELEASE-GATE REMEDIATION — G5 COMPLETE (documentation truth reconciliation)
-on top of G4/G3/G2/G1.** The discrepancy between the historical completion
-reports and what the repository can prove is closed:
+**RELEASE-GATE REMEDIATION — G6 COMPLETE (developer qualification checkpoint
++ external-gate handoff); remediation G0→G6 CLOSED.** Every developer-
+executable remediation item is proven closed from a fresh checkout; the
+repository now stops cleanly at the real-world evidence boundary.
 
-- **G5.1 status vocabulary** applied everywhere: implemented /
-  developer-qualified / evidence pending / release blocked / published.
-  Current release status: **release blocked** (`eligible_for_1_0_0 = false`;
-  C4/C5/C6/C8 evidence pending; nothing published).
-- **G5.2 documents reconciled**: README.md gains a Release-status section
-  (capability set + evaluator-only qualification + blocked status);
-  ARCHITECTURE.md gains "Release authority (separate from runtime)" and its
-  stale "workers arrive with U1.3" claim is corrected (U1.3 is DONE);
-  CHANGELOG.md gains the G0–G5 remediation section distinguishing original
-  C-series delivery from audit remediation; `release/evidence/README.md`
-  rewritten for schema v2 (18-field envelope, verification boundary, subject
-  binding, bounds, fail-closed codes, candidate-bound CLI); NEW operator
-  runbook `release/RUNBOOK.md` (exact RC / evidence-ingest / final-evaluation
-  / approval / publish commands; publish NOT performed). The owner-controlled
-  untracked release-closure plan is NOT edited (owner authorization required);
-  the delivery-vs-remediation distinction lives in the tracked remediation
-  plan §1 + CHANGELOG instead. C3 record carries a dated reconciliation below.
-- **G5.3 repository-state truth**: at the G5 closeout commit the
-  owner-controlled untracked count is exactly **9** (the G0 "10" included
-  the remediation plan before it was committed): 3 owner artifacts (prior
-  plan docs: FINAL_PRODUCTION_READINESS…, SESSION_6A…, ULTIMATE_BC250…),
-  5 scratch audit files (`scripts_audit/*.py`), 1 scratch test file
-  (`tests/conftest_trace_tmp.py`). None mutated, deleted, or committed.
-  `check_release_checkout` gains G5.3 modes: default stays STRICT (every
-  untracked file blocks); `build_input_prefixes=` (DEFAULT: bc250_llm_mode/,
-  tools/, release/, .github/, pyproject.toml) blocks ONLY files that can
-  affect build/release inputs — all 9 owner files are diagnostic-only under
-  it; `diagnostics_only=True` never fails (developer-checkout mode). Result
-  now carries `blocking` alongside `untracked`; never deletes.
-- **G5.4 docs-consistency gate extended** (`tools/release/docs_check.py`):
-  mutable action refs → ACTION_REF_MUTABLE; "C3 complete" without the
-  scaffold/remediation qualification while mutable refs remain →
-  C3_CLAIM_WITHOUT_REMEDIATION; latest policy snapshot must equal the live
-  reviewed policy (version + content) → POLICY_SNAPSHOT_MISMATCH; evidence
-  README must document the live schema version → EVIDENCE_SCHEMA_DOC_MISMATCH.
-  NEW `tests/test_release_docs_consistency_g5.py` (6 tests): the
-  live-repository consistency test IS the G5 exit gate (currently green);
-  seeded contradictions fail for each new code; checkout scoping +
-  diagnostics modes proven without deleting anything.
+**G6.4 final handoff state:**
 
-G5 verification: G5 tests 6/6; tooling + gate regression green; focused
-release suite re-run at commit time; authoritative collection **1154**
-(1148 + 6); compileall + `git diff --check` clean. Historical policy
-snapshots + ADRs untouched (immutable); scope decision already re-bound to
-policy v3 at G2.
+- Closeout: `main`, qualification executed at `fe24ee9` (this docs commit
+  changes ONLY documentation — no package code — so the qualified artifacts
+  remain bound). Branch divergence: **80 commits ahead of `origin/main`**
+  (push stays owner-gated).
+- Version `0.9.0.dev0`; database schema **v10**; release policy content
+  revision **3** (digest `sha256:1883cbfc…ed20`); evidence schema **v2**;
+  manifest schema **v3**; decision schema **v3**; inventory schema **v2**.
+- Authoritative totals: default collection **1154** + slow battery **52**
+  (51 pre-G6 + the G6 qualification gate) = **1206**.
+- G6.1 fresh-worktree qualification at `fe24ee9` (clean `git worktree`,
+  deps verified via `pip check` against the declared-metadata venv):
+  default suite in one run **1152 passed + 2 skipped** (Linux `renameat2`
+  ×2) = 1154, exit 0 — the tkinter skip appears only when
+  `test_packaging.py` runs in a separate process (3 platform skips) because
+  the in-suite gui-contract tkinter stub makes the import-surface test pass;
+  slow battery **52/52** (runtime stress 6, acquisition stress 41,
+  packaging 2 + operations-cli 1 + worker-main 1, G6 qualification 1);
+  focused release suite **178/178**; compileall + `git diff --check` clean.
+- G6.1 dry-run artifacts (built ONCE at `fe24ee9`): wheel
+  `sha256:5b78463db4baf7c93cc6f0da9314989f506b73d54ff3ef7d4b4b434414abb6a0`;
+  sdist `sha256:37f1786f1b7831d798c9205400503d6f0140d6ec5fc31a68b02faaa1506ffe2e`;
+  SBOM `sha256:62bd9f087615237b69aa0a1cf1f192a3873d8061593f1e311b5c3df491f91d64`;
+  blocked draft manifest digest
+  `sha256:09025284fbd9ec58d7e1a649094a706f08935fca9a143d89e8f58bb5dbb06937`;
+  evaluator decision inventory digest
+  `sha256:a4392bb94532713ef24be9d16d9542fb2b2bcadde00d451448de05b010ab0822`.
+  `tools.release verify` over the set: green. Packaged CLI + schema init +
+  operation worker exercised by the clean-wheel slow gates.
+- Evaluator over the exact dry-run outputs: `eligible_for_1_0_0 = false`,
+  exit 1, blocking codes LIMITED to the genuine external gates:
+  BACKUP_RESTORE_EVIDENCE_MISSING, CLEAN_WHEEL_EVIDENCE_MISSING,
+  DOCUMENTATION_DRIFT, HARDWARE_QUALIFICATION_MISSING,
+  HUMAN_ACCEPTANCE_MISSING, LIMITATION_ACCEPTANCE_MISSING,
+  MILESTONE_EVIDENCE_MISSING, PROVENANCE_MISSING_OR_MISMATCHED,
+  REPOSITORY_NOT_PUBLISHED, SBOM_MISSING_OR_MISMATCHED,
+  SECURITY_REVIEW_MISSING, SIGNATURE_MISSING_OR_INVALID,
+  SOAK_EVIDENCE_MISSING, TEST_EVIDENCE_MISSING. ZERO developer/structural
+  blockers. The frozen `tests/test_release_qualification_g6.py` (slow)
+  re-proves this on every run.
+- Owner-controlled untracked files: exactly **9**, preserved, enumerated
+  and classified in the G5 record below. Working tree tracked-clean.
+- **Next authorized action: begin C4 evidence collection on the physical
+  BC-250 (handoff packet `release/EVIDENCE_HANDOFF.md`) — NOT a version
+  bump, tag, or publication.** Any candidate code change after evidence
+  collection INVALIDATES the candidate-bound evidence for that commit and it
+  must be recollected; there is no manual override. No `v1.0.0` tag, package
+  upload, or publication exists; no PASS evidence was fabricated.
 
-Next: **G6 — developer qualification checkpoint + external-gate handoff**:
-clean-candidate dry-run qualification over the real repository (build once →
-inventory → manifest → verify → evaluate, all local, no publication), the
-external-evidence handoff record for C4/C5/C6/C8, and the final remediation
-closeout.
+---
+
+**G5 record (documentation truth reconciliation, superseded as "next" by
+G6).** G5.1 status vocabulary (implemented / developer-qualified / evidence
+pending / release blocked / published) applied everywhere; current release
+status: **release blocked**. G5.2: README Release-status section;
+ARCHITECTURE "Release authority (separate from runtime)" + stale U1.3 claim
+corrected; CHANGELOG G0–G5 remediation section; evidence README rewritten
+for schema v2; NEW operator runbook `release/RUNBOOK.md`; owner-controlled
+release-closure plan NOT edited (distinction lives in tracked remediation
+plan §1 + CHANGELOG); C3 record carries a dated reconciliation. G5.3:
+owner-untracked recount = exactly 9 (3 plan docs, 5 scripts_audit, 1
+scratch test file); `check_release_checkout` gains build-input-scoped
+blocking (`DEFAULT_BUILD_INPUT_PREFIXES`) + `diagnostics_only` mode; result
+carries `blocking`; never deletes. G5.4: docs gate extended
+(ACTION_REF_MUTABLE, C3_CLAIM_WITHOUT_REMEDIATION,
+POLICY_SNAPSHOT_MISMATCH, EVIDENCE_SCHEMA_DOC_MISMATCH) + NEW
+`tests/test_release_docs_consistency_g5.py` (6 tests; live-repo test is
+the exit gate). Verification: 6/6; focused 178/178; collection 1154.
+Commit `7b7a2f0`.
 
 ---
 

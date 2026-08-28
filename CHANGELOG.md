@@ -51,12 +51,26 @@ developer-qualified / evidence pending / release blocked / published.
   mode; documentation-consistency gate extended (policy snapshot ↔ live
   policy, evidence schema doc, mutable action refs, unqualified completion
   claims).
+- **G6** — developer qualification checkpoint + external-gate handoff:
+  fresh-worktree qualification at the closeout commit (default suite green,
+  slow battery 52/52 incl. the NEW frozen qualification gate
+  `tests/test_release_qualification_g6.py`, focused release suite green);
+  clean-candidate dry run (build once → inventory v2 → checksums →
+  subject-bound SBOM → blocked draft manifest v3 → full verify → evaluator)
+  proves the ONLY remaining blockers are the genuine external gates
+  (C4 hardware/soak/backup-restore, C5 security review, C6 human acceptance,
+  limitation acceptance, C8 approval/signing/publication + real-run evidence
+  kinds); external-evidence handoff packet `release/EVIDENCE_HANDOFF.md`
+  (roles, procedures, pass criteria, expiry, attestation mechanisms, rerun
+  rules — empty checklists only, no fabricated measurements).
 
-Release status after G0–G5: **release blocked** — the evaluator truthfully
-reports `eligible_for_1_0_0 = false` (hardware qualification + soak, security
-review, human acceptance, limitation acceptance, and publication evidence all
-remain pending; nothing fabricated). C4/C5/C6/C8 stay hardware/human/owner-
-gated.
+Release status after G0–G6 (remediation CLOSED): **release blocked** — the
+evaluator truthfully reports `eligible_for_1_0_0 = false` and the remaining
+blockers are limited to genuine external gates (hardware qualification +
+soak, security review, human acceptance, limitation acceptance, and
+publication evidence all remain pending; nothing fabricated). C4/C5/C6/C8
+stay hardware/human/owner-gated; the next authorized action is C4 evidence
+collection per `release/EVIDENCE_HANDOFF.md`, not a version bump or tag.
 
 ### Release closure C7 — known-limitation and conversion decision
 
