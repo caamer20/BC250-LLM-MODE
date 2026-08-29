@@ -214,6 +214,6 @@ def test_terminal_and_native_clients_share_transport_and_no_http_lives_in_gui():
     assert "application.chat_sessions.stream(" in terminal
     assert "application.chat_sessions.stream(" in native
     for token in ("httpx", "127.0.0.1", "/v1/chat/completions"):
-    assert token not in native
+        assert token not in native
     assert "application.conversations" in terminal
     assert "application.conversations" in native

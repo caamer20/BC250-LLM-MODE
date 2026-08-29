@@ -89,6 +89,7 @@ class Application:
     chat_sessions: Any = None
     conversations: Any = None
     chat_observation: Any = None
+    preferences: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -237,6 +238,7 @@ class Application:
             SetupService,
             SharingService,
             ThermalStateService,
+            UserPreferencesService,
         )
         from .unit_of_work import UnitOfWorkFactory
 
@@ -543,6 +545,7 @@ class Application:
         )
         application.openwebui = OpenWebUIService(units, gateway=application.gateway)
         application.sharing = SharingService(units)
+        application.preferences = UserPreferencesService(units)
         application.maintenance = MaintenanceService(units)
         from .optimization_service import OptimizationService
 

@@ -18,6 +18,7 @@ class SettingsPage(ttk.Frame):
         self.application = application
         self._disposed = False
         self._baseline: dict[str, Any] = {}
+        self._preference_baseline: dict[str, Any] = {}
         self._build()
         self.discard()
 
@@ -38,14 +39,44 @@ class SettingsPage(ttk.Frame):
         self.slots_var = tk.IntVar(value=1)
         self.kv_var = tk.StringVar(value="q8_0")
         self.flash_var = tk.StringVar(value="auto")
-        for row, (label, widget) in enumerate((
+        basic_widgets = (
             ("Context per user", ttk.Spinbox(basic, from_=512, to=262144, increment=512, textvariable=self.context_var, width=12)),
             ("Concurrent user slots", ttk.Spinbox(basic, from_=1, to=8, increment=1, textvariable=self.slots_var, width=12)),
             ("KV cache", ttk.Combobox(basic, values=("q8_0", "q4_0"), state="readonly", textvariable=self.kv_var, width=12)),
             ("Flash attention", ttk.Combobox(basic, values=("auto", "on", "off"), state="readonly", textvariable=self.flash_var, width=12)),
-        )):
+        )
+        self.context_input = basic_widgets[0][1]
+        for row, (label, widget) in enumerate(basic_widgets):
             ttk.Label(basic, text=label).grid(row=row, column=0, sticky="w", pady=4)
             widget.grid(row=row, column=1, sticky="w", padx=8, pady=4)
+
+        preference_row = 4
+        ttk.Separator(basic, orient="horizontal").grid(
+            row=preference_row, column=0, columnspan=2, sticky="ew", pady=8
+        )
+        self.appearance_var = tk.StringVar(value="system")
+        self.reduced_motion_var = tk.BooleanVar(value=False)
+        self.notifications_var = tk.BooleanVar(value=True)
+        ttk.Label(basic, text="Appearance").grid(
+            row=preference_row + 1, column=0, sticky="w", pady=4
+        )
+        ttk.Combobox(
+            basic, values=("system", "light", "dark"), state="readonly",
+            textvariable=self.appearance_var, width=12,
+        ).grid(row=preference_row + 1, column=1, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(
+            basic, text="Reduce motion and progress animation",
+            variable=self.reduced_motion_var,
+        ).grid(row=preference_row + 2, column=0, columnspan=2, sticky="w", pady=4)
+        ttk.Checkbutton(
+            basic, text="Show local maintenance notifications",
+            variable=self.notifications_var,
+        ).grid(row=preference_row + 3, column=0, columnspan=2, sticky="w", pady=4)
+        ttk.Label(
+            basic,
+            text=f"Model folder: {self.application.paths.models_dir}",
+            wraplength=520,
+        ).grid(row=preference_row + 4, column=0, columnspan=2, sticky="w", pady=4)
 
         self.batch_var = tk.IntVar(value=512)
         self.ubatch_var = tk.IntVar(value=128)
@@ -97,6 +128,13 @@ class SettingsPage(ttk.Frame):
         })
         return current
 
+    def _preference_values(self) -> dict[str, Any]:
+        return self.application.preferences.validate({
+            "appearance": self.appearance_var.get(),
+            "reduced_motion": bool(self.reduced_motion_var.get()),
+            "notifications_enabled": bool(self.notifications_var.get()),
+        })
+
     def preview(self) -> None:
         try:
             state = self.application.read_model()
@@ -121,6 +159,7 @@ class SettingsPage(ttk.Frame):
             context = int(self.context_var.get())
             slots = int(self.slots_var.get())
             values = self._values()
+            preferences = self._preference_values()
         except (ValueError, tk.TclError) as exc:
             self.shell.notice_bar.show_notice(Notice("error", "Settings are invalid", str(exc), dismissible=False))
             return
@@ -140,6 +179,10 @@ class SettingsPage(ttk.Frame):
             })
             self.shell.track_operation_id(outcome.operation_id)
             result_box["outcome"] = outcome
+            if outcome.ok:
+                result_box["preferences"] = self.application.preferences.apply(
+                    preferences
+                )
 
         def done() -> None:
             outcome = result_box.get("outcome")
@@ -152,6 +195,8 @@ class SettingsPage(ttk.Frame):
                 dismissible=ok,
             ))
             if ok:
+                preferences = result_box.get("preferences") or {}
+                self.shell.apply_preferences(preferences)
                 self.discard()
 
         self.shell._work(action, done)
@@ -160,7 +205,9 @@ class SettingsPage(ttk.Frame):
         state = self.application.read_model()
         current = self.application.runtime_config.current()
         settings = self.application.optimizations.normalized(state.get("optimizations"))
+        preferences = self.application.preferences.current()
         self._baseline = deepcopy(settings)
+        self._preference_baseline = deepcopy(preferences)
         self.context_var.set(int(current.get("context") or 8192))
         self.slots_var.set(int(current.get("slots") or 1))
         self.kv_var.set(str(settings["kv_cache_type"]))
@@ -173,6 +220,9 @@ class SettingsPage(ttk.Frame):
         self.throttle_var.set(int(settings["thermal_throttle_c"]))
         self.recovery_var.set(int(settings["thermal_recovery_c"]))
         self.safeguards_var.set(bool(settings["safeguards_enabled"]))
+        self.appearance_var.set(str(preferences["appearance"]))
+        self.reduced_motion_var.set(bool(preferences["reduced_motion"]))
+        self.notifications_var.set(bool(preferences["notifications_enabled"]))
         self.preview_var.set("No pending preview")
 
     def mount(self, parent=None):
@@ -185,6 +235,9 @@ class SettingsPage(ttk.Frame):
 
     def refresh(self, snapshot=None) -> None:
         del snapshot
+
+    def focus_primary(self) -> None:
+        self.context_input.focus_set()
 
     def leave(self) -> None:
         return None

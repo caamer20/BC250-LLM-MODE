@@ -38,3 +38,23 @@ def tokens(name: str) -> ThemeTokens:
         return THEMES[name]
     except KeyError:
         raise ValueError(f"unknown theme {name!r}") from None
+
+
+def apply_theme(root, name: str) -> ThemeTokens:
+    """Apply a small native ttk palette without loading image resources."""
+    from tkinter import ttk
+
+    palette = tokens(name)
+    style = ttk.Style(root)
+    style.configure(".", background=palette.background, foreground=palette.foreground)
+    style.configure("TFrame", background=palette.background)
+    style.configure("TLabel", background=palette.background, foreground=palette.foreground)
+    style.configure("TLabelframe", background=palette.background)
+    style.configure("TLabelframe.Label", background=palette.background, foreground=palette.foreground)
+    style.configure("NoticeTitle.TLabel", font=("TkDefaultFont", 10, "bold"))
+    style.configure("DrawerTitle.TLabel", font=("TkDefaultFont", 11, "bold"))
+    try:
+        root.configure(background=palette.background)
+    except Exception:
+        pass
+    return palette

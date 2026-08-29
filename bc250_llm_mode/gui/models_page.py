@@ -18,6 +18,7 @@ MODEL_PRESENTATION_STATES = frozenset({
     "VERIFIED", "QUARANTINED", "REMOVING", "RECOVERY_REQUIRED",
 })
 MODEL_FILTERS = ("Recommended", "Installed", "Long context", "Multi-user", "All")
+MAX_MODEL_ROWS = 100
 
 
 @dataclass(frozen=True)
@@ -172,7 +173,7 @@ def filter_model_items(
         ):
             continue
         result.append(item)
-    return tuple(result)
+    return tuple(result[:MAX_MODEL_ROWS])
 
 
 class ModelsPage(ttk.Frame):
@@ -198,8 +199,10 @@ class ModelsPage(ttk.Frame):
         filters = ttk.Frame(self)
         filters.pack(fill="x", pady=(0, 7))
         ttk.Label(filters, text="Search").pack(side="left")
-        search = ttk.Entry(filters, textvariable=self.search_var, width=28)
-        search.pack(side="left", padx=(4, 8))
+        self.search_entry = ttk.Entry(
+            filters, textvariable=self.search_var, width=28
+        )
+        self.search_entry.pack(side="left", padx=(4, 8))
         combo = ttk.Combobox(filters, values=MODEL_FILTERS, state="readonly", textvariable=self.filter_var, width=15)
         combo.pack(side="left")
         ttk.Button(filters, text="Import local GGUF…", command=self._import_local).pack(side="right")
@@ -267,9 +270,24 @@ class ModelsPage(ttk.Frame):
             slots = int(self.slots_var.get())
         except (ValueError, tk.TclError):
             return
-        installed = self.application.model_library.entries(context=context, slots=slots)
-        active = self.application.operation_query.active_summary()
-        home = self.application.home.snapshot().to_dict()
+        def observe():
+            return (
+                self.application.model_library.entries(context=context, slots=slots),
+                self.application.operation_query.active_summary(),
+                self.application.home.snapshot().to_dict(),
+            )
+
+        self.shell.request_observation(
+            observe,
+            lambda result: self._apply_observation(
+                result, context=context, slots=slots
+            ),
+        )
+
+    def _apply_observation(self, result, *, context: int, slots: int) -> None:
+        if self._disposed:
+            return
+        installed, active, home = result
         inference = home.get("cards", {}).get("inference", {})
         inference_health = inference.get("health", {}) if isinstance(inference, Mapping) else {}
         self._all_items = build_model_items(
@@ -289,6 +307,12 @@ class ModelsPage(ttk.Frame):
                     break
             self._route_context.pop("model_id", None)
         self._render_list()
+
+    def focus_primary(self) -> None:
+        self.search_entry.focus_set()
+
+    def observation_failed(self, _error: BaseException) -> None:
+        self.detail_state.set("STALE · model library refresh failed")
 
     def _render_list(self) -> None:
         visible = filter_model_items(
@@ -507,7 +531,7 @@ class ModelsPage(ttk.Frame):
 
 
 __all__ = [
-    "MODEL_FILTERS", "MODEL_PRESENTATION_STATES", "ModelActionView",
+    "MAX_MODEL_ROWS", "MODEL_FILTERS", "MODEL_PRESENTATION_STATES", "ModelActionView",
     "ModelItemView", "ModelsPage", "build_model_items", "filter_model_items",
     "model_action",
 ]

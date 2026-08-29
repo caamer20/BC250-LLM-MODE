@@ -45,7 +45,10 @@ class HelpPage(ttk.Frame):
         ttk.Label(self, textvariable=self.result_var, wraplength=720, justify="left").pack(anchor="w", fill="x", pady=8)
         actions = ttk.Frame(self)
         actions.pack(fill="x")
-        ttk.Button(actions, text="Run checks", command=self._run_doctor).pack(side="left")
+        self.check_button = ttk.Button(
+            actions, text="Run checks", command=self._run_doctor
+        )
+        self.check_button.pack(side="left")
         ttk.Button(actions, text="Create redacted support bundle…", command=self._support_bundle).pack(side="left", padx=5)
         ttk.Button(actions, text="Copy diagnostic summary", command=self._copy_summary).pack(side="left")
         advanced = ttk.LabelFrame(self, text="Advanced tools", padding=7)
@@ -107,6 +110,9 @@ class HelpPage(ttk.Frame):
 
     def refresh(self, snapshot=None) -> None:
         del snapshot
+
+    def focus_primary(self) -> None:
+        self.check_button.focus_set()
 
     def leave(self) -> None:
         return None

@@ -10,6 +10,7 @@ from .forms import FormsMixin
 from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
 from .setup_page import SetupPageMixin, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
+from .view_state import Confirmation
 
 
 class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
@@ -77,6 +78,17 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
 
         self.drawer = BottomDrawer(self._outer)
         self._update_navigation()
+        self.protocol("WM_DELETE_WINDOW", self.request_close)
+        for index, route in enumerate(PRIMARY_ROUTES, 1):
+            self.bind(
+                f"<Control-Key-{index}>",
+                lambda _event, target=route: self._shortcut_route(target),
+            )
+        self.bind("<Control-l>", lambda _event: self._shortcut_logs())
+        self.bind("<Control-k>", lambda _event: self._shortcut_focus())
+        self.bind("<Escape>", lambda _event: self._shortcut_escape())
+        self.bind("<Map>", lambda _event: self._set_mapped(True))
+        self.bind("<Unmap>", lambda _event: self._set_mapped(False))
 
     def emit(self, line: str) -> None:
         self._log_lines.append(str(line))
@@ -143,6 +155,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             )
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         if target is Route.HOME:
             self.heading.configure(text="Home")
@@ -151,6 +164,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._page = HomePage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         if target is Route.MODELS:
             self.heading.configure(text="Models")
@@ -160,6 +174,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
                 self.content, self, self.application, context=context
             )
             self._page.mount()
+            self.heading.focus_set()
             return
         if target is Route.CHAT:
             self.heading.configure(text="Chat")
@@ -168,6 +183,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._page = ChatPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         if target is Route.SYSTEM:
             self.heading.configure(text="System")
@@ -176,6 +192,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._page = SystemPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         if target is Route.SETTINGS:
             self.heading.configure(text="Settings")
@@ -184,6 +201,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._page = SettingsPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         if target is Route.HELP:
             self.heading.configure(text="Help")
@@ -192,6 +210,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._page = HelpPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
+            self.heading.focus_set()
             return
         self.heading.configure(text=target.value.replace("/", " · ").title())
         ttk.Label(
@@ -199,6 +218,38 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             text="This page is being converted into the unified native shell. Existing controls remain available from Home during this boundary.",
             wraplength=720,
         ).pack(anchor="w", pady=20)
+        self.heading.focus_set()
+
+    def _shortcut_route(self, route: Route):
+        self.navigate(route)
+        return "break"
+
+    def _shortcut_logs(self):
+        self.open_logs()
+        return "break"
+
+    def _shortcut_focus(self):
+        focus = getattr(self._page, "focus_primary", None)
+        if callable(focus):
+            focus()
+        return "break"
+
+    def _shortcut_escape(self):
+        self.drawer.clear()
+        return "break"
+
+    def _set_mapped(self, mapped: bool) -> None:
+        coordinator = getattr(self, "_refresh_coordinator", None)
+        if coordinator is not None:
+            coordinator.mapped = mapped
+            coordinator.request_now()
+
+    def apply_preferences(self, preferences) -> None:
+        from .theme import apply_theme
+
+        self.gui_preferences = dict(preferences)
+        self.reduced_motion = bool(preferences.get("reduced_motion", False))
+        apply_theme(self, str(preferences.get("appearance") or "system"))
 
     def _dispose_page(self) -> None:
         page = self._page
@@ -275,12 +326,43 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
         elif not self._tracked_operation_ids:
             self._activity_shelf.pack_forget()
+        page_streaming = bool(getattr(self._page, "_streaming", False))
+        self._refresh_coordinator.active = bool(
+            summary.active_count or self.busy or page_streaming
+        )
 
     def _open_activity_center(self) -> None:
         self.navigate(Route.ACTIVITY)
 
     def _launch_chat_terminal(self) -> None:
         self.application.open_chat_terminal()
+
+    def request_close(self) -> None:
+        page = self._page
+        page_close = getattr(page, "request_close", None)
+        if callable(page_close) and not page_close(self.request_close):
+            return
+        try:
+            summary = self.application.operation_query.active_summary()
+        except Exception:
+            summary = None
+        if summary is not None and summary.active_count:
+            worker = (
+                f"Worker {summary.worker_lock_owner} currently owns execution."
+                if summary.worker_lock_owner and not summary.worker_lock_expired
+                else "Foreground-only work may pause safely until the app is reopened."
+            )
+            self.drawer.show_confirmation(
+                Confirmation(
+                    "Close BC250 LLM MODE?",
+                    f"{summary.active_count} durable operation(s) are active. {worker}",
+                    "Operation history and recovery evidence remain saved; closing never marks work cancelled.",
+                    "Close app",
+                ),
+                self.destroy,
+            )
+            return
+        self.destroy()
 
     def _refresh_cycle(self) -> None:
         broker = getattr(self, "instance_broker", None)

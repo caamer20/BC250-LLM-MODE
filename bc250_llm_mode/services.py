@@ -361,6 +361,54 @@ class SharingService:
         return https_sharing_status(view, runner)
 
 
+class UserPreferencesService:
+    """Small typed GUI preference boundary over ordinary settings rows."""
+
+    DEFAULTS = {
+        "appearance": "system",
+        "reduced_motion": False,
+        "notifications_enabled": True,
+    }
+
+    def __init__(self, units) -> None:
+        self._units = units
+
+    @classmethod
+    def validate(cls, values) -> dict[str, Any]:
+        if not isinstance(values, dict):
+            raise ValueError("preferences must be an object")
+        unknown = set(values) - set(cls.DEFAULTS)
+        if unknown:
+            raise ValueError(f"unknown preference keys: {sorted(unknown)}")
+        merged = {**cls.DEFAULTS, **values}
+        if merged["appearance"] not in {"system", "light", "dark"}:
+            raise ValueError("appearance must be system, light, or dark")
+        for key in ("reduced_motion", "notifications_enabled"):
+            if not isinstance(merged[key], bool):
+                raise ValueError(f"{key} must be boolean")
+        return merged
+
+    def current(self) -> dict[str, Any]:
+        from .repositories import SettingsRepository
+
+        with self._units.read() as conn:
+            settings = SettingsRepository(conn)
+            return self.validate({
+                key: settings.get(key, default)
+                for key, default in self.DEFAULTS.items()
+            })
+
+    def apply(self, values) -> dict[str, Any]:
+        from .repositories import SettingsRepository
+
+        checked = self.validate(values)
+        with self._units.begin() as conn:
+            settings = SettingsRepository(conn)
+            settings.set_many(checked)
+            settings.set_revision(settings.revision() + 1)
+        return checked
+
+
 class MaintenanceService:
     """Uninstall/desktop-safe teardown with exact destructive targets."""
 

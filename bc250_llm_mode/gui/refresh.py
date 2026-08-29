@@ -11,12 +11,17 @@ class RefreshCoordinator:
         self._callback = callback
         self._token = None
         self._closed = False
+        self._in_callback = False
         self.active = False
         self.mapped = True
 
     @property
     def token(self):
         return self._token
+
+    @property
+    def in_callback(self) -> bool:
+        return self._in_callback
 
     def interval_ms(self) -> int:
         if not self.mapped:
@@ -32,8 +37,12 @@ class RefreshCoordinator:
         self._token = None
         if self._closed:
             return
-        self._callback()
-        self.start()
+        self._in_callback = True
+        try:
+            self._callback()
+        finally:
+            self._in_callback = False
+            self.start()
 
     def request_now(self) -> None:
         if self._closed:

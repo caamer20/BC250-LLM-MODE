@@ -180,6 +180,7 @@ class HomePage(ttk.Frame):
             self._cards.columnconfigure(column, weight=1)
         self._shortcuts = ttk.Frame(self)
         self._shortcuts.pack(fill="x", pady=(10, 0))
+        self._apply_snapshot({})
         self.refresh()
 
     def mount(self, parent=None):
@@ -194,7 +195,18 @@ class HomePage(ttk.Frame):
     def refresh(self, snapshot: Mapping[str, Any] | None = None) -> None:
         if self._disposed:
             return
-        source = dict(snapshot) if snapshot is not None else self.application.home.snapshot().to_dict()
+        if snapshot is None:
+            self.shell.request_observation(
+                lambda: self.application.home.snapshot().to_dict(),
+                self._apply_snapshot,
+            )
+            return
+        self._apply_snapshot(snapshot)
+
+    def _apply_snapshot(self, snapshot: Mapping[str, Any]) -> None:
+        if self._disposed:
+            return
+        source = dict(snapshot)
         view = build_home_view(source)
         self._view = view
         self._headline.set(view.headline)
@@ -213,6 +225,14 @@ class HomePage(ttk.Frame):
                 self._shortcuts, text=label,
                 command=lambda target=route: self.shell.navigate(target),
             ).pack(side="left", padx=(0, 5))
+
+    def focus_primary(self) -> None:
+        self._primary_button.focus_set()
+
+    def observation_failed(self, _error: BaseException) -> None:
+        self._explanation.set(
+            "Status could not be refreshed; the last bounded view remains visible."
+        )
 
     def _run_primary(self) -> None:
         if self._view is None:

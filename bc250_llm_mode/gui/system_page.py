@@ -146,29 +146,49 @@ class SystemPage(ttk.Frame):
         self.refresh()
 
     def refresh(self, snapshot=None) -> None:
-        del snapshot
         if self._disposed:
             return
-        state = self.application.read_model()
-        runner = self.shell.runner()
-        def safe(call, fallback):
-            try:
-                return call()
-            except Exception:
-                return fallback
-        home = self.application.home.snapshot().to_dict()
-        home["system_mode"] = state.get("system_mode")
-        server = safe(lambda: self.application.model_server.status(state, runner), {})
-        webui = safe(lambda: self.application.openwebui.status(state, runner), {})
-        tailscale = safe(lambda: self.application.tailscale.status(runner), {})
-        sharing = safe(lambda: self.application.sharing.status(state, runner), {})
-        runtime = self.application.runtime_lifecycle.status()
-        backups = self.application.backup.list_backups()
-        cards = system_card_views(
-            home=home, server=server, webui=webui, tailscale=tailscale,
-            sharing=sharing, runtime=runtime, backups=len(backups),
-            platform_label=self.application.platform.profile.label,
-        )
+        if snapshot is not None:
+            self._render_cards(snapshot)
+            return
+
+        def observe():
+            state = self.application.read_model()
+            runner = self.shell.runner()
+
+            def safe(call, fallback):
+                try:
+                    return call()
+                except Exception:
+                    return fallback
+
+            home = self.application.home.snapshot().to_dict()
+            home["system_mode"] = state.get("system_mode")
+            server = safe(
+                lambda: self.application.model_server.status(state, runner), {}
+            )
+            webui = safe(
+                lambda: self.application.openwebui.status(state, runner), {}
+            )
+            tailscale = safe(
+                lambda: self.application.tailscale.status(runner), {}
+            )
+            sharing = safe(
+                lambda: self.application.sharing.status(state, runner), {}
+            )
+            runtime = self.application.runtime_lifecycle.status()
+            backups = self.application.backup.list_backups()
+            return system_card_views(
+                home=home, server=server, webui=webui, tailscale=tailscale,
+                sharing=sharing, runtime=runtime, backups=len(backups),
+                platform_label=self.application.platform.profile.label,
+            )
+
+        self.shell.request_observation(observe, self._render_cards)
+
+    def _render_cards(self, cards) -> None:
+        if self._disposed:
+            return
         for child in self._cards_frame.winfo_children():
             child.destroy()
         for index, card in enumerate(cards):
@@ -184,6 +204,16 @@ class SystemPage(ttk.Frame):
                 ttk.Button(actions, text=card.more_label, command=lambda code=card.more_code: self._act(code)).pack(side="left", padx=5)
         self._cards_frame.columnconfigure(0, weight=1)
         self._cards_frame.columnconfigure(1, weight=1)
+
+    def focus_primary(self) -> None:
+        self._cards_frame.focus_set()
+
+    def observation_failed(self, _error: BaseException) -> None:
+        self.shell.notice_bar.show_notice(Notice(
+            "warning", "System status is stale",
+            "One or more read-only probes failed; no ready state was inferred.",
+            dismissible=False,
+        ))
 
     def _act(self, code: str) -> None:
         result_box: dict[str, Any] = {}

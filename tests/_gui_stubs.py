@@ -38,6 +38,9 @@ class _AnyWidget:
     def __float__(self):
         raise ValueError("stub widget has no numeric value")
 
+    def destroy(self):
+        return None
+
 
 class _StrVar:
     def __init__(self, *_a, **kwargs) -> None:

@@ -77,7 +77,7 @@ class BoundedTaskLane:
                 with self._condition:
                     self._running = False
 
-    def close(self, timeout: float = 1.0) -> None:
+    def close(self, timeout: float = 0.25) -> None:
         with self._condition:
             self._closed = True
             self._pending = None

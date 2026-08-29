@@ -33,6 +33,7 @@ class ChatPage(ttk.Frame):
         self._streaming = False
         self._allow_leave = False
         self._pending_leave: Route | None = None
+        self._pending_close = None
         self._cancellation: ChatCancellation | None = None
         self._conversation_id: str | None = None
         self._title = "New conversation"
@@ -124,14 +125,20 @@ class ChatPage(ttk.Frame):
         self.refresh()
 
     def refresh(self, snapshot=None) -> None:
-        del snapshot
         if self._disposed:
             return
         self._flush_chunks()
-        try:
-            observation = self.application.chat_observation.current()
-        except Exception:
-            observation = self._observation
+        if snapshot is None:
+            self.shell.request_observation(
+                self.application.chat_observation.current,
+                self._apply_observation,
+            )
+            return
+        self._apply_observation(snapshot)
+
+    def _apply_observation(self, observation) -> None:
+        if self._disposed:
+            return
         prior_model = self._observation.model
         self._observation = observation
         self.profile_var.set(profile_indicator(
@@ -142,6 +149,14 @@ class ChatPage(ttk.Frame):
         self.notice_var.set(change or ("" if observation.ready else observation.guidance))
         if not self._streaming:
             self.send_button.configure(state="normal" if observation.ready else "disabled")
+
+    def focus_primary(self) -> None:
+        self.composer.focus_set()
+
+    def observation_failed(self, _error: BaseException) -> None:
+        self.notice_var.set(
+            "Chat readiness is stale. No ready state was inferred; refresh will retry."
+        )
 
     def _reload_list(self, *, select_first: bool = False) -> None:
         rows = self.application.conversations.list(
@@ -379,6 +394,11 @@ class ChatPage(ttk.Frame):
         if pending is not None:
             self._allow_leave = True
             self.shell.navigate(pending)
+            return
+        pending_close = self._pending_close
+        self._pending_close = None
+        if pending_close is not None:
+            pending_close()
 
     def _render_transcript(self) -> None:
         display = list(self._messages)
@@ -413,6 +433,24 @@ class ChatPage(ttk.Frame):
 
     def _stop_and_leave(self, target: Route) -> None:
         self._pending_leave = target
+        self.stop()
+
+    def request_close(self, callback) -> bool:
+        if not self._streaming:
+            return True
+        self.shell.drawer.show_confirmation(
+            Confirmation(
+                "Stop this response and close?",
+                "The response will stop; the model server remains under System control.",
+                "Your message and any partial response are saved locally before closing.",
+                "Stop and close",
+            ),
+            lambda: self._stop_and_close(callback),
+        )
+        return False
+
+    def _stop_and_close(self, callback) -> None:
+        self._pending_close = callback
         self.stop()
 
     def leave(self) -> None:

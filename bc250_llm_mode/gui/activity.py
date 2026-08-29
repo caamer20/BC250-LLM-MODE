@@ -223,6 +223,7 @@ class ActivityCenterFrame(ttk.Frame):
         super().__init__(master)
         self.application = application
         self.shell = shell
+        self._disposed = False
         self._selected_id: str | None = None
         self.rendered_summary: OperationSummary | None = None
 
@@ -278,8 +279,28 @@ class ActivityCenterFrame(ttk.Frame):
 
     def refresh(self) -> None:
         """Coalesced bounded refresh; never blocks on worker work."""
-        page = self.application.operation_query.list(page_size=50)
-        active = self.application.operation_query.active_summary()
+        if self._disposed:
+            return
+        scope = self.filter_var.get()
+
+        def observe():
+            page = self.application.operation_query.list(page_size=50)
+            active = self.application.operation_query.active_summary()
+            detail = (
+                self.application.operation_query.show(self._selected_id)
+                if self._selected_id else None
+            )
+            return page, active, detail, scope
+
+        if self.shell is not None:
+            self.shell.request_observation(observe, self._apply_observation)
+            return
+        self._apply_observation(observe())
+
+    def _apply_observation(self, result) -> None:
+        if self._disposed:
+            return
+        page, active, selected_detail, scope = result
         strip_bits = []
         if active.running_count:
             strip_bits.append(f"{active.running_count} working")
@@ -299,7 +320,7 @@ class ActivityCenterFrame(ttk.Frame):
         )
 
         self.operation_tree.delete(*self.operation_tree.get_children())
-        selected = filter_operations(page.items, self.filter_var.get())
+        selected = filter_operations(page.items, scope)
         ordered = sorted(
             selected,
             key=lambda s: (severity_rank(s.state), s.updated_at),
@@ -315,9 +336,7 @@ class ActivityCenterFrame(ttk.Frame):
             self._selected_id = None
             self._render_detail(None)
         elif self._selected_id:
-            self._render_detail(
-                self.application.operation_query.show(self._selected_id)
-            )
+            self._render_detail(selected_detail)
 
     def _selected_exists(self, items) -> bool:
         return any(i.operation_id == self._selected_id for i in items)
@@ -336,6 +355,7 @@ class ActivityCenterFrame(ttk.Frame):
         return None
 
     def dispose(self) -> None:
+        self._disposed = True
         self._selected_id = None
 
     # -- selection/actions -------------------------------------------------------
@@ -405,6 +425,12 @@ class ActivityCenterFrame(ttk.Frame):
             self.clipboard_append(text)
         except Exception:  # noqa: BLE001 - headless/stub safety
             pass
+
+    def focus_primary(self) -> None:
+        self.operation_tree.focus_set()
+
+    def observation_failed(self, _error: BaseException) -> None:
+        self.status_strip.config(text="Activity status is stale; refresh will retry.")
 
 
 __all__ = [

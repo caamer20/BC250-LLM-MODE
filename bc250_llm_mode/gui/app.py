@@ -17,6 +17,8 @@ from typing import Any
 from ..hardware import HardwareReport
 from ..logging_utils import CommandRunner, configure_logging
 
+MAX_GUI_EVENTS = 512
+
 
 class GuiBase(tk.Tk):
 
@@ -35,10 +37,10 @@ class GuiBase(tk.Tk):
         self._synced = dict(self.state_data)
         self.management = management
         self.title("BC250 LLM MODE")
-        self.geometry("920x760")
-        self.minsize(760, 620)
+        self.geometry("1000x700")
+        self.minsize(760, 560)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
-        self.events: queue.Queue[tuple[str, Any]] = queue.Queue()
+        self.events: queue.Queue[tuple[str, Any]] = queue.Queue(MAX_GUI_EVENTS)
         legacy_step = min(max(int(self.state_data.get("setup_phase", 0)), 0), 10)
         if management and self.state_data.get("setup_complete"):
             self.current_step = 10
@@ -67,17 +69,31 @@ class GuiBase(tk.Tk):
         self.busy = False
         self.hardware_report: HardwareReport | None = None
         self.optimization_return_to_complete = False
+        try:
+            self.gui_preferences = application.preferences.current()
+            self.reduced_motion = bool(
+                self.gui_preferences.get("reduced_motion", False)
+            )
+        except Exception:
+            self.gui_preferences = {
+                "appearance": "system", "reduced_motion": False,
+                "notifications_enabled": True,
+            }
+            self.reduced_motion = False
+        from .theme import apply_theme
+
+        apply_theme(self, str(self.gui_preferences.get("appearance") or "system"))
+        self._task_lanes = None
         self._build_shell()
-        self.show_step(self.current_step)
         self._schedule_lifecycle()
+        self.show_step(self.current_step)
+        self._refresh_coordinator.start()
 
     def _schedule_lifecycle(self) -> None:
-        """One refresh owner; task lanes are created lazily on first work."""
+        """Create the one refresh owner before any page submits observations."""
         from .refresh import RefreshCoordinator
 
-        self._task_lanes = None
         self._refresh_coordinator = RefreshCoordinator(self, self._refresh_cycle)
-        self._refresh_coordinator.start()
 
     def _refresh_cycle(self) -> None:
         self._drain_events(reschedule=False)
@@ -90,14 +106,20 @@ class GuiBase(tk.Tk):
                         self._route_generation
                         if hasattr(self, "_route_generation") else self.current_step
                     )
-                    if result.generation != current_generation:
-                        continue
                     if result.lane == "action":
                         self.busy = False
                         self.progress.stop()
                     if result.lane in {"action", "chat"}:
                         self._refresh_coordinator.active = False
+                    if result.generation != current_generation:
+                        continue
                     if result.error is not None:
+                        if result.lane == "observation":
+                            page = getattr(self, "_page", None)
+                            failed = getattr(page, "observation_failed", None)
+                            if callable(failed):
+                                failed(result.error)
+                            continue
                         from .view_state import Notice, sanitize_exception
 
                         if hasattr(self, "notice_bar"):
@@ -106,7 +128,16 @@ class GuiBase(tk.Tk):
                                 sanitize_exception(result.error), dismissible=False,
                             ))
                     elif callable(result.value):
-                        result.value()
+                        try:
+                            result.value()
+                        except Exception as exc:
+                            from .view_state import Notice, sanitize_exception
+
+                            if hasattr(self, "notice_bar"):
+                                self.notice_bar.show_notice(Notice(
+                                    "error", "View could not be refreshed",
+                                    sanitize_exception(exc), dismissible=False,
+                                ))
             except queue.Empty:
                 pass
 
@@ -135,7 +166,25 @@ class GuiBase(tk.Tk):
         self.continue_button.pack(side="right")
 
     def emit(self, line: str) -> None:
-        self.events.put(("log", line))
+        self._queue_event("log", line)
+
+    def _queue_event(self, kind: str, payload: Any) -> bool:
+        """Non-blocking bounded bridge; log bursts may be safely coalesced."""
+        try:
+            self.events.put_nowait((kind, payload))
+            return True
+        except queue.Full:
+            if kind == "log":
+                return False
+            try:
+                self.events.get_nowait()
+            except queue.Empty:
+                return False
+            try:
+                self.events.put_nowait((kind, payload))
+                return True
+            except queue.Full:
+                return False
 
     def _drain_events(self, *, reschedule: bool = True) -> None:
         try:
@@ -172,15 +221,14 @@ class GuiBase(tk.Tk):
                         self.emit("Setup failed; open the setup log for details.")
         except queue.Empty:
             pass
-        if reschedule and not hasattr(self, "_refresh_coordinator"):
-            self.after(100, self._drain_events)
+        del reschedule
 
     def runner(self) -> CommandRunner:
         return CommandRunner(configure_logging(self._paths.logs_dir), self.emit)
 
     def track_operation_id(self, operation_id: str | None) -> None:
         if operation_id:
-            self.events.put(("operation", str(operation_id)))
+            self._queue_event("operation", str(operation_id))
 
     def refresh_snapshot(self) -> None:
         """Discard the draft and pull a fresh repository-native snapshot."""
@@ -236,7 +284,8 @@ class GuiBase(tk.Tk):
         self.busy = True
         self.continue_button.configure(state="disabled")
         self.progress.configure(mode="indeterminate")
-        self.progress.start(12)
+        if not self.reduced_motion:
+            self.progress.start(12)
         self._ensure_task_lanes()
         self._refresh_coordinator.active = True
 
@@ -267,6 +316,25 @@ class GuiBase(tk.Tk):
         accepted = self._task_lanes.chat.submit(generation, task)
         if accepted:
             self._refresh_coordinator.active = True
+            self._refresh_coordinator.request_now()
+        return accepted
+
+    def request_observation(
+        self, work: Callable[[], Any], apply: Callable[[Any], None]
+    ) -> bool:
+        """Coalesce read-only probes and apply only current-page results."""
+        self._ensure_task_lanes()
+        generation = (
+            self._route_generation
+            if hasattr(self, "_route_generation") else self.current_step
+        )
+
+        def task():
+            value = work()
+            return lambda: apply(value)
+
+        accepted = self._task_lanes.observation.submit(generation, task)
+        if accepted and not self._refresh_coordinator.in_callback:
             self._refresh_coordinator.request_now()
         return accepted
 
