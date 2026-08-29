@@ -6,6 +6,16 @@
 
 **Relationship to the master plan:** This is an additive product-experience plan. `MASTER_IMPLEMENTATION_PLAN.md` remains authoritative for security, safety, persistence, recovery, and release gates. A feature in this document cannot bypass a dependency in the master plan.
 
+**Current GUI implementation authority (2026-08-28):** The foundations and
+most product services described here now exist. Use
+`UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` for the current GUI-1 → GUI-8
+conversion sequence: one lightweight tkinter shell, five setup chapters,
+task-oriented Home, unified Models, native chat, embedded Activity/System/
+Settings/Help, bounded refresh/rendering, legacy-surface deletion, and new
+Bazzite+CachyOS candidate evidence. This older document remains the product-
+experience requirements authority; its historical baseline/sequencing notes
+are not the current implementation order.
+
 ---
 
 ## 1. Direct answer: where development continues

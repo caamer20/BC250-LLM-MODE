@@ -1,5 +1,26 @@
 # Continuation guide for BC250 LLM MODE
 
+## Unified native GUI planning checkpoint
+
+**PLAN READY; IMPLEMENTATION NOT STARTED.**
+`UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
+GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
+second-window/terminal-handoff experience with one lightweight tkinter shell:
+five setup chapters over the unchanged canonical stages, task-oriented Home,
+one Model Library, native bounded chat, embedded Activity, System/Settings/
+Help pages, an in-window log/confirmation drawer, one refresh coordinator,
+and explicit RAM/CPU/thread/list bounds. It requires deletion of each legacy
+GUI path as it converts and preserves all durable-operation, thermal, fit,
+desktop-next-boot, platform-capability, privacy, and release gates.
+
+This is documentation-only. Planning baseline is `18aa49f`; packaged code
+remains `ccd1777`, so the current physical-evidence candidate is unchanged.
+Before GUI implementation begins, the owner must explicitly choose whether to
+qualify `ccd1777` first or supersede it and collect C4 evidence only for the
+eventual GUI candidate. Any GUI package-code change invalidates candidate-bound
+evidence for the old commit. The nine owner-controlled untracked files remain
+untouched.
+
 ## Current state
 
 **ADR 007 CACHYOS HOST INTEGRATION — IMPLEMENTED AND DEVELOPER-QUALIFIED;
@@ -10,11 +31,12 @@ rpm-ostree dependency. The repository again stops at the real-world evidence
 boundary, now expanded to require qualification on both advertised host
 profiles.
 
-**ADR 007 checkpoint (`ccd1777`):**
+**ADR 007 package-code checkpoint (`ccd1777`; documentation HEAD `18aa49f`):**
 
-- Branch: `main`, **82 commits ahead of `origin/main`**; push remains owner-
-  gated. Version `0.9.0.dev0`; database schema v10 and release-control schema/
-  policy revisions are unchanged.
+- The GUI planning audit began from `main` at `18aa49f`, synchronized with
+  `origin/main`; packaged implementation remains `ccd1777`. Version
+  `0.9.0.dev0`; database schema v10 and release-control schema/policy revisions
+  are unchanged. The later GUI-plan commit is documentation-only.
 - New `host_platform.py`: bounded `/etc/os-release`, immutable-root, systemd,
   command, boot-manager, and Cyan-capability observations; native Bazzite +
   CachyOS profiles; compatible-unqualified Arch/Fedora/Debian/SUSE families;
