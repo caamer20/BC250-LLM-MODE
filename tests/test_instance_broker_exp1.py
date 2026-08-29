@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import socket
 
-from bc250_llm_mode.instance_broker import ActivationRequest, GuiInstanceBroker, MAX_MESSAGE_BYTES
+from bc250_llm_mode.instance_broker import BrokerRequest, GuiInstanceBroker, MAX_MESSAGE_BYTES
 
 
 def test_one_owner_and_route_activation(tmp_path):
@@ -24,7 +24,7 @@ def test_one_owner_and_route_activation(tmp_path):
         }).encode())
         client.shutdown(socket.SHUT_WR)
         requests = owner.poll()
-        assert requests == [ActivationRequest("ROUTE", "models")]
+        assert requests == [BrokerRequest("ROUTE", "models")]
         assert client.recv(16) == b"OK"
         client.close()
     finally:

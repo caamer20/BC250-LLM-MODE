@@ -23,7 +23,7 @@ ALLOWED_VERBS = frozenset({"ACTIVATE", "ROUTE", "OPEN_OPERATION", "OPEN_MODEL"})
 
 
 @dataclass(frozen=True)
-class ActivationRequest:
+class BrokerRequest:
     verb: str
     route: str | None = None
     identifier: str | None = None
@@ -92,7 +92,7 @@ class GuiInstanceBroker:
         self._nonce = nonce
         return True
 
-    def activate_existing(self, request: ActivationRequest, timeout: float = 0.5) -> bool:
+    def activate_existing(self, request: BrokerRequest, timeout: float = 0.5) -> bool:
         try:
             nonce = self.nonce_path.read_text(encoding="utf-8").strip()
         except OSError:
@@ -115,7 +115,7 @@ class GuiInstanceBroker:
         finally:
             client.close()
 
-    def poll(self) -> list[ActivationRequest]:
+    def poll(self) -> list[BrokerRequest]:
         if self._server is None:
             return []
         requests = []
@@ -135,7 +135,7 @@ class GuiInstanceBroker:
                     value = json.loads(data.decode("utf-8"))
                     if not isinstance(value, dict) or value.get("nonce") != self._nonce:
                         continue
-                    request = ActivationRequest(
+                    request = BrokerRequest(
                         str(value.get("verb")),
                         value.get("route"), value.get("identifier"),
                     )

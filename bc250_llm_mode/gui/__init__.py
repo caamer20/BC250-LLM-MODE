@@ -31,12 +31,12 @@ def __getattr__(name: str):
 
 
 def run_gui(application, management: bool = False, *, route: str | None = None) -> None:
-    from ..instance_broker import ActivationRequest, GuiInstanceBroker
+    from ..instance_broker import BrokerRequest, GuiInstanceBroker
 
     broker = None
     if getattr(getattr(application, "paths", None), "app_dir", None) is not None:
         broker = GuiInstanceBroker(application.paths.app_dir)
-        request = ActivationRequest("ROUTE" if route else "ACTIVATE", route=route)
+        request = BrokerRequest("ROUTE" if route else "ACTIVATE", route=route)
         if not broker.acquire():
             if broker.activate_existing(request):
                 return
