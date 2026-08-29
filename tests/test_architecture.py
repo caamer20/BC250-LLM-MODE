@@ -12,7 +12,7 @@ from pathlib import Path
 
 PACKAGE = Path(__file__).parent.parent / "bc250_llm_mode"
 FRONTENDS = ("__main__.py", "chat.py", "gui/app.py", "gui/dashboard.py",
-             "gui/forms.py", "gui/steps.py")
+             "gui/forms.py", "gui/setup_page.py")
 PERSISTENCE = {"state.py", "legacy_import.py",
                "repositories.py", "db.py", "unit_of_work.py"}
 

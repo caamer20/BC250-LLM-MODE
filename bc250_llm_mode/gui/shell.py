@@ -14,12 +14,12 @@ from tkinter import ttk
 from .app import GuiBase
 from .dashboard import DashboardMixin
 from .forms import FormsMixin
-from .routes import PRIMARY_ROUTES, Route, available_routes, parse_route
-from .steps import StepsMixin
+from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
+from .setup_page import SetupPageMixin, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
 
 
-class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
+class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
     """The only application-owned ``Tk`` root."""
 
     def _build_shell(self) -> None:
@@ -37,6 +37,16 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
         ttk.Label(self._header, textvariable=self._header_status).pack(side="right")
 
         self.notice_bar = NoticeBar(self._outer)
+        self._activity_shelf = ttk.Frame(self._outer, padding=(8, 5))
+        self._activity_text = tk.StringVar(value="")
+        ttk.Label(self._activity_shelf, textvariable=self._activity_text).pack(
+            side="left", fill="x", expand=True
+        )
+        ttk.Button(
+            self._activity_shelf, text="View activity",
+            command=lambda: self.navigate(Route.ACTIVITY),
+        ).pack(side="right")
+        self._tracked_operation_ids: list[str] = []
         body = ttk.Frame(self._outer)
         body.pack(fill="both", expand=True, pady=(8, 0))
         self._nav = ttk.Frame(body, width=150)
@@ -89,7 +99,9 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
             setup_complete=bool(self.state_data.get("setup_complete")),
             operational=bool(getattr(self.application, "operational", True)),
         ))
-        management = Route.HOME in permitted
+        management = Route.HOME in permitted and not bool(
+            self.__dict__.get("_show_setup_ready", False)
+        )
         if management:
             self._nav.pack(side="left", fill="y", padx=(0, 10))
             self._setup_nav.pack_forget()
@@ -109,6 +121,11 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
         )
         if target not in permitted and target is not Route.SETUP:
             return
+        if target is not Route.SETUP and bool(
+            self.__dict__.get("_show_setup_ready", False)
+        ):
+            self._show_setup_ready = False
+            self._update_navigation()
         self._route_generation += 1
         self._route = target
         self._clear()
@@ -133,13 +150,67 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
         ).pack(anchor="w", pady=20)
 
     def show_step(self, step: int) -> None:
-        if step == 10 and self.state_data.get("setup_complete"):
+        if (
+            step == 10
+            and self.state_data.get("setup_complete")
+            and not bool(self.__dict__.get("_show_setup_ready", False))
+        ):
             self._update_navigation()
             self.navigate(Route.HOME)
             return
         self._route = Route.SETUP
         self._update_navigation()
         super().show_step(step)
+        stage = str(self.state_data.get("setup_stage") or "WELCOME")
+        active = None
+        if getattr(self.application, "operation_query", None) is not None:
+            try:
+                active = self.application.operation_query.active_summary().to_dict()
+            except Exception:
+                active = None
+        view = setup_resume_view(
+            stage,
+            visible_step=self.current_step,
+            legacy_phase=int(self.state_data.get("setup_phase", 0)),
+            reboot_required=bool(self.state_data.get("reboot_required")),
+            active_operation=active,
+        )
+        chapter_name = SETUP_CHAPTERS[view.visible_chapter]
+        self.heading.configure(
+            text=f"Setup · Chapter {view.visible_chapter + 1} of 5 · {chapter_name}"
+        )
+        self.progress.configure(maximum=5, value=view.progress_value)
+        self._header_status.set(view.status)
+
+    def _operation_tracked(self, operation_id: str) -> None:
+        if operation_id not in self._tracked_operation_ids:
+            self._tracked_operation_ids.append(operation_id)
+            del self._tracked_operation_ids[:-16]
+        short = operation_id if len(operation_id) <= 20 else operation_id[:17] + "…"
+        self._activity_text.set(f"Operation {short} was recorded")
+        self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+
+    def _refresh_activity_shelf(self) -> None:
+        query = getattr(self.application, "operation_query", None)
+        if query is None:
+            return
+        try:
+            summary = query.active_summary()
+        except Exception:
+            return
+        if summary.recovery_required_count:
+            self._activity_text.set(
+                f"{summary.recovery_required_count} operation(s) need recovery"
+            )
+            self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+        elif summary.active_count:
+            self._activity_text.set(
+                f"{summary.running_count} running · {summary.queued_count} queued · "
+                f"{summary.paused_count} paused"
+            )
+            self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+        elif not self._tracked_operation_ids:
+            self._activity_shelf.pack_forget()
 
     def _open_activity_center(self) -> None:
         self.navigate(Route.ACTIVITY)
@@ -160,6 +231,7 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
                     self.navigate(Route.ACTIVITY, {"operation_id": request.identifier})
                 elif request.verb == "OPEN_MODEL":
                     self.navigate(Route.MODELS, {"model_id": request.identifier})
+        self._refresh_activity_shelf()
         super()._refresh_cycle()
 
     def destroy(self) -> None:

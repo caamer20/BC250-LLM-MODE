@@ -87,6 +87,7 @@ from ..tailscale import (
     stop_tailscale,
     tailscale_status,
 )
+from .setup_page import WORKLOAD_GOALS, workload_goal
 
 
 class FormsMixin:
@@ -94,6 +95,23 @@ class FormsMixin:
     def _catalog(self) -> None:
         discovery = discover_local_models(self.state_data)
         self.model_choices: dict[str, tuple[str, Any]] = {}
+        goal_frame = ttk.LabelFrame(self.content, text="What do you want to optimize for?", padding=7)
+        goal_frame.pack(fill="x", pady=(0, 7))
+        self.workload_goal_var = tk.StringVar(
+            value=str(getattr(self, "workload_goal_id", "everyday"))
+        )
+        for goal in WORKLOAD_GOALS:
+            ttk.Radiobutton(
+                goal_frame,
+                text=goal.label,
+                value=goal.goal_id,
+                variable=self.workload_goal_var,
+                command=self._workload_goal_changed,
+            ).pack(side="left", padx=(0, 10))
+        self.workload_recommendations = ttk.Label(
+            goal_frame, wraplength=760, justify="left"
+        )
+        self.workload_recommendations.pack(anchor="w", fill="x", pady=(6, 0))
         frame = ttk.Frame(self.content)
         frame.pack(fill="both", expand=True)
         self.model_tree = ttk.Treeview(
@@ -159,6 +177,35 @@ class FormsMixin:
         self.quant_box.bind("<<ComboboxSelected>>", lambda _event: self._fit())
         self.ctx_var.trace_add("write", lambda *_: self._fit())
         self._model_changed()
+        self._workload_goal_changed()
+
+    def _workload_goal_changed(self) -> None:
+        goal = workload_goal(self.workload_goal_var.get())
+        self.workload_goal_id = goal.goal_id
+        if goal.context is not None:
+            self.ctx_var.set(goal.context)
+        self.requested_parallel_slots = goal.slots
+        candidates = []
+        for model in CATALOG:
+            matches = sum(tag in model.task_tags for tag in goal.preferred_tags)
+            if matches:
+                candidates.append((matches, model.params_b, model))
+        if goal.goal_id == "quality":
+            candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        else:
+            candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+        names = [item[2].display_name for item in candidates[:3]]
+        recommendation = (
+            "Browse all models and tune context/slots directly."
+            if goal.goal_id == "advanced"
+            else "Suggested starting points: " + ", ".join(names)
+        )
+        slots = "" if goal.slots is None else f" · {goal.slots} user slot(s)"
+        context = "" if goal.context is None else f" · {goal.context:,} tokens per user"
+        self.workload_recommendations.configure(
+            text=goal.description + context + slots + "\n" + recommendation
+        )
+        self._fit()
 
     def _add_model_folder(self) -> None:
         selected = filedialog.askdirectory(title="Choose a folder containing GGUF models")
@@ -189,7 +236,12 @@ class FormsMixin:
             source, selected = self.model_choices[self.model_tree.selection()[0]]
             model = fit_entry_for_local(selected) if source == "local" else selected
             ctx = int(self.ctx_var.get())
-            slots = int(normalized_settings(self.state_data.get("optimizations"))["parallel_slots"])
+            requested_slots = getattr(self, "requested_parallel_slots", None)
+            slots = int(
+                requested_slots
+                if requested_slots is not None
+                else normalized_settings(self.state_data.get("optimizations"))["parallel_slots"]
+            )
             message, can_continue = fit_message(model, self.quant_var.get(), ctx, slots=slots)
             self.fit_label.configure(text=message)
             self.continue_button.configure(state="normal" if can_continue else "disabled")
@@ -209,6 +261,9 @@ class FormsMixin:
 
     def _optimize(self) -> None:
         settings = normalized_settings(self.state_data.get("optimizations"))
+        requested_slots = getattr(self, "requested_parallel_slots", None)
+        if requested_slots is not None:
+            settings["parallel_slots"] = int(requested_slots)
         profile = getattr(getattr(self.application, "platform", None), "profile", None)
         self.gpu_tuning_available = bool(
             profile is None or profile.supports_gpu_tuning

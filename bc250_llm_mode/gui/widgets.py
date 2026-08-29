@@ -86,6 +86,22 @@ class BottomDrawer(ttk.Frame):
         ttk.Button(self._content, text="Close", command=self.clear).pack(anchor="e", pady=(5, 0))
         self.pack(fill="both")
 
+    def show_details(self, title: str, detail: str) -> None:
+        """Show one bounded read-only technical record in the shared drawer."""
+        self.clear()
+        ttk.Label(self._content, text=title, style="DrawerTitle.TLabel").pack(anchor="w")
+        frame = ttk.Frame(self._content)
+        frame.pack(fill="both", expand=True)
+        text = tk.Text(frame, height=14, wrap="word", state="normal")
+        text.insert("1.0", str(detail)[:8192])
+        text.configure(state="disabled")
+        text.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
+        scroll.pack(side="right", fill="y")
+        text.configure(yscrollcommand=scroll.set)
+        ttk.Button(self._content, text="Close", command=self.clear).pack(anchor="e", pady=(5, 0))
+        self.pack(fill="both")
+
 
 def _bounded_log(lines: list[str]) -> list[str]:
     retained: list[str] = []

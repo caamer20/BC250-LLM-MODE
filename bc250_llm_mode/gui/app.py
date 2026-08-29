@@ -11,7 +11,7 @@ import tkinter as tk
 
 from collections.abc import Callable
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from typing import Any
 
 from ..hardware import HardwareReport
@@ -83,9 +83,19 @@ class GuiBase(tk.Tk):
         self.minsize(760, 620)
         self.protocol("WM_DELETE_WINDOW", self.destroy)
         self.events: queue.Queue[tuple[str, Any]] = queue.Queue()
-        self.current_step = 10 if management and self.state_data.get("setup_complete") else min(
-            max(int(self.state_data.get("setup_phase", 0)), 0), 10
-        )
+        legacy_step = min(max(int(self.state_data.get("setup_phase", 0)), 0), 10)
+        if management and self.state_data.get("setup_complete"):
+            self.current_step = 10
+        else:
+            from .setup_page import setup_resume_view
+
+            stage = str(self.state_data.get("setup_stage") or "WELCOME")
+            self.current_step = setup_resume_view(
+                stage,
+                visible_step=legacy_step,
+                legacy_phase=legacy_step,
+                reboot_required=bool(self.state_data.get("reboot_required")),
+            ).resume_step
         if self.state_data.get("reboot_required"):
             try:
                 active = "amdgpu.runpm=0" in Path("/proc/cmdline").read_text(encoding="utf-8").split()
@@ -178,6 +188,10 @@ class GuiBase(tk.Tk):
                     self.progress.configure(mode="determinate", value=self.current_step)
                     self.continue_button.configure(state="normal")
                     payload()
+                elif kind == "operation":
+                    callback = getattr(self, "_operation_tracked", None)
+                    if callback is not None:
+                        callback(str(payload))
                 elif kind == "error":
                     self.busy = False
                     self.progress.stop()
@@ -191,7 +205,7 @@ class GuiBase(tk.Tk):
                             dismissible=False,
                         ))
                     else:
-                        messagebox.showerror("Setup failed", str(payload))
+                        self.emit("Setup failed; open the setup log for details.")
         except queue.Empty:
             pass
         if reschedule and not hasattr(self, "_refresh_coordinator"):
@@ -199,6 +213,10 @@ class GuiBase(tk.Tk):
 
     def runner(self) -> CommandRunner:
         return CommandRunner(configure_logging(self._paths.logs_dir), self.emit)
+
+    def track_operation_id(self, operation_id: str | None) -> None:
+        if operation_id:
+            self.events.put(("operation", str(operation_id)))
 
     def refresh_snapshot(self) -> None:
         """Discard the draft and pull a fresh repository-native snapshot."""
@@ -231,7 +249,7 @@ class GuiBase(tk.Tk):
         self.continue_button.configure(text="Continue", state="normal")
         renderers = (
             self._hardware, self._disclaimer, self._llm_mode, self._environment, self._catalog,
-            self._optimize, self._download, self._prepare, self._server, self._webui, self._complete,
+            self._optimize, self._download, self._prepare, self._server, self._webui, self._setup_ready,
         )
         renderers[self.current_step]()
 

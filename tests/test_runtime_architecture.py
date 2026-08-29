@@ -28,7 +28,7 @@ FRONTENDS = (
     "gui/app.py",
     "gui/dashboard.py",
     "gui/forms.py",
-    "gui/steps.py",
+    "gui/setup_page.py",
 )
 
 
