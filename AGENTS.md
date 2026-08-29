@@ -1,6 +1,6 @@
 # Continuation guide for BC250 LLM MODE
 
-## Unified native GUI planning checkpoint
+## Unified native GUI and appliance-experience planning checkpoint
 
 **PLAN READY; IMPLEMENTATION NOT STARTED.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
@@ -13,8 +13,21 @@ and explicit RAM/CPU/thread/list bounds. It requires deletion of each legacy
 GUI path as it converts and preserves all durable-operation, thermal, fit,
 desktop-next-boot, platform-capability, privacy, and release gates.
 
-This is documentation-only. Planning baseline is `18aa49f`; packaged code
-remains `ccd1777`, so the current physical-evidence candidate is unchanged.
+`APPLIANCE_EXPERIENCE_COMPLETION_IMPLEMENTATION_PLAN.md` is the reviewed
+follow-up after GUI-8. EXP-1 → EXP-8 cover the remaining lifecycle experience:
+verified normal installation and desktop-menu launch, a same-user GUI
+single-instance broker, exact PocketPal/OpenAI-client connection guidance and
+independently revocable credentials, named workload profiles with local
+evidence, a prioritized Maintenance inbox and privacy-safe notifications,
+typed repair/cleanup/undo, a late release-gated two-slot application updater,
+accessibility/privacy polish, and candidate-bound journey qualification. It
+explicitly rejects a tray daemon, telemetry, public Funnel/raw exposure,
+automatic updates, generic one-click repair, and on-the-fly UMA changes.
+
+These two planning checkpoints are documentation-only. The unified GUI plan
+was written from `18aa49f` and the lifecycle follow-up from `1911ad5`;
+packaged code remains `ccd1777`, so the current physical-evidence candidate is
+unchanged.
 Before GUI implementation begins, the owner must explicitly choose whether to
 qualify `ccd1777` first or supersede it and collect C4 evidence only for the
 eventual GUI candidate. Any GUI package-code change invalidates candidate-bound
@@ -31,12 +44,13 @@ rpm-ostree dependency. The repository again stops at the real-world evidence
 boundary, now expanded to require qualification on both advertised host
 profiles.
 
-**ADR 007 package-code checkpoint (`ccd1777`; documentation HEAD `18aa49f`):**
+**ADR 007 package-code checkpoint (`ccd1777`; later planning is docs-only):**
 
 - The GUI planning audit began from `main` at `18aa49f`, synchronized with
-  `origin/main`; packaged implementation remains `ccd1777`. Version
+  `origin/main`; the unified-GUI and appliance-experience plan commits after it
+  are documentation-only. Packaged implementation remains `ccd1777`. Version
   `0.9.0.dev0`; database schema v10 and release-control schema/policy revisions
-  are unchanged. The later GUI-plan commit is documentation-only.
+  are unchanged.
 - New `host_platform.py`: bounded `/etc/os-release`, immutable-root, systemd,
   command, boot-manager, and Cyan-capability observations; native Bazzite +
   CachyOS profiles; compatible-unqualified Arch/Fedora/Debian/SUSE families;

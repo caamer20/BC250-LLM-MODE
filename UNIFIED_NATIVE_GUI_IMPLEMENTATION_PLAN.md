@@ -17,6 +17,9 @@ as recorded in `AGENTS.md`
 **Safety, durability, and release authorities:** `MASTER_IMPLEMENTATION_PLAN.md`,
 accepted ADRs, and `V1_0_RELEASE_CLOSURE_IMPLEMENTATION_PLAN.md`
 
+**Post-GUI lifecycle successor:**
+`APPLIANCE_EXPERIENCE_COMPLETION_IMPLEMENTATION_PLAN.md` (EXP-1 through EXP-8)
+
 This plan turns the existing tkinter wizard/dashboard into one coherent,
 attractive, resource-conscious desktop application. It does not replace the
 durable operation engine, typed services, host-platform boundary, CLI, or

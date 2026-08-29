@@ -16,6 +16,14 @@ Bazzite+CachyOS candidate evidence. This older document remains the product-
 experience requirements authority; its historical baseline/sequencing notes
 are not the current implementation order.
 
+After GUI-8, use
+`APPLIANCE_EXPERIENCE_COMPLETION_IMPLEMENTATION_PLAN.md` for EXP-1 → EXP-8:
+desktop installation/launch and single-instance ownership, guided remote-client
+connections, named workload profiles, proactive maintenance/notifications,
+typed repair/cleanup/undo, signed application updates, accessibility/privacy,
+and physical journey qualification. That plan is additive and does not reopen
+the unified-window architecture.
+
 ---
 
 ## 1. Direct answer: where development continues
