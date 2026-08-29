@@ -15,51 +15,7 @@ from tkinter import ttk
 from typing import Any
 
 from ..hardware import HardwareReport
-from ..local_models import (
-    LocalModel,
-    discover_local_models,
-    fit_entry_for_local,
-    selected_fit_entry,
-)
 from ..logging_utils import CommandRunner, configure_logging
-from ..paths import AppPaths
-from ..model_manager import (
-    change_context,
-    register_and_switch_local,
-    switch_model,
-)
-from ..openwebui import (
-    install_open_webui,
-    open_webui_status,
-    restart_open_webui,
-    start_open_webui,
-    stop_open_webui,
-)
-from ..optimize import (
-    DEFAULT_OPTIMIZATIONS,
-    TRIMMABLE_SERVICES,
-    apply_optimizations,
-    kv_scale_for_settings,
-    normalized_settings,
-    validate_settings,
-)
-from ..server import (
-    health_check,
-    install_service,
-    restart_and_wait,
-    restart_service,
-    service_status,
-    start_service,
-    stop_service,
-)
-from ..tailscale import (
-    connect_tailscale,
-    disconnect_tailscale,
-    restart_tailscale,
-    start_tailscale,
-    stop_tailscale,
-    tailscale_status,
-)
 
 
 class GuiBase(tk.Tk):

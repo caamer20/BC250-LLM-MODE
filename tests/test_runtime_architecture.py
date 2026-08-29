@@ -26,9 +26,15 @@ FRONTENDS = (
     "__main__.py",
     "chat.py",
     "gui/app.py",
-    "gui/dashboard.py",
+    "gui/shell.py",
     "gui/forms.py",
     "gui/setup_page.py",
+    "gui/home_page.py",
+    "gui/models_page.py",
+    "gui/activity.py",
+    "gui/system_page.py",
+    "gui/settings_page.py",
+    "gui/help_page.py",
 )
 
 
@@ -185,15 +191,14 @@ def test_composition_registers_runtime_workflows_once():
     assert code.count("enqueue = EnqueueService(") == 1
 
 
-def test_dashboard_runtime_actions_do_not_commit():
-    text = _read("gui/dashboard.py")
+def test_system_runtime_actions_do_not_commit():
+    text = _read("gui/system_page.py")
     for needle in ("component.update_llamacpp", "component.rollback_llamacpp"):
-        assert needle not in text, f"dashboard legacy call {needle!r} remains"
-    update_action = text.index("_dashboard_llamacpp_update")
-    rollback_action = text.index("_dashboard_llamacpp_rollback")
-    span = text[update_action : rollback_action + 800]
-    assert "commit_narrow" not in span, (
-        "dashboard must not persist service-owned runtime changes"
+        assert needle not in text, f"system page legacy call {needle!r} remains"
+    assert "application.runtime_lifecycle.update(" in text
+    assert "application.runtime_lifecycle.rollback(" in text
+    assert "commit_narrow" not in text, (
+        "System page must not persist service-owned runtime changes"
     )
 
 

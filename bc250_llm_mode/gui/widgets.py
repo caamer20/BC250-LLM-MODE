@@ -40,12 +40,14 @@ class BottomDrawer(ttk.Frame):
         self._content.pack(fill="both", expand=True)
         self._confirm = None
         self._typed = tk.StringVar(value="")
+        self._log_search = tk.StringVar(value="")
 
     def clear(self) -> None:
         for child in self._content.winfo_children():
             child.destroy()
         self._confirm = None
         self._typed.set("")
+        self._log_search.set("")
         self.pack_forget()
 
     def show_confirmation(self, confirmation: Confirmation, on_confirm) -> None:
@@ -73,16 +75,36 @@ class BottomDrawer(ttk.Frame):
     def show_log(self, title: str, lines: list[str]) -> None:
         self.clear()
         ttk.Label(self._content, text=title, style="DrawerTitle.TLabel").pack(anchor="w")
+        bounded = _bounded_log(lines)
+        controls = ttk.Frame(self._content)
+        controls.pack(fill="x", pady=(3, 5))
+        ttk.Label(controls, text="Search loaded lines").pack(side="left")
+        search = ttk.Entry(controls, textvariable=self._log_search, width=28)
+        search.pack(side="left", padx=(5, 8))
+        count_var = tk.StringVar(value=f"{len(bounded)} lines · snapshot")
+        ttk.Label(controls, textvariable=count_var).pack(side="left")
         frame = ttk.Frame(self._content)
         frame.pack(fill="both", expand=True)
         text = tk.Text(frame, height=12, wrap="word", state="normal")
-        bounded = _bounded_log(lines)
-        text.insert("1.0", "\n".join(bounded))
-        text.configure(state="disabled")
         text.pack(side="left", fill="both", expand=True)
         scroll = ttk.Scrollbar(frame, orient="vertical", command=text.yview)
         scroll.pack(side="right", fill="y")
         text.configure(yscrollcommand=scroll.set)
+
+        def render(*_args) -> None:
+            needle = self._log_search.get().strip().casefold()
+            visible = (
+                [line for line in bounded if needle in line.casefold()]
+                if needle else bounded
+            )
+            text.configure(state="normal")
+            text.delete("1.0", "end")
+            text.insert("1.0", "\n".join(visible))
+            text.configure(state="disabled")
+            count_var.set(f"{len(visible)} of {len(bounded)} lines · snapshot")
+
+        self._log_search.trace_add("write", render)
+        render()
         ttk.Button(self._content, text="Close", command=self.clear).pack(anchor="e", pady=(5, 0))
         self.pack(fill="both")
 

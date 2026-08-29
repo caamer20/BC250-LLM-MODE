@@ -22,43 +22,6 @@ from ..local_models import (
     selected_fit_entry,
 )
 from ..memory_profile import analyze_memory_profile
-from ..model_manager import (
-    change_context,
-    register_and_switch_local,
-    switch_model,
-)
-from ..openwebui import (
-    install_open_webui,
-    open_webui_status,
-    restart_open_webui,
-    start_open_webui,
-    stop_open_webui,
-)
-from ..optimize import (
-    DEFAULT_OPTIMIZATIONS,
-    TRIMMABLE_SERVICES,
-    apply_optimizations,
-    kv_scale_for_settings,
-    normalized_settings,
-    validate_settings,
-)
-from ..server import (
-    health_check,
-    install_service,
-    restart_and_wait,
-    restart_service,
-    service_status,
-    start_service,
-    stop_service,
-)
-from ..tailscale import (
-    connect_tailscale,
-    disconnect_tailscale,
-    restart_tailscale,
-    start_tailscale,
-    stop_tailscale,
-    tailscale_status,
-)
 from .routes import Route, SETUP_CHAPTERS, setup_chapter_for
 from .view_state import Notice
 
@@ -642,11 +605,22 @@ class SetupPageMixin:
             def action() -> None:
                 try:
                     runner = self.runner()
-                    apply_optimizations(self.state_data, settings, runner)
+                    self.application.optimizations.apply(
+                        self.state_data, settings, runner
+                    )
                     if self.optimization_return_to_complete and self.state_data.get("current_model"):
-                        install_service(self.state_data, runner)
-                        restart_service(self.state_data, runner)
-                        health_check(self.state_data, runner)
+                        current = self.application.runtime_config.current()
+                        outcome = self.application.activation.activate({
+                            "model_alias": current.get("model_alias"),
+                            "context_per_slot": current.get("context"),
+                            "parallel_slots": current.get("slots"),
+                            "requested_by": "gui",
+                        })
+                        self.track_operation_id(outcome.operation_id)
+                        if not outcome.ok:
+                            raise RuntimeError(
+                                f"Optimization activation ended in {outcome.status}."
+                            )
                 finally:
                     self.commit_narrow()
             done = self._finish_optimization_management if self.optimization_return_to_complete else self._advance
@@ -708,23 +682,33 @@ class SetupPageMixin:
             self._work(action, self._after_prepare)
         elif step == 8:
             def action() -> None:
-                runner = self.runner()
-                install_service(self.state_data, runner, enable_and_start=False)
-                switch_model(
-                    self.application,
-                    self.state_data,
-                    str(self.state_data.get("installed_alias")
-                        or self.state_data.get("selected_model")),
-                    runner,
-                )
-                self.commit_narrow()
+                outcome = self.application.activation.activate({
+                    "model_alias": str(
+                        self.state_data.get("installed_alias")
+                        or self.state_data.get("selected_model")
+                    ),
+                    "context_per_slot": int(self.state_data.get("current_ctx", 8192)),
+                    "parallel_slots": int(
+                        self.application.optimizations.normalized(
+                            self.state_data.get("optimizations")
+                        )["parallel_slots"]
+                    ),
+                    "requested_by": "setup",
+                })
+                self.track_operation_id(outcome.operation_id)
+                if not outcome.ok:
+                    raise RuntimeError(
+                        f"Activation ended in {outcome.status}; operation {outcome.operation_id}."
+                    )
+                self.state_data.update(self.application.read_model())
             self._work(action, self._after_server)
         elif step == 9:
             install_webui = self.webui_var.get()
             def action() -> None:
                 if install_webui:
-                    install_open_webui(self.state_data, self.runner())
-                health_check(self.state_data, self.runner())
+                    self.application.openwebui.install(
+                        self.state_data, self.runner()
+                    )
                 self.state_data["setup_phase"] = 10
                 self.commit_narrow()
             self._work(action, self._after_optionals)

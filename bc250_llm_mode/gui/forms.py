@@ -9,32 +9,15 @@ from tkinter import filedialog, ttk
 from typing import Any
 
 from ..catalog import CATALOG, calculate_fit
-from ..chat import benchmark
 from ..local_models import (
-    LocalModel,
     discover_local_models,
     fit_entry_for_local,
     selected_fit_entry,
 )
-from ..model_manager import (
-    change_context,
-    register_and_switch_local,
-    switch_model,
-)
-from ..openwebui import (
-    install_open_webui,
-    open_webui_status,
-    restart_open_webui,
-    start_open_webui,
-    stop_open_webui,
-)
-from ..optimize import (
+from ..optimization_service import (
     DEFAULT_OPTIMIZATIONS,
     TRIMMABLE_SERVICES,
-    apply_optimizations,
-    kv_scale_for_settings,
-    normalized_settings,
-    validate_settings,
+    validate_selection_settings,
 )
 
 
@@ -58,35 +41,7 @@ def optimization_settings_from_values(
     state: dict[str, Any], values: dict[str, Any]
 ) -> dict[str, Any]:
     """Validate raw form values and re-check the selected model's VRAM fit."""
-    checked = validate_settings(values)
-    model = selected_fit_entry(state)
-    fit = calculate_fit(
-        model,
-        str(state["selected_quant"]),
-        int(state["current_ctx"]),
-        kv_scale=kv_scale_for_settings(checked),
-        parallel_slots=int(checked["parallel_slots"]),
-    )
-    if fit.verdict == "NO-FIT":
-        raise ValueError(f"Selected runtime settings do not fit: {fit.detail}")
-    return checked
-from ..server import (
-    health_check,
-    install_service,
-    restart_and_wait,
-    restart_service,
-    service_status,
-    start_service,
-    stop_service,
-)
-from ..tailscale import (
-    connect_tailscale,
-    disconnect_tailscale,
-    restart_tailscale,
-    start_tailscale,
-    stop_tailscale,
-    tailscale_status,
-)
+    return validate_selection_settings(state, values)
 from .setup_page import WORKLOAD_GOALS, workload_goal
 
 
@@ -240,7 +195,9 @@ class FormsMixin:
             slots = int(
                 requested_slots
                 if requested_slots is not None
-                else normalized_settings(self.state_data.get("optimizations"))["parallel_slots"]
+                else self.application.optimizations.normalized(
+                    self.state_data.get("optimizations")
+                )["parallel_slots"]
             )
             message, can_continue = fit_message(model, self.quant_var.get(), ctx, slots=slots)
             self.fit_label.configure(text=message)
@@ -260,7 +217,9 @@ class FormsMixin:
         ttk.Spinbox(parent, from_=low, to=high, increment=step, textvariable=variable, width=7).pack(side="left")
 
     def _optimize(self) -> None:
-        settings = normalized_settings(self.state_data.get("optimizations"))
+        settings = self.application.optimizations.normalized(
+            self.state_data.get("optimizations")
+        )
         requested_slots = getattr(self, "requested_parallel_slots", None)
         if requested_slots is not None:
             settings["parallel_slots"] = int(requested_slots)

@@ -1,10 +1,4 @@
-"""Persistent one-root native application shell.
-
-The current setup/dashboard renderers are mounted as a temporary legacy page
-while GUI-3 through GUI-6 convert them.  The default application entry already
-uses this owner so Activity and logs can transition in-window without another
-Tk root.
-"""
+"""Persistent one-root native application shell."""
 
 from __future__ import annotations
 
@@ -12,14 +6,13 @@ import tkinter as tk
 from tkinter import ttk
 
 from .app import GuiBase
-from .dashboard import DashboardMixin
 from .forms import FormsMixin
 from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
 from .setup_page import SetupPageMixin, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
 
 
-class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
+class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
     """The only application-owned ``Tk`` root."""
 
     def _build_shell(self) -> None:
@@ -91,8 +84,14 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             del self._log_lines[:-2000]
         super().emit(line)
 
-    def open_logs(self) -> None:
-        self.drawer.show_log("Recent setup and action log", self._log_lines)
+    def open_logs(self, source: str = "setup") -> None:
+        try:
+            lines = list(self.application.logs.tail(source, lines=200))
+        except (ValueError, OSError):
+            lines = []
+        if source == "setup" and self._log_lines:
+            lines.extend(self._log_lines[-200:])
+        self.drawer.show_log(f"Recent {source} log", lines)
 
     def _update_navigation(self) -> None:
         permitted = set(available_routes(
@@ -134,9 +133,11 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             self.heading.configure(text="Activity")
             from .activity import ActivityCenterFrame
 
-            self._page = ActivityCenterFrame(self.content, self.application)
-            self._page.pack(fill="both", expand=True)
-            self._page.start_polling()
+            self._page = ActivityCenterFrame(
+                self.content, self.application, shell=self
+            )
+            self._page.mount()
+            self._page.enter(context)
             return
         if target is Route.HOME:
             self.heading.configure(text="Home")
@@ -155,6 +156,30 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             )
             self._page.mount()
             return
+        if target is Route.SYSTEM:
+            self.heading.configure(text="System")
+            from .system_page import SystemPage
+
+            self._page = SystemPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            return
+        if target is Route.SETTINGS:
+            self.heading.configure(text="Settings")
+            from .settings_page import SettingsPage
+
+            self._page = SettingsPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            return
+        if target is Route.HELP:
+            self.heading.configure(text="Help")
+            from .help_page import HelpPage
+
+            self._page = HelpPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            return
         self.heading.configure(text=target.value.replace("/", " · ").title())
         ttk.Label(
             self.content,
@@ -172,9 +197,6 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
         dispose = getattr(page, "dispose", None)
         if callable(dispose):
             dispose()
-        stop = getattr(page, "stop_polling", None)
-        if callable(stop):
-            stop()
         self._page = None
 
     def show_step(self, step: int) -> None:
@@ -244,6 +266,9 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
     def _open_activity_center(self) -> None:
         self.navigate(Route.ACTIVITY)
 
+    def _launch_chat_terminal(self) -> None:
+        self.application.open_chat_terminal()
+
     def _refresh_cycle(self) -> None:
         broker = getattr(self, "instance_broker", None)
         if broker is not None:
@@ -262,7 +287,7 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
                     self.navigate(Route.MODELS, {"model_id": request.identifier})
         self._refresh_activity_shelf()
         page = self._page
-        if page is not None and self._route in {Route.HOME, Route.MODELS}:
+        if page is not None and self._route in {Route.HOME, Route.MODELS, Route.ACTIVITY}:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:
                 try:

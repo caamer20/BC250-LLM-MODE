@@ -169,7 +169,7 @@ def test_recovery_outcome_surfaces_persisted_remediation(tmp_path):
 
 
 def test_button_gating_rules():
-    from bc250_llm_mode.gui.dashboard import llamacpp_button_states
+    from bc250_llm_mode.gui.system_page import llamacpp_button_states
 
     healthy = {"rollback_available": True}
     assert llamacpp_button_states(healthy) == {
@@ -191,7 +191,7 @@ def test_button_gating_rules():
 
 
 def test_card_text_reports_barrier_active_and_promotion():
-    from bc250_llm_mode.gui.dashboard import llamacpp_card_text
+    from bc250_llm_mode.gui.system_page import llamacpp_card_text
 
     text = llamacpp_card_text({
         "promoted": {"short": "abc123def456"},

@@ -11,8 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 
 PACKAGE = Path(__file__).parent.parent / "bc250_llm_mode"
-FRONTENDS = ("__main__.py", "chat.py", "gui/app.py", "gui/dashboard.py",
-             "gui/forms.py", "gui/setup_page.py")
+FRONTENDS = (
+    "__main__.py", "chat.py", "gui/app.py", "gui/shell.py",
+    "gui/forms.py", "gui/setup_page.py", "gui/home_page.py",
+    "gui/models_page.py", "gui/activity.py", "gui/system_page.py",
+    "gui/settings_page.py", "gui/help_page.py",
+)
 PERSISTENCE = {"state.py", "legacy_import.py",
                "repositories.py", "db.py", "unit_of_work.py"}
 
@@ -85,13 +89,16 @@ def test_gui_modules_do_not_import_host_adapters():
 
 
 def test_status_refresh_never_persists():
-    text = _read("gui/dashboard.py")
-    start = text.index("def _refresh_dashboard")
-    end = text.index("\n    def ", start + 1)
-    body = text[start:end]
-    assert ".save(" not in body
-    assert "commit_narrow" not in body
-    assert "persist_state_changes" not in body
+    for rel in (
+        "gui/shell.py", "gui/home_page.py", "gui/models_page.py",
+        "gui/activity.py", "gui/system_page.py", "gui/settings_page.py",
+        "gui/help_page.py",
+    ):
+        text = _read(rel)
+        assert ".save(" not in text, f"{rel}: refresh surface saved state"
+        assert "persist_state_changes" not in text, (
+            f"{rel}: refresh surface used generic persistence"
+        )
 
 
 def test_runtime_handoff_written_only_by_its_service():

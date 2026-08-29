@@ -82,6 +82,10 @@ class Application:
     storage_capacity: Any = None
     platform: Any = None
     desktop_integration: Any = None
+    optimizations: Any = None
+    model_server: Any = None
+    tailscale: Any = None
+    logs: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -503,3 +507,12 @@ class Application:
         application.openwebui = OpenWebUIService(units, gateway=application.gateway)
         application.sharing = SharingService(units)
         application.maintenance = MaintenanceService(units)
+        from .optimization_service import OptimizationService
+
+        application.optimizations = OptimizationService(units)
+        from .log_tail import LogTailService
+        from .system_services import ModelServerService, TailscaleService
+
+        application.model_server = ModelServerService(units)
+        application.tailscale = TailscaleService(units)
+        application.logs = LogTailService(application.paths)

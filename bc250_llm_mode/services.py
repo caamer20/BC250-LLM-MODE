@@ -355,6 +355,11 @@ class SharingService:
         persist_state_diff(self._units, before, view)
         return result
 
+    def status(self, view, runner) -> Any:
+        from .sharing import https_sharing_status
+
+        return https_sharing_status(view, runner)
+
 
 class MaintenanceService:
     """Uninstall/desktop-safe teardown with exact destructive targets."""

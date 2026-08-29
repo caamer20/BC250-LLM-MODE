@@ -1,8 +1,9 @@
-"""Headless GUI contract: Wizard must keep its full surface through refactors.
+"""Headless GUI contract for the unified native application shell.
 
 tkinter is stubbed so Wizard can be *constructed* without a display; every
-widget call lands on an inert recorder. The method list below is the frozen
-surface of the pre-refactor monolith — the split must preserve every name.
+widget call lands on an inert recorder. Transitional setup methods remain
+covered here; deleted dashboard methods are intentionally not compatibility
+API.
 """
 
 from __future__ import annotations
@@ -29,13 +30,8 @@ WIZARD_METHODS = frozenset({
     "_model_changed", "_fit", "_labeled_spin", "_optimize",
     "_balanced_optimizations", "_update_optimization_fit",
     "_disable_host_optimizations", "_collect_optimization_settings",
-    "_download", "_prepare", "_server", "_webui", "_complete",
-    "_dashboard_service_card", "_populate_dashboard_models",
-    "_dashboard_action", "_refresh_dashboard", "_poll_dashboard",
-    "_open_shared_webui", "_dashboard_use_model", "_refresh_catalog_browser",
-    "_dashboard_install_catalog_model", "_dashboard_benchmark",
-    "_dashboard_change_context", "_dashboard_tail", "_dashboard_desktop_mode",
-    "_dashboard_enter_llm_mode", "_manage_optimizations", "_repair", "back",
+    "_download", "_prepare", "_server", "_webui",
+    "back",
     "_work", "_advance", "continue_step", "_after_llm_mode", "_finish_setup",
     "_finish_optimization_management", "_launch_chat_terminal",
 })
@@ -63,7 +59,7 @@ def wizard(tmp_path):
     return Wizard(application, management=True)
 
 
-def test_wizard_preserves_the_full_monolith_surface():
+def test_wizard_preserves_the_transitional_setup_surface():
     mro_attrs = set()
     for klass in Wizard.__mro__:
         mro_attrs.update(vars(klass))

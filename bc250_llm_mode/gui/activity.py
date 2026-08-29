@@ -26,9 +26,7 @@ from tkinter import ttk
 
 from ..operations.model import TERMINAL_STATES, OperationState
 from ..operations.views import OperationDetail, OperationSummary
-
-_REFRESH_MS = 1500  # bounded refresh cadence; coalesced by _poll guard
-
+from .view_state import Confirmation
 
 # -- pure presentation contract ----------------------------------------------------
 
@@ -56,6 +54,38 @@ _SEVERITY_ORDER = {
     "working": 3,
     "done": 4,
 }
+
+ACTIVITY_FILTERS = ("Active", "Needs attention", "Recent", "All")
+
+
+def filter_operations(
+    items: tuple[OperationSummary, ...] | list[OperationSummary], scope: str
+) -> tuple[OperationSummary, ...]:
+    """Bounded presentation filter over already-sanitized summaries."""
+    if scope not in ACTIVITY_FILTERS:
+        raise ValueError(f"unknown activity filter {scope!r}")
+    if scope == "Active":
+        selected = [item for item in items if item.state not in TERMINAL_STATES]
+    elif scope == "Needs attention":
+        selected = [
+            item for item in items
+            if severity_of(item.state) in {"recovery_required", "failed", "attention"}
+        ]
+    elif scope == "Recent":
+        selected = list(items[:25])
+    else:
+        selected = list(items)
+    return tuple(selected[:100])
+
+
+def timeline_text(detail: OperationDetail) -> str:
+    """Small text timeline; durable events and raw logs stay elsewhere."""
+    if not detail.steps:
+        return "No workflow steps were recorded."
+    return "  →  ".join(
+        f"{step.ordinal + 1}. {step.name}: {step.state}"
+        for step in detail.steps[:24]
+    )
 
 
 def severity_of(state: str) -> str:
@@ -189,25 +219,35 @@ def support_text(detail: OperationDetail) -> str:
 class ActivityCenterFrame(ttk.Frame):
     """Live operation center over the composed query/command services."""
 
-    def __init__(self, master, application, *, refresh_ms: int = _REFRESH_MS):
+    def __init__(self, master, application, *, shell=None):
         super().__init__(master)
         self.application = application
-        self._refresh_ms = max(500, int(refresh_ms))
+        self.shell = shell
         self._selected_id: str | None = None
-        self._after_token: str | None = None
         self.rendered_summary: OperationSummary | None = None
 
         self.status_strip = ttk.Label(self, text="")
         self.status_strip.pack(fill="x")
 
-        columns = ("state", "kind", "progress")
+        filters = ttk.Frame(self)
+        filters.pack(fill="x", pady=(3, 5))
+        ttk.Label(filters, text="Show").pack(side="left")
+        self.filter_var = tk.StringVar(value="Active")
+        filter_box = ttk.Combobox(
+            filters, values=ACTIVITY_FILTERS, state="readonly",
+            textvariable=self.filter_var, width=18,
+        )
+        filter_box.pack(side="left", padx=5)
+        filter_box.bind("<<ComboboxSelected>>", lambda _event: self.refresh())
+
+        columns = ("state", "kind", "progress", "updated")
         self.operation_tree = ttk.Treeview(
             self, columns=columns, show="headings", height=8,
             selectmode="browse",
         )
         for key, title, width in (
             ("state", "State", 170), ("kind", "Operation", 180),
-            ("progress", "Progress", 140),
+            ("progress", "Progress", 140), ("updated", "Updated", 150),
         ):
             self.operation_tree.heading(key, text=title)
             self.operation_tree.column(key, width=width)
@@ -222,6 +262,8 @@ class ActivityCenterFrame(ttk.Frame):
         self.detail_progress.pack(fill="x")
         self.detail_message = ttk.Label(self, text="", wraplength=560)
         self.detail_message.pack(fill="x")
+        self.detail_timeline = ttk.Label(self, text="", wraplength=720)
+        self.detail_timeline.pack(fill="x", pady=(4, 2))
         self.action_bar = ttk.Frame(self)
         self.action_bar.pack(fill="x")
         self.copy_button = ttk.Button(
@@ -257,14 +299,15 @@ class ActivityCenterFrame(ttk.Frame):
         )
 
         self.operation_tree.delete(*self.operation_tree.get_children())
+        selected = filter_operations(page.items, self.filter_var.get())
         ordered = sorted(
-            page.items,
+            selected,
             key=lambda s: (severity_rank(s.state), s.updated_at),
         )
         for item in ordered:
             self.operation_tree.insert(
                 "", "end", iid=item.operation_id,
-                values=(headline(item), item.kind, progress_text(item)),
+                values=(headline(item), item.kind, progress_text(item), item.updated_at),
             )
             if item.operation_id == self._selected_id:
                 self.operation_tree.selection_set(item.operation_id)
@@ -279,23 +322,21 @@ class ActivityCenterFrame(ttk.Frame):
     def _selected_exists(self, items) -> bool:
         return any(i.operation_id == self._selected_id for i in items)
 
-    def poll_once(self) -> None:
-        """Timer tick: one refresh, then reschedule."""
-        try:
-            self.refresh()
-        finally:
-            self._after_token = self.after(
-                self._refresh_ms, self.poll_once
-            )
+    def mount(self, parent=None):
+        del parent
+        self.pack(fill="both", expand=True)
+        return self
 
-    def start_polling(self) -> None:
-        if self._after_token is None:
-            self._after_token = self.after(self._refresh_ms, self.poll_once)
+    def enter(self, route_context=None) -> None:
+        if isinstance(route_context, dict) and route_context.get("operation_id"):
+            self._selected_id = str(route_context["operation_id"])
+        self.refresh()
 
-    def stop_polling(self) -> None:
-        if self._after_token is not None:
-            self.after_cancel(self._after_token)
-            self._after_token = None
+    def leave(self) -> None:
+        return None
+
+    def dispose(self) -> None:
+        self._selected_id = None
 
     # -- selection/actions -------------------------------------------------------
 
@@ -312,11 +353,13 @@ class ActivityCenterFrame(ttk.Frame):
             self.detail_headline.config(text="Select an operation")
             self.detail_progress.config(text="")
             self.detail_message.config(text="")
+            self.detail_timeline.config(text="")
             return
         summary = detail.summary
         self.detail_headline.config(text=headline(summary))
         self.detail_progress.config(text=progress_text(summary))
         self.detail_message.config(text=message_copy(summary))
+        self.detail_timeline.config(text=timeline_text(detail))
         for spec in action_plan(summary, self.application.operation_commands):
             button = ttk.Button(
                 self.action_bar, text=spec.label, command=self._guarded(spec),
@@ -324,7 +367,7 @@ class ActivityCenterFrame(ttk.Frame):
             button.pack(side="left", padx=3)
 
     def _guarded(self, spec: ActionSpec):
-        def run() -> None:
+        def execute() -> None:
             result = spec.command()
             if not result.ok:
                 self.detail_message.config(
@@ -334,6 +377,20 @@ class ActivityCenterFrame(ttk.Frame):
                     )
                 )
             self.refresh()
+        def run() -> None:
+            if spec.needs_confirm and self.shell is not None:
+                self.shell.drawer.show_confirmation(
+                    Confirmation(
+                        title=spec.label,
+                        consequence="This changes the durable operation record and may perform recovery work.",
+                        recovery="The operation engine keeps prior state and records the verified result.",
+                        confirm_label=spec.label,
+                        destructive=spec.key == "dismiss",
+                    ),
+                    execute,
+                )
+                return
+            execute()
         return run
 
     def _copy_support_details(self) -> None:
@@ -352,11 +409,14 @@ class ActivityCenterFrame(ttk.Frame):
 
 __all__ = [
     "ActivityCenterFrame",
+    "ACTIVITY_FILTERS",
     "action_plan",
     "headline",
+    "filter_operations",
     "message_copy",
     "progress_text",
     "severity_of",
     "severity_rank",
     "support_text",
+    "timeline_text",
 ]
