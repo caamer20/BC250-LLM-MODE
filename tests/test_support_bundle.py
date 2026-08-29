@@ -31,6 +31,7 @@ from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
 FIXED_NOW = "2026-02-01T12:00:00+00:00"
 
 SECRET_CANARY = "CANARY-SECRET-VALUE-12345"
+CLIENT_SECRET_CANARY = "CANARY-CLIENT-SECRET-VALUE-67890"
 HF_CANARY = "hf_CANARYTOKEN1234567890"
 SETTING_CANARY = "CANARYSETTINGSECRET123"
 PROMPT_CANARY = "CANARY-PROMPT-SECRET-XYZ"
@@ -70,6 +71,11 @@ def world(tmp_path):
 def _seed_secrets(world: BundleWorld) -> None:
     # A live credential file: read ONLY to feed the scrubber.
     (world.paths.app_dir / "gateway-credential").write_text(SECRET_CANARY)
+    managed = world.paths.app_dir / "connection-secrets"
+    managed.mkdir(mode=0o700)
+    client_secret = managed / f"{'1' * 32}-1.secret"
+    client_secret.write_text(CLIENT_SECRET_CANARY)
+    client_secret.chmod(0o600)
     # A secret-named setting.
     world.set_settings(hf_token=SETTING_CANARY, current_model="tiny")
     # A log line carrying several secret shapes + the profile path + the
@@ -77,6 +83,7 @@ def _seed_secrets(world: BundleWorld) -> None:
     world.paths.logs_dir.mkdir(parents=True, exist_ok=True)
     (world.paths.logs_dir / "app.log").write_text(
         f"started with token {SECRET_CANARY}\n"
+        f"client handshake {CLIENT_SECRET_CANARY}\n"
         f"using {HF_CANARY} for download\n"
         f"profile at {world.paths.app_dir}\n"
         f"loading model {world.paths.models_dir / MODEL_FILENAME}\n"
@@ -107,6 +114,7 @@ def test_bundle_passes_secret_path_and_prompt_canaries(world):
 
     # Secret canaries never appear.
     assert SECRET_CANARY not in blob
+    assert CLIENT_SECRET_CANARY not in blob
     assert HF_CANARY not in blob
     assert SETTING_CANARY not in blob
     # Prompt canary never appears (conversations are never read).
@@ -116,6 +124,7 @@ def test_bundle_passes_secret_path_and_prompt_canaries(world):
     assert PROFILE_LABEL in blob
     # The credential file content is not copied into the bundle.
     assert not (world.output / "gateway-credential").exists()
+    assert not (world.output / "connection-secrets").exists()
     # The raw database is never copied.
     assert not (world.output / "state.db").exists()
     # Manifest is well-formed.

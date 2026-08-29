@@ -75,6 +75,9 @@ class Application:
     operation_query: Any = None
     operation_commands: Any = None
     gateway: Any = None
+    connections: Any = None
+    connection_credentials: Any = None
+    connection_probes: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -556,3 +559,27 @@ class Application:
         application.model_server = ModelServerService(units)
         application.tailscale = TailscaleService(units)
         application.logs = LogTailService(application.paths)
+        # EXP-2: one multi-client command boundary, one bounded probe service,
+        # and one mutation-free connection snapshot shared by GUI and CLI.
+        from .connection_setup import (
+            ConnectionCredentialCommandService,
+            ConnectionProbeService,
+            ConnectionSetupQueryService,
+        )
+
+        application.connection_credentials = ConnectionCredentialCommandService(
+            units, application.paths.app_dir
+        )
+        application.connection_probes = ConnectionProbeService(
+            units, application.connection_credentials
+        )
+        application.connections = ConnectionSetupQueryService(
+            units,
+            application.connection_credentials,
+            state_supplier=lambda: application.read_model(),
+            runner_factory=lambda: application.runner(),
+            model_server=application.model_server,
+            openwebui=application.openwebui,
+            tailscale=application.tailscale,
+            sharing=application.sharing,
+        )

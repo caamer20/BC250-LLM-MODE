@@ -296,15 +296,32 @@ class SupportBundleService:
             self._paths.app_dir,
             redact_model_filenames=self._redact_model_filenames,
         )
+        def add_secret_file(secret_path: Path) -> None:
+            try:
+                with secret_path.open("rb") as handle:
+                    raw = handle.read(513)
+                if len(raw) <= 512:
+                    redactor.add_secret(raw.decode("utf-8").strip())
+            except (OSError, UnicodeDecodeError):
+                return
+
         # Feed the scrubber with live secrets WITHOUT emitting them.
         for secret_path in (
             self._paths.app_dir / "gateway-credential",
             self._paths.app_dir / "hf-token.env",
         ):
-            try:
-                redactor.add_secret(secret_path.read_text(encoding="utf-8").strip())
-            except OSError:
-                continue
+            add_secret_file(secret_path)
+        # EXP-2 keeps one secret per independently revocable client.  Read at
+        # most the schema's active-client bound and only to seed redaction;
+        # secret files are never emitted into the bundle.
+        managed = self._paths.app_dir / "connection-secrets"
+        try:
+            candidates = sorted(managed.iterdir(), key=lambda item: item.name)[:32]
+        except OSError:
+            candidates = []
+        for secret_path in candidates:
+            if secret_path.is_file() and not secret_path.is_symlink():
+                add_secret_file(secret_path)
         # Register model filenames for optional redaction.
         try:
             with self._units.read() as conn:

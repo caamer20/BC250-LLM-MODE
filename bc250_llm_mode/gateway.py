@@ -222,6 +222,7 @@ class Decision:
     reason: str
     scope: str | None = None
     status: int = 200
+    principal: str | None = None
 
 
 class _ScopeMatrix:
@@ -278,16 +279,40 @@ class GatewayPolicy:
         if len(body) > MAX_BODY_BYTES:
             return Decision(False, "denied", "request body too large",
                             status=413)
-        # 3. credential
-        if not self.store.is_valid(presented_token):
-            return Decision(False, "denied", "invalid credential",
-                            status=401)
+        # 3. credential.  Migration-011 stores authenticate to a named client
+        # and its own scopes; the legacy singleton adapter remains supported
+        # until its explicit compatibility surface is removed.
+        identity = None
+        authenticate = getattr(self.store, "authenticate", None)
+        if callable(authenticate):
+            identity = authenticate(presented_token)
+            if identity is None:
+                return Decision(False, "denied", "invalid credential",
+                                status=401, principal="unauthenticated")
+            granted = set(identity.scopes)
+            principal = str(identity.client_id)
+        else:
+            if not self.store.is_valid(presented_token):
+                return Decision(False, "denied", "invalid credential",
+                                status=401)
+            granted = self._allowed
+            principal = None
         # 4. scope
         required = _ScopeMatrix.required_scope(classification, body)
-        if required not in self._allowed:
+        if required not in granted:
             return Decision(False, "denied", f"scope not granted: {required}",
-                            scope=required, status=403)
-        return Decision(True, "ok", "allowed", scope=required, status=200)
+                            scope=required, status=403, principal=principal)
+        return Decision(True, "ok", "allowed", scope=required, status=200,
+                        principal=principal)
+
+    def record_use(self, principal: str, scope: str) -> None:
+        recorder = getattr(self.store, "record_use", None)
+        if callable(recorder):
+            endpoint = (
+                "models" if scope == SCOPE_MODELS_LIST
+                else ("stream" if scope == SCOPE_INFERENCE_STREAM else "chat")
+            )
+            recorder(principal, endpoint)
 
 
 def validate_body_bounds(body: bytes, ml) -> Decision:
@@ -443,12 +468,18 @@ class GatewayServer:
             header_bytes=header_bytes, presented_token=presented_token,
         )
         scope = decision.scope
+        principal = decision.principal or client
         if decision.outcome == "ok" and scope is not None:
-            decision = validate_body_bounds(body, None)
+            bounds = validate_body_bounds(body, None)
+            if not bounds.allow:
+                decision = Decision(
+                    bounds.allow, bounds.outcome, bounds.reason,
+                    scope=scope, status=bounds.status, principal=principal,
+                )
         # management/unknown handled by authorize
         if not decision.allow:
             self.audit.record(
-                actor=client, scope=scope or "n/a", request_id=request_id,
+                actor=principal, scope=scope or "n/a", request_id=request_id,
                 method=method, path=path, outcome=decision.outcome,
                 status=decision.status,
             )
@@ -466,7 +497,7 @@ class GatewayServer:
         # fail closed: cannot reach the expected backend identity
         if not self.backend_ready():
             self.audit.record(
-                actor=client, scope=scope or "n/a", request_id=request_id,
+                actor=principal, scope=scope or "n/a", request_id=request_id,
                 method=method, path=path, outcome="backend",
                 status=503,
             )
@@ -474,19 +505,18 @@ class GatewayServer:
                 {"error": "gateway cannot reach the expected backend identity"}
             ).encode("utf-8"), False
         # rate-limit before touching the backend
-        ok, msg = self.rate.check(client)
+        ok, msg = self.rate.check(principal)
         if not ok:
             self.audit.record(
-                actor=client, scope=scope or "n/a", request_id=request_id,
+                actor=principal, scope=scope or "n/a", request_id=request_id,
                 method=method, path=path, outcome="rate_limited", status=429,
             )
             return 429, json.dumps({"error": msg}).encode("utf-8"), False
         try:
             status, response_body = backend_request()
         except Exception as exc:  # noqa: BLE001 - map to bounded 502
-            self.rate.release(client)
             self.audit.record(
-                actor=client, scope=scope or "n/a", request_id=request_id,
+                actor=principal, scope=scope or "n/a", request_id=request_id,
                 method=method, path=path, outcome="backend", status=502,
             )
             return 502, json.dumps(
@@ -494,13 +524,20 @@ class GatewayServer:
                  "message": str(exc)[:200]}
             ).encode("utf-8"), False
         finally:
-            self.rate.release(client)
+            self.rate.release(principal)
         if len(response_body) > self._max_response:
             return 502, json.dumps({"error": "backend response too large"}).encode("utf-8"), False
         self.audit.record(
-            actor=client, scope=scope or "n/a", request_id=request_id,
+            actor=principal, scope=scope or "n/a", request_id=request_id,
             method=method, path=path, outcome="ok", status=status,
         )
+        if scope is not None and 200 <= status < 400:
+            try:
+                self.policy.record_use(principal, scope)
+            except Exception:
+                # Usage freshness is optional redacted evidence.  It can never
+                # turn a successful inference request into a failure.
+                pass
         return status, response_body, parse_stream(body)
 
     # -- helper that builds the actual backend HTTP call (bounded) -----------------
@@ -624,6 +661,24 @@ def build_gateway_server(
     policy = GatewayPolicy(store, allowed_scopes=allowed_scopes)
     return GatewayServer(
         policy, backend_base=backend_base,
+        should_report_backend=should_report_backend, audit=audit,
+    )
+
+
+def build_multi_client_gateway_server(
+    *,
+    authentication_store: Any,
+    backend_base: str,
+    should_report_backend: Callable[[], bool] | None = None,
+    audit: AuditLogger | None = None,
+) -> "GatewayServer":
+    """Compose migration-011 named-client authentication.
+
+    The injected store resolves a Bearer token to a client ID and that
+    client's scopes.  No plaintext credential is retained by this object.
+    """
+    return GatewayServer(
+        GatewayPolicy(authentication_store), backend_base=backend_base,
         should_report_backend=should_report_backend, audit=audit,
     )
 

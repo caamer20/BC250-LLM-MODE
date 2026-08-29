@@ -204,7 +204,8 @@ class ConnectionClientRepository:
             raise RepositoryConflict("CLIENT_ROTATE_CONFLICT", "credential generation conflicts") from exc
         cursor = self.conn.execute(
             "UPDATE connection_clients SET active_fingerprint = ?, "
-            "active_generation = ?, rotated_at = ?, revision = revision + 1 "
+            "active_generation = ?, secret_storage = 'managed', rotated_at = ?, "
+            "revision = revision + 1 "
             "WHERE client_id = ? AND revision = ? AND revoked_at IS NULL",
             (new_fingerprint, new_generation, now, client_id, expected_revision),
         )
