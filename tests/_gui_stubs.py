@@ -40,36 +40,45 @@ class _AnyWidget:
 
 
 class _StrVar:
-    def __init__(self, *_a, **_k) -> None:
-        pass
+    def __init__(self, *_a, **kwargs) -> None:
+        self.value = kwargs.get("value", "")
 
     def get(self):
-        return ""
+        return self.value
 
-    def set(self, _value):
-        pass
+    def set(self, value):
+        self.value = value
+
+    def trace_add(self, *_args, **_kwargs):
+        return None
 
 
 class _IntVar:
-    def __init__(self, *_a, **_k) -> None:
-        pass
+    def __init__(self, *_a, **kwargs) -> None:
+        self.value = kwargs.get("value", 8192)
 
     def get(self):
-        return 8192
+        return self.value
 
-    def set(self, _value):
-        pass
+    def set(self, value):
+        self.value = value
+
+    def trace_add(self, *_args, **_kwargs):
+        return None
 
 
 class _BoolVar:
-    def __init__(self, *_a, **_k) -> None:
-        pass
+    def __init__(self, *_a, **kwargs) -> None:
+        self.value = kwargs.get("value", False)
 
     def get(self):
-        return False
+        return self.value
 
-    def set(self, _value):
-        pass
+    def set(self, value):
+        self.value = value
+
+    def trace_add(self, *_args, **_kwargs):
+        return None
 
 
 class _StubModule(types.ModuleType):

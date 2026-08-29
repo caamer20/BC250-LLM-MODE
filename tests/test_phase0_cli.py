@@ -122,14 +122,11 @@ def test_run_gui_translates_missing_display(monkeypatch):
         gui.run_gui("application-sentinel")
 
 
-def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
-    """The refresh path must import ..thermals successfully at runtime."""
-    from _gui_stubs import install as _install  # noqa: F401
-
-    import bc250_llm_mode.gui.dashboard as dashboard
-    import bc250_llm_mode.thermals as thermals_module
+def test_default_home_replaces_legacy_dashboard_refresh(tmp_path):
+    """GUI-4 Home uses the composed snapshot, not the legacy probe panel."""
     from bc250_llm_mode.app import Application
     from bc250_llm_mode.gui import Wizard
+    from bc250_llm_mode.gui.home_page import HomePage
     from bc250_llm_mode.paths import AppPaths
 
     paths = AppPaths.temporary(tmp_path)
@@ -139,34 +136,10 @@ def test_dashboard_refresh_executes_thermal_import(monkeypatch, tmp_path):
         state, {**state, "setup_complete": True, "disclaimer_ack": True}
     )
     wizard = Wizard(application, management=True)
-
-    monkeypatch.setattr(dashboard, "service_status", lambda st, rn: {"active": False, "enabled": False})
-    monkeypatch.setattr(dashboard, "open_webui_status", lambda st, rn: {"installed": False, "running": False})
-    monkeypatch.setattr(dashboard, "tailscale_status", lambda rn: {
-        "installed": False, "connected": False, "daemon_active": False, "backend_state": "offline",
-    })
-    monkeypatch.setattr(dashboard, "https_sharing_status", lambda st, rn: {"available": False, "status": "Off"})
-    hardware = SimpleNamespace(to_dict=lambda: {
-        "valid": True, "supported": True, "risk": "none",
-        "estimated_bios_split": "~12/4", "detected_host_usable_gib": 3.6,
-    }, valid=True)
-    monkeypatch.setattr(dashboard, "detect_hardware", lambda *a, **k: hardware)
-    monkeypatch.setattr(dashboard, "analyze_memory_profile", lambda hw: SimpleNamespace(to_dict=lambda: hw.to_dict()))
-    monkeypatch.setattr(thermals_module, "read_gpu_temperature", lambda: 55.0)
-
-    captured = {}
-
-    class RecordingVar:
-        def set(self, value):
-            captured.setdefault("last", []).append(value)
-
-    for key in list(wizard.dashboard_status_vars):
-        wizard.dashboard_status_vars[key] = RecordingVar()
-
-    monkeypatch.setattr(type(wizard), "_work", lambda self, action, done: (action(), done()))
-    wizard._refresh_dashboard()
-
-    assert "GPU 55" in captured["last"][-1]
+    assert isinstance(wizard._page, HomePage)
+    assert "dashboard_status_vars" not in vars(wizard)
+    wizard._page.refresh()
+    assert wizard._page._view is not None
 
 
 def test_cli_parser_accepts_every_documented_action():

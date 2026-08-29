@@ -128,6 +128,7 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             self._update_navigation()
         self._route_generation += 1
         self._route = target
+        self._dispose_page()
         self._clear()
         if target is Route.ACTIVITY:
             self.heading.configure(text="Activity")
@@ -139,8 +140,20 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             return
         if target is Route.HOME:
             self.heading.configure(text="Home")
-            # Temporary GUI-2 legacy mount. GUI-4 replaces this renderer.
-            DashboardMixin._complete(self)
+            from .home_page import HomePage
+
+            self._page = HomePage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            return
+        if target is Route.MODELS:
+            self.heading.configure(text="Models")
+            from .models_page import ModelsPage
+
+            self._page = ModelsPage(
+                self.content, self, self.application, context=context
+            )
+            self._page.mount()
             return
         self.heading.configure(text=target.value.replace("/", " · ").title())
         ttk.Label(
@@ -148,6 +161,21 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             text="This page is being converted into the unified native shell. Existing controls remain available from Home during this boundary.",
             wraplength=720,
         ).pack(anchor="w", pady=20)
+
+    def _dispose_page(self) -> None:
+        page = self._page
+        if page is None:
+            return
+        leave = getattr(page, "leave", None)
+        if callable(leave):
+            leave()
+        dispose = getattr(page, "dispose", None)
+        if callable(dispose):
+            dispose()
+        stop = getattr(page, "stop_polling", None)
+        if callable(stop):
+            stop()
+        self._page = None
 
     def show_step(self, step: int) -> None:
         if (
@@ -160,6 +188,7 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
             return
         self._route = Route.SETUP
         self._update_navigation()
+        self._dispose_page()
         super().show_step(step)
         stage = str(self.state_data.get("setup_stage") or "WELCOME")
         active = None
@@ -232,9 +261,18 @@ class ApplicationWindow(SetupPageMixin, DashboardMixin, FormsMixin, GuiBase):
                 elif request.verb == "OPEN_MODEL":
                     self.navigate(Route.MODELS, {"model_id": request.identifier})
         self._refresh_activity_shelf()
+        page = self._page
+        if page is not None and self._route in {Route.HOME, Route.MODELS}:
+            refresh = getattr(page, "refresh", None)
+            if callable(refresh) and not self.busy:
+                try:
+                    refresh()
+                except Exception:
+                    pass
         super()._refresh_cycle()
 
     def destroy(self) -> None:
+        self._dispose_page()
         coordinator = getattr(self, "_refresh_coordinator", None)
         if coordinator is not None:
             coordinator.close()
