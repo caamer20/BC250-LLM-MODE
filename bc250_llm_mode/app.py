@@ -86,6 +86,9 @@ class Application:
     model_server: Any = None
     tailscale: Any = None
     logs: Any = None
+    chat_sessions: Any = None
+    conversations: Any = None
+    chat_observation: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -283,6 +286,40 @@ class Application:
             units,
             app_dir=application.paths.app_dir,
             state_supplier=lambda: application.read_model(),
+        )
+        # GUI-6: terminal and native chat share one bounded transport,
+        # conversation store, and readiness observation policy.
+        from .chat_service import ChatObservationService, ChatSessionService
+        from .conversation_service import ConversationService
+
+        def _chat_thermal_ok() -> bool:
+            try:
+                snapshot = application.home.snapshot().to_dict()
+                thermal = (snapshot.get("cards") or {}).get("thermal") or {}
+                health = thermal.get("health") or {}
+                status = str(
+                    health.get("effective_state") or health.get("state") or "UNVERIFIED"
+                )
+                return status not in {
+                    "BLOCKED", "RECOVERY_REQUIRED", "REPAIR_REQUIRED"
+                }
+            except Exception:
+                return False
+
+        application.chat_sessions = ChatSessionService(
+            thermal_ok=_chat_thermal_ok,
+            active_model=lambda: (
+                application.runtime_config.current().get("model_alias")
+                or application.read_model().get("current_model")
+            ),
+        )
+        application.conversations = ConversationService(
+            application.paths.conversations_dir
+        )
+        application.chat_observation = ChatObservationService(
+            state_supplier=lambda: application.read_model(),
+            home=application.home,
+            runtime=application.runtime_config,
         )
 
         # ONE durable activation path (Session 5C): adapter -> workflow ->

@@ -120,6 +120,11 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
         )
         if target not in permitted and target is not Route.SETUP:
             return
+        current_page = self._page
+        if current_page is not None and target is not self._route:
+            request_leave = getattr(current_page, "request_leave", None)
+            if callable(request_leave) and not request_leave(target):
+                return
         if target is not Route.SETUP and bool(
             self.__dict__.get("_show_setup_ready", False)
         ):
@@ -155,6 +160,14 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
                 self.content, self, self.application, context=context
             )
             self._page.mount()
+            return
+        if target is Route.CHAT:
+            self.heading.configure(text="Chat")
+            from .chat_page import ChatPage
+
+            self._page = ChatPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
             return
         if target is Route.SYSTEM:
             self.heading.configure(text="System")
@@ -287,7 +300,9 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
                     self.navigate(Route.MODELS, {"model_id": request.identifier})
         self._refresh_activity_shelf()
         page = self._page
-        if page is not None and self._route in {Route.HOME, Route.MODELS, Route.ACTIVITY}:
+        if page is not None and self._route in {
+            Route.HOME, Route.MODELS, Route.CHAT, Route.ACTIVITY,
+        }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:
                 try:

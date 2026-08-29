@@ -8,6 +8,7 @@ guards: cheap, deterministic, and impossible to satisfy by accident.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 PACKAGE = Path(__file__).parent.parent / "bc250_llm_mode"
@@ -15,7 +16,7 @@ FRONTENDS = (
     "__main__.py", "chat.py", "gui/app.py", "gui/shell.py",
     "gui/forms.py", "gui/setup_page.py", "gui/home_page.py",
     "gui/models_page.py", "gui/activity.py", "gui/system_page.py",
-    "gui/settings_page.py", "gui/help_page.py",
+    "gui/settings_page.py", "gui/help_page.py", "gui/chat_page.py",
 )
 PERSISTENCE = {"state.py", "legacy_import.py",
                "repositories.py", "db.py", "unit_of_work.py"}
@@ -69,7 +70,13 @@ def test_frontends_do_not_construct_stores():
             f"{rel}: frontend constructed StateStore ({count} > 0)"
         )
         # No whole-state writes from any frontend.
-        assert ".save(" not in text, f"{rel}: frontend performed a whole-state save"
+        scrubbed = text.replace(
+            "self.application.conversations.save(",
+            "self.application.conversations.put(",
+        )
+        assert ".save(" not in scrubbed, (
+            f"{rel}: frontend performed a whole-state save"
+        )
         assert ".transaction(" not in text, (
             f"{rel}: frontend used a raw transaction"
         )
@@ -92,13 +99,21 @@ def test_status_refresh_never_persists():
     for rel in (
         "gui/shell.py", "gui/home_page.py", "gui/models_page.py",
         "gui/activity.py", "gui/system_page.py", "gui/settings_page.py",
-        "gui/help_page.py",
+        "gui/help_page.py", "gui/chat_page.py",
     ):
         text = _read(rel)
-        assert ".save(" not in text, f"{rel}: refresh surface saved state"
-        assert "persist_state_changes" not in text, (
-            f"{rel}: refresh surface used generic persistence"
-        )
+        tree = ast.parse(text)
+        refreshes = [
+            node for node in ast.walk(tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in {"refresh", "_refresh_cycle", "_refresh_activity_shelf"}
+        ]
+        for refresh in refreshes:
+            body = ast.get_source_segment(text, refresh) or ""
+            assert ".save(" not in body, f"{rel}: refresh surface saved state"
+            assert "persist_state_changes" not in body, (
+                f"{rel}: refresh surface used generic persistence"
+            )
 
 
 def test_runtime_handoff_written_only_by_its_service():

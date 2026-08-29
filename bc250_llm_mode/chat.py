@@ -87,40 +87,20 @@ def stream_completion(
     overrides: dict[str, Any] | None = None,
     on_timings=None,
 ) -> str:
-    httpx, *_ = _dependencies()
-    port = int(state.get("server_port", 8080))
-    # cache_prompt lets llama.cpp reuse the KV cache for the shared prefix,
-    # which keeps multi-turn conversations dramatically faster.
-    payload = {
-        "model": state.get("current_model") or "local",
-        "messages": history,
-        "stream": True,
-        "cache_prompt": True,
-    }
-    if overrides:
-        payload.update({key: value for key, value in overrides.items() if value is not None})
-    chunks: list[str] = []
-    with httpx.stream(
-        "POST", f"http://127.0.0.1:{port}/v1/chat/completions", json=payload, timeout=CHAT_HTTP_TIMEOUT
-    ) as response:
-        response.raise_for_status()
-        for line in response.iter_lines():
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                event = json.loads(data)
-                text = event["choices"][0]["delta"].get("content") or ""
-            except (KeyError, IndexError, json.JSONDecodeError):
-                continue
-            if on_timings and isinstance(event.get("timings"), dict):
-                on_timings(event["timings"])
-            if text:
-                chunks.append(text)
-                on_text(text)
-    return "".join(chunks)
+    http_client, *_ = _dependencies()
+    from .chat_service import ChatSessionService, ChatTransportError
+
+    result = ChatSessionService(http_client=http_client).stream(
+        state,
+        history,
+        on_text,
+        overrides=overrides,
+        on_timings=on_timings,
+        conversation_id="terminal",
+    )
+    if not result.ok:
+        raise ChatTransportError(result)
+    return result.text
 
 
 def benchmark(
@@ -199,29 +179,20 @@ def conversation_path(state: dict[str, Any], name: str) -> Path:
 def save_conversation(state: dict[str, Any], name: str, conversation: list[dict[str, str]]) -> Path:
     if not conversation:
         raise ValueError("Nothing to save; the conversation is empty")
-    path = conversation_path(state, name)
-    path.write_text(json.dumps(conversation, indent=2), encoding="utf-8")
-    return path
+    from .conversation_service import ConversationService
+
+    service = ConversationService(conversations_dir(state))
+    service.save_named(name, conversation)
+    return conversation_path(state, name)
 
 
 def load_conversation(state: dict[str, Any], name: str) -> list[dict[str, str]]:
-    path = conversation_path(state, name)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as exc:
-        raise ValueError(f"No saved conversation named {name!r}") from exc
-    if (
-        not isinstance(data, list)
-        or not data
-        or not all(
-            isinstance(item, dict)
-            and item.get("role") in {"user", "assistant", "system"}
-            and isinstance(item.get("content"), str)
-            for item in data
-        )
-    ):
-        raise ValueError(f"Saved conversation {path.name} is malformed")
-    return data
+    from .conversation_service import ConversationService
+
+    record = ConversationService(conversations_dir(state)).load(name)
+    if not record.messages:
+        raise ValueError(f"Saved conversation {conversation_path(state, name).name} is malformed")
+    return [dict(message) for message in record.messages]
 
 
 class ThinkFilter:
@@ -364,6 +335,7 @@ def _print_help(console) -> None:
 def run_chat(application) -> None:
     httpx, PromptSession, FileHistory, Console = _dependencies()
     state = application.read_model()
+    store = application
     console = Console()
     log = configure_logging(state["logs_dir"])
     runner = CommandRunner(log, lambda line: console.print(f"[dim]{line}[/dim]"))
@@ -396,15 +368,23 @@ def run_chat(application) -> None:
             if speed:
                 console.print(f"  [dim]· {float(speed):.1f} tok/s[/dim]", end="")
 
-        answer = stream_completion(
-            state, request_history(), printer, overrides, show_timings
+        result = application.chat_sessions.stream(
+            state,
+            request_history(),
+            printer,
+            overrides=overrides,
+            on_timings=show_timings,
+            conversation_id="terminal",
         )
         if filter_ is not None:
             tail = filter_.flush()
             if tail:
                 console.print(tail, end="")
         console.print()
-        conversation.append({"role": "assistant", "content": answer})
+        if result.text:
+            conversation.append({"role": "assistant", "content": result.text})
+        if not result.ok:
+            console.print(f"[red]{result.message}[/red]")
 
     console.print("[bold cyan]BC250 LLM MODE[/bold cyan] — type /help for commands")
     while True:
@@ -627,7 +607,11 @@ def run_chat(application) -> None:
             parts = prompt.split(maxsplit=1)
             name = parts[1] if len(parts) > 1 else "default"
             try:
-                path = save_conversation(state, name, conversation)
+                record = application.conversations.save_named(
+                    name, conversation,
+                    last_model=state.get("current_model"),
+                )
+                path = application.paths.conversations_dir / f"{record.conversation_id}.json"
                 console.print(f"Saved to [cyan]{path}[/cyan]")
             except ValueError as exc:
                 console.print(f"[red]{exc}[/red]")
@@ -636,7 +620,8 @@ def run_chat(application) -> None:
             parts = prompt.split(maxsplit=1)
             name = parts[1] if len(parts) > 1 else "default"
             try:
-                loaded = load_conversation(state, name)
+                loaded_record = application.conversations.load(name)
+                loaded = [dict(message) for message in loaded_record.messages]
                 system_prompt = next(
                     (item["content"] for item in loaded if item["role"] == "system"), system_prompt
                 )

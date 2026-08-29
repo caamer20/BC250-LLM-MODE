@@ -35,6 +35,7 @@ FRONTENDS = (
     "gui/system_page.py",
     "gui/settings_page.py",
     "gui/help_page.py",
+    "gui/chat_page.py",
 )
 
 

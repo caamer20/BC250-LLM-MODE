@@ -32,6 +32,7 @@ DISPOSITIONS = {
     # Bounded HTTP transport targets (DEF-004).
     "hub_source.py": "migrate_http_transport",
     "chat.py": "migrate_http_transport",
+    "chat_service.py": "already_bounded",
     "__main__.py": "migrate_http_transport",
     # P4 gateway: purpose-built authenticated integration bridge. Its httpx
     # client is bounded by the typed GatewayPolicy timeouts (never timeout=None)
@@ -108,6 +109,8 @@ FROZEN_BASELINE = {
                      "shell_kwargs": 0, "timeout_none": 0},
     "chat.py": {"proc_calls": 0, "http_module": True,
                 "shell_kwargs": 0, "timeout_none": 0},
+    "chat_service.py": {"proc_calls": 0, "http_module": True,
+                        "shell_kwargs": 0, "timeout_none": 0},
     "hardware.py": {"proc_calls": 1, "http_module": False,
                     "shell_kwargs": 0, "timeout_none": 0},
     "hub_source.py": {"proc_calls": 0, "http_module": True,

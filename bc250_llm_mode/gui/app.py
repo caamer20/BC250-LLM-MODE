@@ -86,9 +86,17 @@ class GuiBase(tk.Tk):
             try:
                 while True:
                     result = lanes.results.get_nowait()
-                    self.busy = False
-                    self._refresh_coordinator.active = False
-                    self.progress.stop()
+                    current_generation = (
+                        self._route_generation
+                        if hasattr(self, "_route_generation") else self.current_step
+                    )
+                    if result.generation != current_generation:
+                        continue
+                    if result.lane == "action":
+                        self.busy = False
+                        self.progress.stop()
+                    if result.lane in {"action", "chat"}:
+                        self._refresh_coordinator.active = False
                     if result.error is not None:
                         from .view_state import Notice, sanitize_exception
 
@@ -229,10 +237,7 @@ class GuiBase(tk.Tk):
         self.continue_button.configure(state="disabled")
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        from .tasks import TaskLanes
-
-        if self._task_lanes is None:
-            self._task_lanes = TaskLanes()
+        self._ensure_task_lanes()
         self._refresh_coordinator.active = True
 
         def task():
@@ -245,6 +250,25 @@ class GuiBase(tk.Tk):
             self.continue_button.configure(state="normal")
             return
         self._refresh_coordinator.request_now()
+
+    def _ensure_task_lanes(self) -> None:
+        if self._task_lanes is None:
+            from .tasks import TaskLanes
+
+            self._task_lanes = TaskLanes()
+
+    def submit_chat(self, task: Callable[[], Any]) -> bool:
+        """Submit one stream to the dedicated bounded chat lane."""
+        self._ensure_task_lanes()
+        generation = (
+            self._route_generation
+            if hasattr(self, "_route_generation") else self.current_step
+        )
+        accepted = self._task_lanes.chat.submit(generation, task)
+        if accepted:
+            self._refresh_coordinator.active = True
+            self._refresh_coordinator.request_now()
+        return accepted
 
     def _advance(self) -> None:
         self.commit_narrow()
