@@ -250,6 +250,25 @@ def test_unauthorized_success_causes_probe_failure(world):
     assert report.results["local_authorized"] == "passed"
 
 
+def test_disable_all_requires_explicit_new_client_and_sharing_enable(world):
+    _units, _app_dir, service = world
+    service.add_client(label="Phone", client_kind="pocketpal")
+    access = service.access_state()
+    service.disable_all(expected_revision=access["revision"])
+    assert service.readiness()["enabled"] is False
+    replacement = ConnectionCredentialCommandService(
+        service._units, service._app_dir, clock=lambda: NOW,
+        id_provider=lambda: "2" * 32,
+        secret_provider=lambda: "replacement-secret-000000000000000000000",
+    )
+    replacement.add_client(label="New phone", client_kind="pocketpal")
+    assert replacement.readiness()["enabled"] is False
+    revision = replacement.access_state()["revision"]
+    enabled = replacement.enable_for_sharing(expected_revision=revision)
+    assert enabled["access"]["enabled"] is True
+    assert replacement.readiness()["ready_clients"] == 1
+
+
 def test_composed_query_snapshot_is_live_bounded_and_read_only(world):
     units, _app_dir, credentials = world
     credentials.add_client(label="Phone", client_kind="pocketpal")

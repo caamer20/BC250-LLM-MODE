@@ -25,6 +25,7 @@ PRIMARY_ROUTES = (
     Route.HOME,
     Route.MODELS,
     Route.CHAT,
+    Route.CONNECTIONS,
     Route.ACTIVITY,
     Route.SYSTEM,
     Route.SETTINGS,

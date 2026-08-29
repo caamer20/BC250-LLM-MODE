@@ -146,6 +146,14 @@ class HomeQueryService:
                 "SELECT fingerprint, scopes, created_at, rotated_at, revoked_at "
                 "FROM gateway_credentials WHERE id = 1"
             ).fetchone()
+            connection_rows = conn.execute(
+                "SELECT client_id, scopes, active_fingerprint, active_generation, "
+                "secret_storage, rotated_at, revoked_at FROM connection_clients "
+                "ORDER BY client_id LIMIT 32"
+            ).fetchall()
+            connection_access = conn.execute(
+                "SELECT enabled, disabled_at FROM connection_access_state WHERE id = 1"
+            ).fetchone()
 
         cards: dict[str, dict[str, Any]] = {}
         dimensions: list[H.HealthDimension] = []
@@ -158,8 +166,9 @@ class HomeQueryService:
             ("thermal", self._thermal_card(thermal, generated_at)),
             ("operations", self._operations_card(generated_at)),
             ("storage", self._storage_card(generated_at)),
-            ("integrations", self._integrations_card(settings, gateway_row,
-                                                     generated_at)),
+            ("integrations", self._integrations_card(
+                settings, gateway_row, connection_rows, connection_access,
+                generated_at)),
             ("backup", self._backup_card(settings, generated_at)),
             ("host", self._host_card(settings, generated_at)),
         ):
@@ -442,16 +451,39 @@ class HomeQueryService:
         }
         return card, dim
 
-    def _integrations_card(self, settings: dict, gateway_row, now: str):
-        revoked = bool(gateway_row and gateway_row["revoked_at"])
-        provisioned = bool(gateway_row) and not revoked
-        secret_file = self._paths.app_dir / "gateway-credential"
-        verified = provisioned and secret_file.exists()
+    def _integrations_card(
+        self, settings: dict, gateway_row, connection_rows,
+        connection_access, now: str,
+    ):
+        access_enabled = bool(
+            connection_access is None or connection_access["enabled"])
+        active = [row for row in connection_rows if row["revoked_at"] is None]
 
-        if revoked:
+        def client_file(row):
+            if row["secret_storage"] == "legacy-singleton":
+                return self._paths.app_dir / "gateway-credential"
+            return (
+                self._paths.app_dir / "connection-secrets" /
+                f"{row['client_id']}-{int(row['active_generation'])}.secret")
+
+        ready = [row for row in active if client_file(row).is_file()]
+        legacy_revoked = bool(gateway_row and gateway_row["revoked_at"])
+        legacy_ready = bool(
+            gateway_row and not legacy_revoked
+            and (self._paths.app_dir / "gateway-credential").is_file())
+        provisioned = bool(active) or (
+            not connection_rows and bool(gateway_row) and not legacy_revoked)
+        verified = access_enabled and (bool(ready) or (
+            not connection_rows and legacy_ready))
+        revoked = bool(connection_rows and not active) or legacy_revoked
+
+        if not access_enabled:
+            state, evidence = H.BLOCKED, "remote API access disabled"
+        elif revoked:
             state, evidence = H.BLOCKED, "gateway credential revoked"
         elif verified:
-            state, evidence = H.READY, "gateway credential provisioned and present"
+            state, evidence = H.READY, (
+                f"{len(ready) if connection_rows else 1} client credential(s) ready")
         elif provisioned:
             state, evidence = H.DEGRADED, (
                 "gateway credential provisioned but secret file missing")
@@ -467,11 +499,16 @@ class HomeQueryService:
                 "provisioned": provisioned,
                 "revoked": revoked,
                 "verified": verified,
+                "access_enabled": access_enabled,
+                "active_clients": len(active),
+                "ready_clients": len(ready),
                 "fingerprint_prefix": (
-                    gateway_row["fingerprint"][:8] if gateway_row else None),
-                "scopes": gateway_row["scopes"] if gateway_row else None,
-                "rotated_at": (gateway_row["rotated_at"] if gateway_row
-                               else None),
+                    active[0]["active_fingerprint"][:8] if active
+                    else gateway_row["fingerprint"][:8] if gateway_row else None),
+                "scopes": active[0]["scopes"] if active
+                else gateway_row["scopes"] if gateway_row else None,
+                "rotated_at": active[0]["rotated_at"] if active
+                else gateway_row["rotated_at"] if gateway_row else None,
             },
             "topology": {
                 "gateway_port": settings.get("gateway_port", 9071),

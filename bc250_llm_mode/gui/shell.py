@@ -46,6 +46,7 @@ class ApplicationWindow(SetupWindow):
         self._nav_buttons: dict[Route, object] = {}
         labels = {
             Route.HOME: "Home", Route.MODELS: "Models", Route.CHAT: "Chat",
+            Route.CONNECTIONS: "Connections",
             Route.ACTIVITY: "Activity", Route.SYSTEM: "System",
             Route.SETTINGS: "Settings", Route.HELP: "Help",
         }
@@ -179,6 +180,15 @@ class ApplicationWindow(SetupWindow):
             from .chat_page import ChatPage
 
             self._page = ChatPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
+        if target is Route.CONNECTIONS:
+            self.heading.configure(text="Connections")
+            from .connections_page import ConnectionsPage
+
+            self._page = ConnectionsPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
             self.heading.focus_set()
@@ -381,7 +391,8 @@ class ApplicationWindow(SetupWindow):
         self._refresh_activity_shelf()
         page = self._page
         if page is not None and self._route in {
-            Route.HOME, Route.MODELS, Route.CHAT, Route.ACTIVITY,
+            Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
+            Route.ACTIVITY,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:

@@ -185,9 +185,9 @@ def build_connection_snapshot(
     urls = endpoint_urls(dns_name)
     probe_state = dict(probes or {})
     model_ok = bool(model.get("healthy")) and alias is not None
+    gateway_ok = bool(gateway.get("healthy"))
     credential_ok = bool(
-        gateway.get("healthy") and gateway.get("enabled")
-        and int(gateway.get("ready_clients", 0)) > 0)
+        gateway.get("enabled") and int(gateway.get("ready_clients", 0)) > 0)
     local_auth_ok = probe_state.get("local_authorized") == "passed"
     local_negative_ok = probe_state.get("local_unauthorized") == "passed"
     tailnet_ok = bool(tailscale.get("connected")) and dns_name is not None
@@ -202,6 +202,7 @@ def build_connection_snapshot(
 
     ordered = (
         ("model", model_ok, "Start and verify the selected model."),
+        ("gateway", gateway_ok, "Start or repair the authenticated API gateway."),
         ("credential", credential_ok, "Create a client credential."),
         ("local-authorized", local_auth_ok, "Run the authorized local connection test."),
         ("local-unauthorized", local_negative_ok, "Run the required unauthorized local test."),
@@ -447,6 +448,17 @@ class ConnectionCredentialCommandService:
         self._unlink(self._app_dir / _LEGACY_SECRET_FILENAME)
         return {"action": "disabled-all", "access": state}
 
+    def enable_for_sharing(self, *, expected_revision: int) -> dict[str, Any]:
+        """Explicit sharing-start transition; never called by read paths."""
+        readiness = self.readiness()
+        if readiness["ready_clients"] < 1:
+            raise ConnectionCredentialError(
+                "create a ready client credential before enabling sharing")
+        with self._units.begin() as conn:
+            state = ConnectionAccessRepository(conn, clock=self._clock).enable(
+                expected_revision=expected_revision)
+        return {"action": "enabled-for-sharing", "access": state}
+
     def _read_secret(self, record: ConnectionClientRecord) -> str | None:
         path = self._path(record.client_id, record.active_generation, record.secret_storage)
         flags = os.O_RDONLY
@@ -496,6 +508,28 @@ class ConnectionCredentialCommandService:
             "ready_clients": ready,
             "revision": access["revision"],
         }
+
+    def write_state_fields(self, state: dict[str, Any]) -> dict[str, Any]:
+        """Project migration-011 truth into legacy integration adapter fields.
+
+        An enabled profile with no named clients may still use the migration-
+        008 singleton compatibility path.  Global disable always overrides it.
+        """
+        readiness = self.readiness()
+        if readiness["enabled"] and readiness["active_clients"] == 0:
+            return state
+        verified = bool(
+            readiness["enabled"] and readiness["ready_clients"] > 0)
+        state.update(
+            gateway_provisioned=bool(readiness["active_clients"]),
+            gateway_verified=verified,
+            gateway_backend_identity=(
+                "verified" if verified else
+                ("disabled" if not readiness["enabled"] else "unverified")),
+            gateway_credential_file=(
+                self.resolve_openwebui_credential_file() if verified else None),
+        )
+        return state
 
     def resolve_openwebui_credential_file(self) -> str | None:
         """Internal container adapter path; never included in snapshots."""

@@ -327,12 +327,29 @@ class SetupService:
 class SharingService:
     """Desired sharing mode and observed Tailscale/Serve state."""
 
-    def __init__(self, units) -> None:
+    def __init__(self, units, *, gateway=None, connection_credentials=None) -> None:
         self._units = units
+        self._gateway = gateway
+        self._connection_credentials = connection_credentials
+
+    def _refresh_gateway(self, view: dict[str, Any]) -> None:
+        if self._gateway is not None:
+            self._gateway.write_state_fields(view)
+        if self._connection_credentials is not None:
+            self._connection_credentials.write_state_fields(view)
 
     def start(self, view, runner) -> Any:
         from .sharing import start_https_sharing
 
+        self._refresh_gateway(view)
+        if (
+            self._connection_credentials is not None
+            and view.get("gateway_backend_identity") == "disabled"
+        ):
+            access = self._connection_credentials.access_state()
+            self._connection_credentials.enable_for_sharing(
+                expected_revision=int(access["revision"]))
+            self._refresh_gateway(view)
         before = dict(view)
         result = start_https_sharing(view, runner)
         persist_state_diff(self._units, before, view)
@@ -358,6 +375,7 @@ class SharingService:
     def status(self, view, runner) -> Any:
         from .sharing import https_sharing_status
 
+        self._refresh_gateway(view)
         return https_sharing_status(view, runner)
 
 
@@ -974,14 +992,18 @@ class OpenWebUIService:
     so the container resolves the scoped credential file through ADR 005 D3.
     """
 
-    def __init__(self, units, gateway=None, secret_file_dir=None) -> None:
+    def __init__(self, units, gateway=None, secret_file_dir=None,
+                 connection_credentials=None) -> None:
         self._units = units
         self._gateway = gateway
         self._secret_file_dir = secret_file_dir
+        self._connection_credentials = connection_credentials
 
     def _refresh_gateway(self, view: dict[str, Any]) -> None:
         if self._gateway is not None:
             self._gateway.write_state_fields(view)
+        if self._connection_credentials is not None:
+            self._connection_credentials.write_state_fields(view)
 
     def install(self, view, runner) -> Any:
         from .openwebui import install_open_webui

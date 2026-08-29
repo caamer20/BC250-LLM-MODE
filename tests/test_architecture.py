@@ -17,6 +17,7 @@ FRONTENDS = (
     "gui/setup_forms.py", "gui/setup_page.py", "gui/home_page.py",
     "gui/models_page.py", "gui/activity.py", "gui/system_page.py",
     "gui/settings_page.py", "gui/help_page.py", "gui/chat_page.py",
+    "gui/connections_page.py",
 )
 PERSISTENCE = {"state.py", "legacy_import.py",
                "repositories.py", "db.py", "unit_of_work.py"}
@@ -99,7 +100,7 @@ def test_status_refresh_never_persists():
     for rel in (
         "gui/shell.py", "gui/home_page.py", "gui/models_page.py",
         "gui/activity.py", "gui/system_page.py", "gui/settings_page.py",
-        "gui/help_page.py", "gui/chat_page.py",
+        "gui/help_page.py", "gui/chat_page.py", "gui/connections_page.py",
     ):
         text = _read(rel)
         tree = ast.parse(text)

@@ -542,12 +542,20 @@ class Application:
         # the ONE UnitOfWorkFactory + profile dir; persists ONLY the fingerprint
         # in the DB and the secret in a 0600 profile file, never in state/argv.
         from .gateway_command import GatewayCredentialService
+        from .connection_setup import ConnectionCredentialCommandService
 
         application.gateway = GatewayCredentialService(
             units, application.paths.app_dir
         )
-        application.openwebui = OpenWebUIService(units, gateway=application.gateway)
-        application.sharing = SharingService(units)
+        application.connection_credentials = ConnectionCredentialCommandService(
+            units, application.paths.app_dir
+        )
+        application.openwebui = OpenWebUIService(
+            units, gateway=application.gateway,
+            connection_credentials=application.connection_credentials)
+        application.sharing = SharingService(
+            units, gateway=application.gateway,
+            connection_credentials=application.connection_credentials)
         application.preferences = UserPreferencesService(units)
         application.maintenance = MaintenanceService(units)
         from .optimization_service import OptimizationService
@@ -562,14 +570,10 @@ class Application:
         # EXP-2: one multi-client command boundary, one bounded probe service,
         # and one mutation-free connection snapshot shared by GUI and CLI.
         from .connection_setup import (
-            ConnectionCredentialCommandService,
             ConnectionProbeService,
             ConnectionSetupQueryService,
         )
 
-        application.connection_credentials = ConnectionCredentialCommandService(
-            units, application.paths.app_dir
-        )
         application.connection_probes = ConnectionProbeService(
             units, application.connection_credentials
         )

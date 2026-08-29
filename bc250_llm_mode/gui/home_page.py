@@ -141,9 +141,9 @@ def build_home_view(snapshot: Mapping[str, Any]) -> HomeView:
     )
     shortcuts = (
         ("Browse models", Route.MODELS.value),
+        ("Connect another device", Route.CONNECTIONS.value),
         ("View activity", Route.ACTIVITY.value),
         ("System details", Route.SYSTEM.value),
-        ("Help & checks", Route.HELP.value),
     )
     return HomeView(headline, explanation, primary, cards, shortcuts)
 

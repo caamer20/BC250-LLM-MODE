@@ -481,22 +481,36 @@ class DoctorService:
                 title="Profile directory writable",
                 evidence=f"{app_dir.name} is writable",
             ))
-        secret = app_dir / "gateway-credential"
-        if secret.exists():
-            mode = stat.S_IMODE(secret.stat().st_mode)
-            if mode != 0o600:
-                out.append(Finding(
-                    id=SECRET_PERMS, severity=SEVERITY_FAIL,
-                    title="Gateway credential file permissions too open",
-                    evidence=f"mode {oct(mode)} (expected 0o600)",
-                    recommended_command="bc250-llm-mode gateway rotate",
-                ))
-            else:
-                out.append(Finding(
-                    id=SECRET_PERMS, severity=SEVERITY_PASS,
-                    title="Gateway credential file permissions ok",
-                    evidence="mode 0o600",
-                ))
+        secret_files = []
+        legacy_secret = app_dir / "gateway-credential"
+        if legacy_secret.exists():
+            secret_files.append(legacy_secret)
+        managed = app_dir / "connection-secrets"
+        try:
+            secret_files.extend(
+                path for path in sorted(managed.iterdir(), key=lambda item: item.name)[:32]
+                if path.is_file() and not path.is_symlink())
+        except OSError:
+            pass
+        modes = []
+        for secret in secret_files:
+            try:
+                modes.append(stat.S_IMODE(secret.stat().st_mode))
+            except OSError:
+                modes.append(-1)
+        if any(mode != 0o600 for mode in modes):
+            out.append(Finding(
+                id=SECRET_PERMS, severity=SEVERITY_FAIL,
+                title="Client credential file permissions too open",
+                evidence="one or more client credential files are not mode 0o600",
+                recommended_command="bc250-llm-mode connections clients",
+            ))
+        elif modes:
+            out.append(Finding(
+                id=SECRET_PERMS, severity=SEVERITY_PASS,
+                title="Client credential file permissions ok",
+                evidence=f"{len(modes)} credential file(s), all mode 0o600",
+            ))
         return out
 
     def _check_topology(self, settings: dict) -> list[Finding]:

@@ -128,6 +128,40 @@ def _parser() -> argparse.ArgumentParser:
     gateway.add_argument(
         "--secret", help="Use an explicit secret (test/tooling only; prefer generated)"
     )
+    connections = sub.add_parser(
+        "connections",
+        help="Configure independently revocable OpenAI-compatible clients",
+    )
+    connection_sub = connections.add_subparsers(
+        dest="connection_action", required=True)
+    connection_sub.add_parser("status", help="Show the guided connection snapshot")
+    connection_sub.add_parser("clients", help="List redacted client metadata")
+    add_client = connection_sub.add_parser(
+        "add-client", help="Create a client and reveal its API key once")
+    add_client.add_argument("--label", required=True)
+    add_client.add_argument(
+        "--type", dest="client_type", default="openai",
+        choices=("openwebui", "pocketpal", "openai", "curl", "sse"))
+    add_client.add_argument(
+        "--scope", dest="scopes", action="append",
+        choices=("models:list", "inference:read", "inference:stream"))
+    rotate_client = connection_sub.add_parser(
+        "rotate-client", help="Rotate one client and reveal the new API key once")
+    rotate_client.add_argument("client_id")
+    rotate_client.add_argument("--overlap-seconds", type=int, default=0)
+    revoke_client = connection_sub.add_parser(
+        "revoke-client", help="Revoke exactly one client")
+    revoke_client.add_argument("client_id")
+    connection_sub.add_parser(
+        "disable-all", help="Emergency-disable and revoke every remote API client")
+    instructions = connection_sub.add_parser(
+        "instructions", help="Print exact redacted settings for a client type")
+    instructions.add_argument(
+        "client_type",
+        choices=("openwebui", "pocketpal", "openai", "curl", "python", "sse"))
+    connection_test = connection_sub.add_parser(
+        "test", help="Run bounded positive and required negative endpoint probes")
+    connection_test.add_argument("client_id")
     sub.add_parser(
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
@@ -407,6 +441,7 @@ def main(argv: list[str] | None = None) -> int:
     # state, last_verified_at) without persisting them here.
     if args.command in {"gateway", "serve", "share", "webui", "openwebui"}:
         application.gateway.write_state_fields(state)
+        application.connection_credentials.write_state_fields(state)
     if args.command in (None, "setup", "gui"):
         if not bootstrap_tkinter(application):
             return 0
@@ -723,6 +758,74 @@ def main(argv: list[str] | None = None) -> int:
             result = svc.verify()
         # Mutations persisted internally by the durable service.
         print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "connections":
+        from .connection_setup import CLIENT_SCOPES, instructions_for
+
+        action = args.connection_action
+        credentials = application.connection_credentials
+        if action == "status":
+            print(json.dumps(application.connections.snapshot().to_dict(), indent=2))
+            return 0
+        if action == "clients":
+            print(json.dumps({
+                "access": credentials.access_state(),
+                "clients": credentials.list_clients(),
+            }, indent=2))
+            return 0
+        if action == "instructions":
+            snapshot = application.connections.snapshot().to_dict()
+            print(json.dumps(instructions_for(
+                args.client_type, urls=snapshot["urls"],
+                public_alias=snapshot["model"].get("public_alias")), indent=2))
+            return 0
+        if action == "test":
+            snapshot = application.connections.snapshot(client_id=args.client_id).to_dict()
+            alias = snapshot["model"].get("public_alias")
+            if not alias:
+                raise RuntimeError(
+                    "The running model has no safe observed public alias; start and verify it first.")
+            result = application.connection_probes.run(
+                client_id=args.client_id, public_alias=alias,
+                tailnet_base_url=snapshot["urls"].get("base_url"),
+            )
+            print(json.dumps(result.to_dict(), indent=2))
+            return 0 if result.passed else 1
+
+        require_acknowledgment(state)
+        if action in {"add-client", "rotate-client"} and not sys.stderr.isatty():
+            raise RuntimeError(
+                "Creating or rotating a client requires an interactive terminal "
+                "so the API key can be shown exactly once.")
+        if action == "add-client":
+            result = credentials.add_client(
+                label=args.label, client_kind=args.client_type,
+                scopes=args.scopes or CLIENT_SCOPES)
+        elif action in {"rotate-client", "revoke-client"}:
+            records = {
+                item["client_id"]: item for item in credentials.list_clients()
+            }
+            current = records.get(args.client_id)
+            if current is None:
+                raise ValueError("connection client does not exist")
+            if action == "rotate-client":
+                result = credentials.rotate_client(
+                    args.client_id, expected_revision=int(current["revision"]),
+                    overlap_seconds=args.overlap_seconds)
+            else:
+                result = credentials.revoke_client(
+                    args.client_id, expected_revision=int(current["revision"]))
+        else:  # disable-all
+            access = credentials.access_state()
+            print(json.dumps(credentials.disable_all(
+                expected_revision=int(access["revision"])), indent=2))
+            return 0
+
+        # stdout remains machine-readable and redacted.  The one-time secret
+        # goes only to the controlling terminal stream, never JSON/log/state.
+        print(json.dumps(result.to_dict(), indent=2))
+        if result.secret is not None:
+            print("API key (shown once):", result.secret, file=sys.stderr)
         return 0
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
