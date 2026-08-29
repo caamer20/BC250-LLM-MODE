@@ -59,3 +59,14 @@ update this document and the guard together; R5 replaces them wholesale.
   persistent boot command.
 - Current-boot systemd/udev mutations still use `llmmode.py`'s existing audited
   `_run_root` boundary. Frontends no longer import that module directly.
+
+## 2026-08-29 — GUI-8 unified-window reconciliation
+
+- The historical raw snapshot still names the deleted `gui/dashboard.py` site;
+  it remains an immutable historical record, not a live source reference.
+- The unified GUI contains no direct systemctl, Podman, Tailscale, Pacman,
+  rpm-ostree, or subprocess invocation. Home, Models, Activity, System,
+  Settings, Help, native Chat, and five-chapter setup route through the single
+  composed application/service boundary.
+- Removing the legacy dashboard and mixin hierarchy added no elevated call
+  site and did not change the frozen privileged-helper migration census.

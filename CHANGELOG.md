@@ -5,6 +5,26 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Unified native appliance window (GUI-1 through GUI-8)
+
+- Replaced the transitional 11-screen/dashboard/second-window experience with
+  one lightweight tkinter window: five setup chapters, task-oriented Home,
+  one Model Library, native bounded streaming Chat, embedded Activity,
+  System, Settings, Help, and a hidden-until-requested log/confirmation drawer.
+- Added one refresh coordinator, exactly three lazy bounded task lanes,
+  generation-fenced results, bounded events/lists/transcripts/logs, minimized
+  backoff, keyboard navigation, focus handling, appearance preferences, and
+  reduced-motion behavior.
+- Preserved canonical setup stages, the exact safety acknowledgment, durable
+  operation ownership, current-boot LLM Mode, desktop-next-boot policy,
+  standard-layout/fit gates, thermal barriers, platform capability routing,
+  shared native/terminal chat classifications, and privacy bounds.
+- Deleted the legacy dashboard and setup mixin hierarchy. `Wizard` remains a
+  deprecated import alias for `ApplicationWindow`; it is not a second UI.
+- Physical Bazzite and CachyOS UX/resource qualification for the resulting
+  package candidate remains evidence pending and is never inferred from
+  deterministic tests.
+
 ### CachyOS and capability-driven Linux hosts
 
 - Added a bounded, read-only host-platform authority with native Bazzite and

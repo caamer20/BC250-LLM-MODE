@@ -42,14 +42,22 @@ Candidate identity at the G6 dry run (recompute for the final candidate):
 of the code author)
 
 Procedure: `release/RUNBOOK.md` + the C4 section of the release-closure
-plan; run on a physical AMD BC-250 / GFX1013 / Bazzite with the supported
-12/4 UMA split.
+plan; run separately on physical AMD BC-250 / GFX1013 Bazzite and CachyOS
+hosts with the supported 12/4 UMA split. Every record and screenshot must bind
+to the exact package candidate; one host cannot qualify the other.
 
 ### HARDWARE_QUALIFICATION
 - [ ] device identity + firmware/BIOS UMA split recorded
-- [ ] clean install → setup wizard completes → server healthy
+- [ ] desktop-menu launch opens exactly one native window
+- [ ] five-chapter setup resumes correctly across relaunch/reboot
+- [ ] exact disclaimer blocks mutation until acknowledged
+- [ ] Home/Models/Chat/Activity/System/Settings/Help stay in the same window
+- [ ] clean install → setup completes → server healthy
 - [ ] Vulkan load + generation on a standard-layout GGUF
-- [ ] measurements: device, driver, UMA split, load/generation results
+- [ ] measurements: device, driver, UMA split, first paint, idle/active RSS and
+      CPU, repeated navigation growth, load/generation results
+- [ ] screenshots: setup, Home, Models, native Chat, Activity, System, narrow
+      window, keyboard focus, and reduced-motion preference
 - [ ] result PASS signed by the operator (mechanism per policy)
 
 ### SOAK_TEST

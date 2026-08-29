@@ -2,12 +2,12 @@
 
 BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite or CachyOS into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
-The interface is a real local `tkinter` window—not a web app. A persistent
-one-root shell now owns navigation, bounded foreground task lanes, one refresh
-coordinator, inline notices, an in-window Activity route, and a bounded log
-drawer. The existing resumable setup and management controls remain mounted
-while the remaining planned pages are converted. The streaming terminal chat
-continues to provide matching management commands during that transition.
+The interface is a real local `tkinter` window—not a web app. One persistent,
+resizable window owns five-chapter setup, task-oriented Home, Model Library,
+native streaming Chat, Activity, System, Settings, Help, inline notices,
+confirmations, and a bounded log drawer. It uses one Tk root, one refresh
+coordinator, and three lazily-created bounded worker lanes. Terminal chat
+remains available as an optional client with the same lifecycle semantics.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
@@ -20,7 +20,7 @@ vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 external evidence absent), *release blocked* (a policy-required item is
 unsatisfied), *published* (exact artifacts externally published and verified).
 
-- Supported capability set: setup wizard, dashboard operations, model
+- Supported capability set: unified native setup and daily-operation GUI, model
   acquisition/import/activation/removal, durable llama.cpp runtime
   update/rollback, chat/benchmark, backup create/restore (implemented;
   hardware qualification **evidence pending**), gateway sharing, Open WebUI
@@ -64,7 +64,7 @@ The UMA carve-out is established by firmware before Linux boots. It cannot be sa
 3. Install adequate cooling and arrange a way to monitor GPU temperature during sustained inference.
 4. Keep at least 20 GiB free on the filesystem that will contain models. More space is needed for conversion workflows and multiple models.
 5. Connect the BC-250 to the network for the initial Fedora container, build dependencies, `llama.cpp`, Python packages, and model downloads.
-6. Back up important data. The wizard makes privileged system changes only after its mandatory acknowledgment screen, but this is still beta software.
+6. Back up important data. Setup makes privileged system changes only after its mandatory acknowledgment screen, but this is still beta software.
 
 Bazzite normally includes Podman and Distrobox. On CachyOS, complete a normal full system upgrade first, then install the reviewed host dependencies:
 
@@ -93,7 +93,7 @@ Launch it from a terminal inside the BC-250 desktop session:
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode
 ```
 
-The wizard invokes `pkexec` when available or falls back to `sudo` for privileged operations. Installing the Python package itself does not need `sudo` when the virtual environment is in your home directory.
+The application invokes `pkexec` when available or falls back to `sudo` for privileged operations. Installing the Python package itself does not need `sudo` when the virtual environment is in your home directory.
 
 ### If the native GUI does not open
 
@@ -111,21 +111,17 @@ On Bazzite, reboot after the package is staged. On CachyOS, relaunch the applica
 
 A plain SSH session cannot display the local desktop window unless graphical forwarding is configured. For the normal experience, launch the wizard from a terminal on the BC-250's physical desktop. SSH can still be used for commands such as `status`.
 
-## What the setup wizard does
+## What first-run setup does
 
-The wizard is resumable and each step is designed to be safe to run again:
+Setup is resumable and presented as five understandable chapters. The
+chapters preserve every canonical durable setup stage, and each action remains
+safe to resume or re-run:
 
-1. **Hardware validation** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks VRAM, GTT, host RAM, disk space, Vulkan identity, and whether the boot-time memory profile matches the supported 12/4 split.
-2. **Mandatory safety warning** — requires three checkboxes and the exact typed text `I ACCEPT` before any setup change.
-3. **LLM Mode** — starts a current-boot inference session with runtime-only sleep masks and a vendor-matched GPU-awake rule. It simultaneously stages normal `graphical.target` desktop mode and disables model auto-start for the next boot.
-4. **Inference environment** — creates or reuses the Fedora `llm` Distrobox/Podman container, prepares the bounded build/Python prerequisites, installs the pinned runtime through the durable runtime workflow, and runs a Vulkan smoke test.
-5. **Model selection** — offers the curated BC-250 catalog and GGUF models already present on disk, with live context/VRAM fit estimates.
-6. **Optimize** — applies only the bounded options selected by the user. Host-level performance changes are opt-in.
-7. **Download** — checks free space before transfer, performs a resumable Hugging Face download, verifies a publisher SHA-256 manifest when provided, or skips the network entirely for an existing local GGUF.
-8. **Prepare** — verifies GGUF architecture and tensor block metadata, applies guarded self-healing metadata patches when appropriate, and handles supported text-only conversion workflows.
-9. **Server** — creates the single owning `bc250-llm.service`, starts the model, and checks `/health` and `/v1/models`.
-10. **Open WebUI** — optionally starts Open WebUI on port 3000.
-11. **Complete** — transitions into the persistent operations dashboard; setup does not become the application's only purpose.
+1. **This machine** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks memory, disk, Vulkan, host capabilities, and the supported 12/4 profile. The exact safety warning then requires all three checkboxes and the typed text `I ACCEPT` before any mutation.
+2. **System mode** — starts current-boot LLM Mode with runtime-only sleep/GPU-awake rules while guaranteeing `graphical.target` and no model auto-start for the next boot.
+3. **Runtime** — creates or reuses the controlled Fedora Distrobox, installs the pinned Vulkan `llama.cpp` runtime through the durable workflow, and smoke-tests Vulkan.
+4. **Model** — lets the user choose a curated download or existing local GGUF, shows live context/slot/VRAM fit, applies only selected bounded optimizations, resumes downloads, and validates the artifact.
+5. **Ready** — activates through the one owning systemd service, verifies health and inference, optionally configures Open WebUI, then routes directly into native Chat/Home.
 
 The application never changes BIOS settings and never reboots the computer automatically.
 
@@ -152,7 +148,7 @@ Runtime updates are durable operations. Setup provisions the container and toolc
 
 `llamacpp update [--tag TAG]` resolves the ref to an exact commit, builds an operation-owned candidate with bounded processes, smoke-checks and hashes every binary into an immutable manifest, exchanges it with the active tree in ONE atomic filesystem operation, restarts, and verifies the live process end-to-end (binary digest, handoff binding, fresh systemd invocation, expected model/context/slots, bounded inference) before promoting it; the previous build stays retained for rollback. Any failure that cannot be proven safe restores the prior runtime or stops in RECOVERY_REQUIRED — both trees are kept and nothing is guessed.
 
-Operations run in the foreground: keep the window/terminal open until the outcome prints. Closing early leaves the operation durably paused; `llamacpp resume --operation-id …` continues it safely. `llamacpp rollback` restores the retained target (and can be undone without a rebuild). A latched thermal stop requires an explicit `thermals reset`. The dashboard exposes the same actions on its "llama.cpp runtime" card with rollback enabled only when a verified target exists.
+Operations run in the foreground: keep the window/terminal open until the outcome prints. Closing early leaves the operation durably paused; `llamacpp resume --operation-id …` continues it safely. `llamacpp rollback` restores the retained target (and can be undone without a rebuild). A latched thermal stop requires an explicit `thermals reset`. The System page exposes the same runtime actions with rollback enabled only when a verified target exists.
 
 
 ### Reboot safety policy
@@ -166,23 +162,31 @@ LLM Mode is intentionally limited to the current boot. Every setup, repair, and 
 
 On CachyOS, LLM Mode does not add or edit persistent kernel arguments. CachyOS may use systemd-boot, GRUB, Limine, or rEFInd; the active manager is reported, and an externally supplied `amdgpu.runpm=0` is surfaced with manual recovery guidance instead of being edited by guesswork.
 
-After a reboot, the desktop starts normally and no LLM model is loaded. Starting inference again is an explicit dashboard, CLI, or chat action.
+After a reboot, the desktop starts normally and no LLM model is loaded. Starting inference again is an explicit GUI, CLI, or chat action.
 
-## Operations dashboard after setup
+## Daily use after setup
 
-Running `bc250-llm-mode` after setup opens the native management dashboard directly. It provides:
+Running `bc250-llm-mode` after setup opens Home in the same native window.
+Home, Models, Chat, Activity, System, Settings, and Help all stay in that
+window. The experience provides:
 
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
 - Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**, and **Open WebUI** controls;
 - optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
 - a bounded context-size control with a fresh VRAM fit check before restart;
-- recent model-server and setup logs in the existing live log pane;
-- terminal chat launch, platform diagnostics, optimization controls, repair, current-boot LLM Mode, and non-destructive desktop mode.
+- native bounded streaming chat plus optional terminal-chat launch;
+- recent model-server and setup logs only when the in-window drawer is opened;
+- platform diagnostics, optimization controls, repair, current-boot LLM Mode, and non-destructive desktop mode.
 
-The dashboard refreshes live service, API, WebUI, Tailscale, sharing, and memory-profile state every five seconds, so changes made from another terminal appear without reopening the app. Model, context, and user-slot activations are transactional: if a new configuration fails its health check, the application restores and restarts the last working configuration.
+One coalescing refresh coordinator updates service, API, WebUI, Tailscale,
+sharing, activity, and memory state without multiplying timers. Background
+results are generation-fenced, lists/transcripts/logs are bounded, and
+minimized windows back off. Model, context, and user-slot activations are
+transactional: if a new configuration fails its health check, the application
+restores and restarts the last working configuration.
 
-The dashboard never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
+The GUI never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
 
 Tailscale is optional and is not installed by this application. On Linux, `tailscaled` is the systemd-managed daemon, while `tailscale up` joins/connects the machine to its tailnet. The app exposes those as separate actions so stopping the daemon is not confused with signing out or changing tailnet state. A first-time **Connect** may print an authentication URL in the application log.
 
@@ -280,7 +284,7 @@ Model API:  https://<node>.<tailnet>.ts.net:10000/v1
 Health:     https://<node>.<tailnet>.ts.net:10000/health
 ```
 
-Use **Tailnet HTTPS → Enable** in the management GUI, or:
+Use the Tailnet HTTPS control in System, or:
 
 ```bash
 bc250-llm-mode serve start

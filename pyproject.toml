@@ -8,7 +8,7 @@ version = "0.9.0.dev0"
 description = "Native Bazzite and CachyOS appliance for AMD BC-250 local LLM inference"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = "MIT"
 dependencies = [
   "gguf>=0.17",
   "httpx>=0.27",
@@ -26,12 +26,13 @@ bc250-llm-mode = "bc250_llm_mode.__main__:cli"
 [tool.setuptools]
 packages = [
   "bc250_llm_mode",
+  "bc250_llm_mode.assets",
   "bc250_llm_mode.gui",
   "bc250_llm_mode.operations",
 ]
 
 [tool.setuptools.package-data]
-bc250_llm_mode = ["assets/*.svg"]
+"bc250_llm_mode.assets" = ["*.svg"]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]

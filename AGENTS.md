@@ -2,7 +2,9 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**IMPLEMENTATION IN PROGRESS; DO NOT CLAIM GUI/EXP COMPLETION.**
+**GUI-1 THROUGH GUI-8 ARE DEVELOPER-COMPLETE; PHYSICAL EVIDENCE IS PENDING.
+EXP IMPLEMENTATION REMAINS IN PROGRESS — DO NOT CLAIM FULL EXPERIENCE OR
+RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
 second-window/terminal-handoff experience with one lightweight tkinter shell:
@@ -30,29 +32,48 @@ Implementation commits after the planning checkpoint:
   GUI package pure contracts no longer require Tk to import.
 - `4635234` — GUI-2 persistent `ApplicationWindow`, one refresh coordinator,
   three lazy bounded lanes, bounded log drawer, inline error notice, and
-  in-window Activity navigation. The legacy setup/dashboard is still mounted;
-  GUI-3 through GUI-8 are NOT complete.
+  in-window Activity navigation.
 - `9079bf3` — EXP-1 user-local desktop integration (atomic owned launcher,
   desktop entry, packaged icon, no autostart) plus same-user GUI ownership via
   flock, nonce, bounded AF_UNIX protocol, and coordinator polling with no
   listener thread.
 - `84bcd2b` — architecture-guard naming correction; no legacy activation
   orchestrator returned.
+- `e732935` — EXP-1 documentation checkpoint and handoff.
+- `fb86941` — GUI-3 five-chapter resumable setup over the unchanged canonical
+  durable stages and exact disclaimer gate.
+- `2168fc7` — GUI-4 task-oriented Home and bounded unified Model Library.
+- `bb726b4` — GUI-5 embedded Activity, System/Settings/Help pages, typed
+  frontend services, and in-window logs/confirmations; legacy dashboard
+  deleted.
+- `c07f1c4` — GUI-6 shared bounded SSE chat transport, atomic bounded
+  conversations, native Chat page, and terminal-client migration.
+- `32e656b` — GUI-7 bounded refresh/render/event/list/thread behavior,
+  generation fencing, close safety, keyboard/focus/reduced-motion polish.
+- `064207b` — GUI-8 concrete window hierarchy; transitional setup mixins,
+  legacy forms path, 11-step public export, and private method-name freeze
+  removed.
 
 EXP-1 is developer-implemented but not physically qualified on Bazzite or
 CachyOS. EXP-2 through EXP-8 are not implemented. The next safe boundary is
-GUI-3 (five-chapter setup conversion), not migration 011 or gateway changes.
+EXP-2 (client-ready connection guidance and independently revocable
+credentials), following the exact reviewed plan.
 
-The plans themselves were documentation-only, but implementation has now
-superseded package candidate `ccd1777`. No physical evidence from that older
-candidate may qualify the new GUI/EXP work.
-Before GUI implementation begins, the owner must explicitly choose whether to
-qualify `ccd1777` first or supersede it and collect C4 evidence only for the
-eventual GUI candidate. Any GUI package-code change invalidates candidate-bound
-evidence for the old commit. The nine owner-controlled untracked files remain
-untouched.
+Implementation superseded package candidate `ccd1777`. No physical evidence
+from that older candidate may qualify this GUI/EXP line. GUI-8 developer gates:
+default collection **1248** (exit 0; two expected platform skips), slow battery
+**52/52**, forced compile + diff clean, source/editable/installed-wheel
+collection **1248** parity, clean-wheel GUI import **17/17 modules**, and clean
+wheel/sdist builds. Bazzite and CachyOS physical first-paint/RSS/CPU/navigation,
+journey, inference, rollback, backup/restore, and soak evidence remains pending
+and must bind to the eventual candidate after EXP work. The nine
+owner-controlled untracked files remain untouched.
 
 ## Current state
+
+The ADR 007 checkpoint below is preserved as historical platform evidence.
+Its claim that `ccd1777` is the packaged implementation is superseded by the
+GUI/EXP commit list above; its physical-evidence warnings remain authoritative.
 
 **ADR 007 CACHYOS HOST INTEGRATION — IMPLEMENTED AND DEVELOPER-QUALIFIED;
 PHYSICAL EVIDENCE PENDING.** The durable appliance remains distribution-

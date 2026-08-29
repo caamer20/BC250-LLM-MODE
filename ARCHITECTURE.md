@@ -32,7 +32,7 @@ module layout and the invariants that keep the hardware safe.
 | `thermals.py` | Thermal watchdog: pure hysteresis state machine + thin host side effects (clock cap, service stop) |
 | `tune.py` | `autotune`: fit-checked benchmark sweep with per-combo rollback |
 | `chat.py` | Streaming terminal chat (prompt caching, timings, think-filter, trim/export/persistence), benchmark helpers |
-| `gui/` | tkinter package: `app.py` (shell/threading/navigation), `steps.py` (wizard screens), `dashboard.py` (operations dashboard + catalog browser + llama.cpp card), `forms.py` (forms with pure, unit-tested helpers) |
+| `gui/` | one-root tkinter application: `shell.py` (routing/lifecycle), `setup_page.py` + `setup_forms.py` (five-chapter resumable setup), Home/Models/Chat/Activity/System/Settings/Help pages, one refresh coordinator, three bounded task lanes, and an in-window log/confirmation drawer |
 | `sharing.py` / `tailscale.py` / `openwebui.py` | Optional tailnet HTTPS sharing stack |
 
 ## Invariants
@@ -74,9 +74,9 @@ module layout and the invariants that keep the hardware safe.
   helpers) is unit-tested without I/O.
 - Host interactions run through `CommandRunner` with fake runners asserting
   exact command sequences and rollback ordering.
-- The GUI has a headless contract test (`tests/test_gui_contract.py`): tkinter
-  is stubbed so the real `Wizard` constructs without a display, and the frozen
-  method surface must survive refactors.
+- The GUI has behavioral headless contract tests: tkinter is stubbed so the
+  real `ApplicationWindow` constructs without a display, every route stays in
+  one root, and private setup method names remain free to change.
 - Schema migrations are tested from real legacy JSON shapes.
 
 ## Release authority (separate from runtime)
