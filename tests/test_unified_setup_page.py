@@ -17,7 +17,7 @@ from bc250_llm_mode.gui.routes import setup_chapter_for  # noqa: E402
 from bc250_llm_mode.gui.setup_page import (  # noqa: E402
     LEGACY_STEP_CHAPTERS,
     WORKLOAD_GOALS,
-    SetupPageMixin,
+    SetupWindow,
     hardware_status_rows,
     hardware_technical_detail,
     setup_resume_view,
@@ -123,7 +123,7 @@ def test_exact_disclaimer_gate_is_unchanged_and_setup_has_no_messagebox():
     assert "messagebox" not in source
 
 
-class _SetupHarness(SetupPageMixin):
+class _SetupHarness(SetupWindow):
     def __init__(self, application: Application) -> None:
         self.application = application
         self.state_data = application.read_model()

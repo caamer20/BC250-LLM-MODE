@@ -1,9 +1,8 @@
 """Headless GUI contract for the unified native application shell.
 
-tkinter is stubbed so Wizard can be *constructed* without a display; every
-widget call lands on an inert recorder. Transitional setup methods remain
-covered here; deleted dashboard methods are intentionally not compatibility
-API.
+tkinter is stubbed so ApplicationWindow can be constructed without a display;
+every widget call lands on an inert recorder. The contract is behavioral:
+private setup method names are deliberately free to change.
 """
 
 from __future__ import annotations
@@ -18,23 +17,8 @@ from _gui_stubs import install  # noqa: E402
 
 install()
 
-from bc250_llm_mode.gui import Wizard  # noqa: E402
-
-
-
-WIZARD_METHODS = frozenset({
-    "__init__", "_build_shell", "emit", "_drain_events", "runner",
-    "commit_narrow", "refresh_snapshot",
-    "_clear", "show_step", "_body_label", "_hardware", "_disclaimer",
-    "_update_ack", "_llm_mode", "_environment", "_catalog", "_add_model_folder",
-    "_model_changed", "_fit", "_labeled_spin", "_optimize",
-    "_balanced_optimizations", "_update_optimization_fit",
-    "_disable_host_optimizations", "_collect_optimization_settings",
-    "_download", "_prepare", "_server", "_webui",
-    "back",
-    "_work", "_advance", "continue_step", "_after_llm_mode", "_finish_setup",
-    "_finish_optimization_management", "_launch_chat_terminal",
-})
+from bc250_llm_mode.gui import ApplicationWindow, Wizard  # noqa: E402
+from bc250_llm_mode.gui.routes import SETUP_CHAPTERS, Route  # noqa: E402
 
 KEY_ATTRIBUTES = (
     "state_data", "events", "_page",
@@ -59,12 +43,9 @@ def wizard(tmp_path):
     return Wizard(application, management=True)
 
 
-def test_wizard_preserves_the_transitional_setup_surface():
-    mro_attrs = set()
-    for klass in Wizard.__mro__:
-        mro_attrs.update(vars(klass))
-    missing = WIZARD_METHODS - mro_attrs
-    assert not missing, f"GUI refactor dropped methods: {sorted(missing)}"
+def test_compatibility_alias_targets_the_one_concrete_window():
+    assert Wizard is ApplicationWindow
+    assert all("Mixin" not in klass.__name__ for klass in Wizard.__mro__)
 
 
 def test_wizard_constructs_headless_with_all_widgets(wizard):
@@ -75,10 +56,11 @@ def test_wizard_constructs_headless_with_all_widgets(wizard):
         assert attr in assigned, attr
 
 
-def test_wizard_step_navigation_contract():
-    import bc250_llm_mode.gui as gui_module
-
-    assert len(gui_module.STEP_TITLES) == 11
+def test_setup_is_five_chapters_and_management_is_in_window(wizard):
+    assert len(SETUP_CHAPTERS) == 5
+    wizard.navigate(Route.ACTIVITY)
+    assert wizard._route is Route.ACTIVITY
+    assert wizard._page is not None
 
 
 def test_task_oriented_home_consumes_the_composed_snapshot(wizard):

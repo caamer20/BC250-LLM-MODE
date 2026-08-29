@@ -19,11 +19,7 @@ _WIZARD = None
 
 def __getattr__(name: str):
     global _WIZARD
-    if name == "STEP_TITLES":
-        from .app import STEP_TITLES
-
-        return STEP_TITLES
-    if name == "Wizard":
+    if name in {"Wizard", "ApplicationWindow"}:
         if _WIZARD is None:
             _WIZARD = _window_class()
         return _WIZARD
@@ -70,4 +66,4 @@ def run_gui(application, management: bool = False, *, route: str | None = None) 
             broker.close()
 
 
-__all__ = ["Wizard", "run_gui", "STEP_TITLES"]
+__all__ = ["ApplicationWindow", "Wizard", "run_gui"]

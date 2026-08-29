@@ -1,4 +1,4 @@
-"""Model-selection and optimization form screens."""
+"""Model-selection and optimization collaborator for first-run setup."""
 
 from __future__ import annotations
 
@@ -42,12 +42,25 @@ def optimization_settings_from_values(
 ) -> dict[str, Any]:
     """Validate raw form values and re-check the selected model's VRAM fit."""
     return validate_selection_settings(state, values)
-from .setup_page import WORKLOAD_GOALS, workload_goal
+class SetupForms:
+    """Setup-only form collaborator owned by one concrete application window.
 
+    This replaces the former multiple-inheritance mixin. Widget state still
+    belongs to the window so setup actions and callbacks share one lifetime.
+    """
 
-class FormsMixin:
+    def __init__(self, window) -> None:
+        object.__setattr__(self, "_window", window)
 
-    def _catalog(self) -> None:
+    def __getattr__(self, name: str):
+        return getattr(self._window, name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(self._window, name, value)
+
+    def render_catalog(self) -> None:
+        from .setup_page import WORKLOAD_GOALS
+
         discovery = discover_local_models(self.state_data)
         self.model_choices: dict[str, tuple[str, Any]] = {}
         goal_frame = ttk.LabelFrame(self.content, text="What do you want to optimize for?", padding=7)
@@ -115,7 +128,7 @@ class FormsMixin:
         scan_row = ttk.Frame(self.content)
         scan_row.pack(fill="x", pady=(6, 0))
         ttk.Label(scan_row, text=summary).pack(side="left", fill="x", expand=True)
-        ttk.Button(scan_row, text="Rescan", command=lambda: self.show_step(4)).pack(side="right")
+        ttk.Button(scan_row, text="Rescan", command=lambda: self.show_setup_screen(4)).pack(side="right")
         ttk.Button(scan_row, text="Add folder…", command=self._add_model_folder).pack(side="right", padx=5)
         controls = ttk.Frame(self.content)
         controls.pack(fill="x", pady=10)
@@ -135,6 +148,8 @@ class FormsMixin:
         self._workload_goal_changed()
 
     def _workload_goal_changed(self) -> None:
+        from .setup_page import workload_goal
+
         goal = workload_goal(self.workload_goal_var.get())
         self.workload_goal_id = goal.goal_id
         if goal.context is not None:
@@ -172,7 +187,7 @@ class FormsMixin:
             paths.append(resolved)
             self.state_data["model_search_paths"] = paths
             self.commit_narrow()
-        self.show_step(4)
+        self.show_setup_screen(4)
 
     def _model_changed(self, _event=None) -> None:
         selection = self.model_tree.selection()
@@ -216,7 +231,7 @@ class FormsMixin:
         ttk.Label(parent, text=label).pack(side="left", padx=(8, 3))
         ttk.Spinbox(parent, from_=low, to=high, increment=step, textvariable=variable, width=7).pack(side="left")
 
-    def _optimize(self) -> None:
+    def render_optimize(self) -> None:
         settings = self.application.optimizations.normalized(
             self.state_data.get("optimizations")
         )
@@ -389,7 +404,7 @@ class FormsMixin:
         for variable in self.opt_service_vars.values():
             variable.set(False)
 
-    def _collect_optimization_settings(self) -> dict[str, Any]:
+    def collect_optimization_settings(self) -> dict[str, Any]:
         settings = {
             "runtime_enabled": self.opt_runtime.get(),
             "flash_attention": self.opt_flash.get(),

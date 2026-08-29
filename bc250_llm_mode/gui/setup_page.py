@@ -22,6 +22,8 @@ from ..local_models import (
     selected_fit_entry,
 )
 from ..memory_profile import analyze_memory_profile
+from .app import GuiBase
+from .setup_forms import SetupForms
 from .routes import Route, SETUP_CHAPTERS, setup_chapter_for
 from .view_state import Notice
 
@@ -238,7 +240,61 @@ def hardware_technical_detail(
     return encoded[:8192]
 
 
-class SetupPageMixin:
+_SETUP_SCREEN_TITLES = (
+    "Welcome & Hardware", "Safety Warning", "LLM Mode",
+    "Inference Environment", "Model Selection", "Optimize", "Download",
+    "Prepare", "Server", "Open WebUI", "Setup Complete",
+)
+
+
+class SetupWindow(GuiBase):
+    """Concrete five-chapter setup window over canonical durable stages."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.setup_forms = SetupForms(self)
+        super().__init__(*args, **kwargs)
+
+    def _clear(self) -> None:
+        for widget in self.content.winfo_children():
+            widget.destroy()
+
+    def show_setup_screen(self, step: int) -> None:
+        self.current_step = max(0, min(step, 10))
+        self._clear()
+        self.heading.configure(
+            text=f"Setup · {_SETUP_SCREEN_TITLES[self.current_step]}"
+        )
+        self.progress.configure(value=self.current_step)
+        self.back_button.configure(
+            state="disabled" if self.current_step == 0 else "normal"
+        )
+        self.continue_button.configure(text="Continue", state="normal")
+        renderers = (
+            self._hardware, self._disclaimer, self._llm_mode,
+            self._environment, self.setup_forms.render_catalog,
+            self.setup_forms.render_optimize, self._download, self._prepare,
+            self._server, self._webui, self._setup_ready,
+        )
+        renderers[self.current_step]()
+
+    def _body_label(self, text: str) -> ttk.Label:
+        label = ttk.Label(
+            self.content, text=text, wraplength=820, justify="left"
+        )
+        label.pack(anchor="w", fill="x", pady=8)
+        return label
+
+    def back(self) -> None:
+        if not self.busy:
+            if self.current_step == 5 and self.optimization_return_to_complete:
+                self.optimization_return_to_complete = False
+                self.show_setup_screen(10)
+            else:
+                self.show_setup_screen(self.current_step - 1)
+
+    def _advance(self) -> None:
+        self.commit_narrow()
+        self.show_setup_screen(self.current_step + 1)
 
     def _show_setup_notice(
         self, level: str, title: str, message: str, *, dismissible: bool = False
@@ -500,7 +556,7 @@ class SetupPageMixin:
 
     def _manage_optimizations(self) -> None:
         self.optimization_return_to_complete = True
-        self.show_step(5)
+        self.show_setup_screen(5)
 
     def _repair(self) -> None:
         self.optimization_return_to_complete = False
@@ -511,7 +567,7 @@ class SetupPageMixin:
             )
         else:
             self.state_data.update(setup_complete=False, setup_phase=0)
-        self.show_step(0)
+        self.show_setup_screen(0)
 
     def continue_step(self) -> None:
         step = self.current_step
@@ -535,7 +591,7 @@ class SetupPageMixin:
                 self._record_machine_check()
             else:
                 self.commit_narrow()
-            self.show_step(2)
+            self.show_setup_screen(2)
         elif step == 2:
             mask_desktop = self.mask_desktop.get()
             self._work(
@@ -592,10 +648,10 @@ class SetupPageMixin:
                 "RUNTIME_READY", "MODEL_SELECTED",
                 {"model_id": selected.id, "source": source},
             )
-            self.show_step(5)
+            self.show_setup_screen(5)
         elif step == 5:
             try:
-                settings = self._collect_optimization_settings()
+                settings = self.setup_forms.collect_optimization_settings()
             except (ValueError, tk.TclError) as exc:
                 self._show_setup_notice(
                     "error", "Optimization settings are not valid", str(exc),
@@ -740,14 +796,14 @@ class SetupPageMixin:
             "LLM_MODE_CONFIGURED", "RUNTIME_READY",
             {"vulkan_smoke_test": "passed", "runtime": "pinned"},
         )
-        self.show_step(4)
+        self.show_setup_screen(4)
 
     def _after_prepare(self) -> None:
         self._record_setup_stage(
             "MODEL_SELECTED", "MODEL_PREPARED",
             {"managed_model": self.state_data.get("installed_alias")},
         )
-        self.show_step(8)
+        self.show_setup_screen(8)
 
     def _after_server(self) -> None:
         self._record_setup_stage(
@@ -758,7 +814,7 @@ class SetupPageMixin:
             "PROFILE_APPLIED", "SERVICE_INSTALLED",
             {"single_owner": True, "enabled_at_boot": False},
         )
-        self.show_step(9)
+        self.show_setup_screen(9)
 
     def _after_optionals(self) -> None:
         self._record_setup_stage(
@@ -779,10 +835,10 @@ class SetupPageMixin:
             self.state_data.update(setup_complete=True, setup_phase=11)
             self.commit_narrow()
         self._show_setup_ready = True
-        self.show_step(10)
+        self.show_setup_screen(10)
 
     def _finish_optimization_management(self) -> None:
         self.optimization_return_to_complete = False
         self.state_data.update(setup_complete=True, setup_phase=11)
         self.commit_narrow()
-        self.show_step(10)
+        self.show_setup_screen(10)

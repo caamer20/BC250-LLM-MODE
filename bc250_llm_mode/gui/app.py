@@ -86,7 +86,7 @@ class GuiBase(tk.Tk):
         self._task_lanes = None
         self._build_shell()
         self._schedule_lifecycle()
-        self.show_step(self.current_step)
+        self.show_setup_screen(self.current_step)
         self._refresh_coordinator.start()
 
     def _schedule_lifecycle(self) -> None:
@@ -142,28 +142,8 @@ class GuiBase(tk.Tk):
                 pass
 
     def _build_shell(self) -> None:
-        outer = ttk.Frame(self, padding=14)
-        outer.pack(fill="both", expand=True)
-        self.heading = ttk.Label(outer, font=("TkDefaultFont", 16, "bold"))
-        self.heading.pack(anchor="w")
-        self.progress = ttk.Progressbar(outer, maximum=10)
-        self.progress.pack(fill="x", pady=(8, 10))
-        self.content = ttk.Frame(outer)
-        self.content.pack(fill="both", expand=True)
-        ttk.Label(outer, text="Setup log").pack(anchor="w", pady=(8, 2))
-        log_frame = ttk.Frame(outer)
-        log_frame.pack(fill="both", expand=False)
-        self.log_text = tk.Text(log_frame, height=9, wrap="word", state="disabled")
-        log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=log_scroll.set)
-        self.log_text.pack(side="left", fill="both", expand=True)
-        log_scroll.pack(side="right", fill="y")
-        nav = ttk.Frame(outer)
-        nav.pack(fill="x", pady=(10, 0))
-        self.back_button = ttk.Button(nav, text="Back", command=self.back)
-        self.back_button.pack(side="left")
-        self.continue_button = ttk.Button(nav, text="Continue", command=self.continue_step)
-        self.continue_button.pack(side="right")
+        """Build the concrete shell supplied by :class:`ApplicationWindow`."""
+        raise NotImplementedError
 
     def emit(self, line: str) -> None:
         self._queue_event("log", line)
@@ -248,36 +228,6 @@ class GuiBase(tk.Tk):
         self._synced = dict(self.state_data)
         return changed
 
-    def _clear(self) -> None:
-        for widget in self.content.winfo_children():
-            widget.destroy()
-
-    def show_step(self, step: int) -> None:
-        self.current_step = max(0, min(step, 10))
-        self._clear()
-        self.heading.configure(text=f"Step {self.current_step}: {STEP_TITLES[self.current_step]}")
-        self.progress.configure(value=self.current_step)
-        self.back_button.configure(state="disabled" if self.current_step == 0 else "normal")
-        self.continue_button.configure(text="Continue", state="normal")
-        renderers = (
-            self._hardware, self._disclaimer, self._llm_mode, self._environment, self._catalog,
-            self._optimize, self._download, self._prepare, self._server, self._webui, self._setup_ready,
-        )
-        renderers[self.current_step]()
-
-    def _body_label(self, text: str) -> ttk.Label:
-        label = ttk.Label(self.content, text=text, wraplength=820, justify="left")
-        label.pack(anchor="w", fill="x", pady=8)
-        return label
-
-    def back(self) -> None:
-        if not self.busy:
-            if self.current_step == 5 and self.optimization_return_to_complete:
-                self.optimization_return_to_complete = False
-                self.show_step(10)
-            else:
-                self.show_step(self.current_step - 1)
-
     def _work(self, action: Callable[[], None], done: Callable[[], None]) -> None:
         if self.busy:
             return
@@ -337,13 +287,3 @@ class GuiBase(tk.Tk):
         if accepted and not self._refresh_coordinator.in_callback:
             self._refresh_coordinator.request_now()
         return accepted
-
-    def _advance(self) -> None:
-        self.commit_narrow()
-        self.show_step(self.current_step + 1)
-
-
-STEP_TITLES = (
-    "Welcome & Hardware", "Safety Warning", "LLM Mode", "Inference Environment",
-    "Model Selection", "Optimize", "Download", "Prepare", "Server", "Open WebUI", "Setup Complete",
-)

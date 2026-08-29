@@ -5,15 +5,13 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from .app import GuiBase
-from .forms import FormsMixin
 from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
-from .setup_page import SetupPageMixin, setup_resume_view
+from .setup_page import SetupWindow, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
 from .view_state import Confirmation
 
 
-class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
+class ApplicationWindow(SetupWindow):
     """The only application-owned ``Tk`` root."""
 
     def _build_shell(self) -> None:
@@ -263,7 +261,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
             dispose()
         self._page = None
 
-    def show_step(self, step: int) -> None:
+    def show_setup_screen(self, step: int) -> None:
         if (
             step == 10
             and self.state_data.get("setup_complete")
@@ -275,7 +273,7 @@ class ApplicationWindow(SetupPageMixin, FormsMixin, GuiBase):
         self._route = Route.SETUP
         self._update_navigation()
         self._dispose_page()
-        super().show_step(step)
+        super().show_setup_screen(step)
         stage = str(self.state_data.get("setup_stage") or "WELCOME")
         active = None
         if getattr(self.application, "operation_query", None) is not None:

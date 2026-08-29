@@ -27,7 +27,7 @@ FRONTENDS = (
     "chat.py",
     "gui/app.py",
     "gui/shell.py",
-    "gui/forms.py",
+    "gui/setup_forms.py",
     "gui/setup_page.py",
     "gui/home_page.py",
     "gui/models_page.py",

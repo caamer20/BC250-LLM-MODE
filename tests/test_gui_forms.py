@@ -9,7 +9,7 @@ from _gui_stubs import install  # noqa: E402
 install()
 
 from bc250_llm_mode.catalog import model_by_id  # noqa: E402
-from bc250_llm_mode.gui.forms import fit_message, optimization_settings_from_values  # noqa: E402
+from bc250_llm_mode.gui.setup_forms import fit_message, optimization_settings_from_values  # noqa: E402
 
 
 def test_fit_message_fits_with_concurrency_suffix():
@@ -114,10 +114,10 @@ class _S:
 def test_collect_optimization_settings_reads_real_widget_values():
     """Regression: the form collector must read the populated widget
     variables (previously passed an undefined name and raised NameError)."""
-    from bc250_llm_mode.gui.forms import FormsMixin
+    from bc250_llm_mode.gui.setup_forms import SetupForms
 
     host = _WidgetHost(_form_state("lfm25-26b", "Q5_K_M", 128000), runtime=True)
-    settings = FormsMixin._collect_optimization_settings(host)
+    settings = SetupForms.collect_optimization_settings(host)
     assert settings["runtime_enabled"] is True
     assert settings["parallel_slots"] == 4
     assert settings["batch_size"] == 2048
@@ -125,7 +125,7 @@ def test_collect_optimization_settings_reads_real_widget_values():
     host_disabled = _WidgetHost(
         _form_state("lfm25-26b", "Q5_K_M", 128000), runtime=False, slots=1
     )
-    settings_off = FormsMixin._collect_optimization_settings(host_disabled)
+    settings_off = SetupForms.collect_optimization_settings(host_disabled)
     assert settings_off["runtime_enabled"] is False
 
 

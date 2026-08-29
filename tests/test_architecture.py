@@ -14,7 +14,7 @@ from pathlib import Path
 PACKAGE = Path(__file__).parent.parent / "bc250_llm_mode"
 FRONTENDS = (
     "__main__.py", "chat.py", "gui/app.py", "gui/shell.py",
-    "gui/forms.py", "gui/setup_page.py", "gui/home_page.py",
+    "gui/setup_forms.py", "gui/setup_page.py", "gui/home_page.py",
     "gui/models_page.py", "gui/activity.py", "gui/system_page.py",
     "gui/settings_page.py", "gui/help_page.py", "gui/chat_page.py",
 )
