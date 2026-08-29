@@ -8,19 +8,10 @@ and packaging checks even when the host Python has no Tk extension.
 from __future__ import annotations
 
 
-def _legacy_window_class():
-    from .app import GuiBase
-    from .dashboard import DashboardMixin
-    from .forms import FormsMixin
-    from .steps import StepsMixin
+def _window_class():
+    from .shell import ApplicationWindow
 
-    class Wizard(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
-        """Temporary compatibility window while GUI routes are converted."""
-
-    Wizard.__name__ = "Wizard"
-    Wizard.__qualname__ = "Wizard"
-    Wizard.__module__ = __name__
-    return Wizard
+    return ApplicationWindow
 
 
 _WIZARD = None
@@ -34,7 +25,7 @@ def __getattr__(name: str):
         return STEP_TITLES
     if name == "Wizard":
         if _WIZARD is None:
-            _WIZARD = _legacy_window_class()
+            _WIZARD = _window_class()
         return _WIZARD
     raise AttributeError(name)
 
@@ -43,7 +34,7 @@ def run_gui(application, management: bool = False) -> None:
     try:
         import tkinter as tk
 
-        window = __getattr__("Wizard")
+        window = _window_class()
         window(application, management=management).mainloop()
     except (ImportError, ModuleNotFoundError) as exc:
         raise RuntimeError(

@@ -453,7 +453,7 @@ class DashboardMixin:
         """Keep external CLI/systemd changes visible without blocking tkinter."""
         if self.current_step == 10 and not self.busy and hasattr(self, "dashboard_status_vars"):
             self._refresh_dashboard()
-        self.after(5000, self._poll_dashboard)
+        # The unified shell's one RefreshCoordinator owns rescheduling.
 
     def _open_shared_webui(self) -> None:
         url = self.state_data.get("https_webui_url")

@@ -103,8 +103,38 @@ class GuiBase(tk.Tk):
         self.optimization_return_to_complete = False
         self._build_shell()
         self.show_step(self.current_step)
-        self.after(100, self._drain_events)
-        self.after(5000, self._poll_dashboard)
+        self._schedule_lifecycle()
+
+    def _schedule_lifecycle(self) -> None:
+        """One refresh owner; task lanes are created lazily on first work."""
+        from .refresh import RefreshCoordinator
+
+        self._task_lanes = None
+        self._refresh_coordinator = RefreshCoordinator(self, self._refresh_cycle)
+        self._refresh_coordinator.start()
+
+    def _refresh_cycle(self) -> None:
+        self._drain_events(reschedule=False)
+        lanes = self._task_lanes
+        if lanes is not None:
+            try:
+                while True:
+                    result = lanes.results.get_nowait()
+                    self.busy = False
+                    self._refresh_coordinator.active = False
+                    self.progress.stop()
+                    if result.error is not None:
+                        from .view_state import Notice, sanitize_exception
+
+                        if hasattr(self, "notice_bar"):
+                            self.notice_bar.show_notice(Notice(
+                                "error", "Action could not be completed",
+                                sanitize_exception(result.error), dismissible=False,
+                            ))
+                    elif callable(result.value):
+                        result.value()
+            except queue.Empty:
+                pass
 
     def _build_shell(self) -> None:
         outer = ttk.Frame(self, padding=14)
@@ -133,7 +163,7 @@ class GuiBase(tk.Tk):
     def emit(self, line: str) -> None:
         self.events.put(("log", line))
 
-    def _drain_events(self) -> None:
+    def _drain_events(self, *, reschedule: bool = True) -> None:
         try:
             while True:
                 kind, payload = self.events.get_nowait()
@@ -153,10 +183,19 @@ class GuiBase(tk.Tk):
                     self.progress.stop()
                     self.progress.configure(mode="determinate", value=self.current_step)
                     self.continue_button.configure(state="normal")
-                    messagebox.showerror("Setup failed", str(payload))
+                    from .view_state import Notice, sanitize_exception
+
+                    if hasattr(self, "notice_bar"):
+                        self.notice_bar.show_notice(Notice(
+                            "error", "Setup failed", sanitize_exception(payload),
+                            dismissible=False,
+                        ))
+                    else:
+                        messagebox.showerror("Setup failed", str(payload))
         except queue.Empty:
             pass
-        self.after(100, self._drain_events)
+        if reschedule and not hasattr(self, "_refresh_coordinator"):
+            self.after(100, self._drain_events)
 
     def runner(self) -> CommandRunner:
         return CommandRunner(configure_logging(self._paths.logs_dir), self.emit)
@@ -216,13 +255,22 @@ class GuiBase(tk.Tk):
         self.continue_button.configure(state="disabled")
         self.progress.configure(mode="indeterminate")
         self.progress.start(12)
-        def target() -> None:
-            try:
-                action()
-                self.events.put(("done", done))
-            except Exception as exc:  # noqa: BLE001 - thread boundary must surface every setup failure
-                self.events.put(("error", exc))
-        threading.Thread(target=target, daemon=True).start()
+        from .tasks import TaskLanes
+
+        if self._task_lanes is None:
+            self._task_lanes = TaskLanes()
+        self._refresh_coordinator.active = True
+
+        def task():
+            action()
+            return done
+
+        if not self._task_lanes.action.submit(self._route_generation if hasattr(self, "_route_generation") else self.current_step, task):
+            self.busy = False
+            self.progress.stop()
+            self.continue_button.configure(state="normal")
+            return
+        self._refresh_coordinator.request_now()
 
     def _advance(self) -> None:
         self.commit_narrow()
@@ -233,4 +281,3 @@ STEP_TITLES = (
     "Welcome & Hardware", "Safety Warning", "LLM Mode", "Inference Environment",
     "Model Selection", "Optimize", "Download", "Prepare", "Server", "Open WebUI", "Setup Complete",
 )
-
