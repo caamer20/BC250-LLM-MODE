@@ -4,7 +4,7 @@ BC250 LLM MODE is a lightweight native desktop application, setup wizard, and te
 
 The interface is a real local `tkinter` window—not a web app. One persistent,
 resizable window owns five-chapter setup, task-oriented Home, Model Library,
-native streaming Chat, Activity, System, Settings, Help, inline notices,
+native streaming Chat, Connections, Activity, System, Settings, Help, inline notices,
 confirmations, and a bounded log drawer. It uses one Tk root, one refresh
 coordinator, and three lazily-created bounded worker lanes. Terminal chat
 remains available as an optional client with the same lifecycle semantics.
@@ -27,6 +27,10 @@ unsatisfied), *published* (exact artifacts externally published and verified).
   container. Model conversion is **deferred, not advertised** in 1.0 (no
   pinned, verified converter ships; see
   `release/scope-decision-model-conversion.md`).
+- The EXP-2 Connection Assistant and multi-client credential protocol are
+  developer-qualified with bounded real-socket fixtures. Physical PocketPal,
+  Open WebUI, and second-device SSE evidence is still pending for the exact
+  candidate; no hardware-tested client claim is inferred from those fixtures.
 - Release qualification is decided ONLY by the evidence-driven evaluator
   (`python -m tools.release evaluate`); the release workflow builds once,
   verifies, attests, verifies the attestations, and gates approval/publish on
@@ -167,7 +171,7 @@ After a reboot, the desktop starts normally and no LLM model is loaded. Starting
 ## Daily use after setup
 
 Running `bc250-llm-mode` after setup opens Home in the same native window.
-Home, Models, Chat, Activity, System, Settings, and Help all stay in that
+Home, Models, Chat, Connections, Activity, System, Settings, and Help all stay in that
 window. The experience provides:
 
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
@@ -280,9 +284,27 @@ The model server and Open WebUI remain bound to localhost. The application can p
 
 ```text
 Open WebUI: https://<node>.<tailnet>.ts.net:8443/
-Model API:  https://<node>.<tailnet>.ts.net:10000/v1
+OpenAI Base URL: https://<node>.<tailnet>.ts.net:10000/v1
+Models:     https://<node>.<tailnet>.ts.net:10000/v1/models
+Chat:       https://<node>.<tailnet>.ts.net:10000/v1/chat/completions
 Health:     https://<node>.<tailnet>.ts.net:10000/health
 ```
+
+Use **Connections** in the native window to create a separately revocable key
+for each phone, browser, or tool. Enter the displayed **Base URL**, one-time
+**API Key**, and observed **Model** exactly. The key is shown once for 30
+seconds; existing keys cannot be revealed again and must be rotated. Client
+labels never enter filenames, and SQLite stores only SHA-256 fingerprints,
+scopes, bounded timestamps, endpoint class, and revision—not the key, address,
+model history, prompt, or response.
+
+The page checks model and gateway health, a positive and mandatory negative
+local request, Tailscale DNS, exact Serve targets, Funnel disabled, authorized
+and unauthorized tailnet requests, and one bounded SSE event. A green state is
+not inferred from health alone. Bundled setup cards currently label Open WebUI,
+generic OpenAI, curl, and SSE as **protocol-tested** and PocketPal/Python as
+**example-only** until the exact-candidate physical checklist in
+`docs/connection-physical-qualification.md` passes.
 
 Use the Tailnet HTTPS control in System, or:
 
@@ -294,6 +316,23 @@ bc250-llm-mode serve status
 Enabling sharing starts the selected model and Open WebUI, removes any public Funnel rules on the two managed ports, and creates tailnet-only HTTPS proxies. Disabling sharing removes only those proxies; it does not stop the local model or delete data. Because the machine intentionally returns to desktop with no LLM after reboot, the HTTPS proxy configuration may remain present while the backend is offline until the user starts a model again.
 
 The API uses the standard llama.cpp/OpenAI-compatible routes. There is no raw `/api` route; use `/v1/models` and `/v1/chat/completions`.
+
+CLI parity is available without exposing keys in JSON:
+
+```bash
+bc250-llm-mode connections status
+bc250-llm-mode connections clients
+bc250-llm-mode connections add-client --label "My phone" --type pocketpal
+bc250-llm-mode connections instructions pocketpal
+bc250-llm-mode connections test <client-id>
+bc250-llm-mode connections rotate-client <client-id>
+bc250-llm-mode connections revoke-client <client-id>
+bc250-llm-mode connections disable-all
+```
+
+Creating or rotating is refused when output is not an interactive terminal,
+because the new key cannot be safely shown once. `disable-all` is an emergency
+credential revocation path and remains available when llama.cpp is unhealthy.
 
 ## Chat and server usage
 
@@ -354,6 +393,15 @@ bc250-llm-mode llm <action>            start | stop | restart | status | ensure
 bc250-llm-mode webui <action>          start | stop | restart | status
 bc250-llm-mode tailscale <action>      start | stop | restart | status | connect | disconnect
 bc250-llm-mode serve <action>          start | stop | restart | status (tailnet HTTPS)
+bc250-llm-mode connections status|clients
+                                       Show exact endpoints/readiness or redacted clients
+bc250-llm-mode connections add-client --label NAME [--type TYPE] [--scope SCOPE]
+                                       Create one independently revocable client (TTY only)
+bc250-llm-mode connections rotate-client CLIENT [--overlap-seconds 0..900]
+bc250-llm-mode connections revoke-client CLIENT
+bc250-llm-mode connections disable-all Emergency-revoke all remote API clients
+bc250-llm-mode connections instructions TYPE
+bc250-llm-mode connections test CLIENT Run required positive/negative/SSE probes
 bc250-llm-mode models list             List registered models
 bc250-llm-mode models scan             Discover compatible local GGUF models
 bc250-llm-mode models search [query]   Search the catalog by tag/name with live fit

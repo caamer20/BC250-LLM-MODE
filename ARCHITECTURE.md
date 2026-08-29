@@ -16,6 +16,7 @@ module layout and the invariants that keep the hardware safe.
 | `db.py` / `unit_of_work.py` | SQLite connection policy (`open_database`, FKs/WAL/query-only), ordered atomic migrations, per-command units of work |
 | `repositories.py` / `queries.py` | Typed SQL repositories and the assembled frontend read model |
 | `services.py` | Typed domain services (setup, thermal, runtime config, activation, host-mode, component, OpenWebUI, sharing, maintenance) |
+| `connection_credentials.py` / `connection_setup.py` | Migration-011 named-client repositories; atomic mode-0600 secret custody; exact client cards/URLs; named gateway authentication; read-only connection snapshot; bounded positive/negative/SSE probes |
 | `runtime_handoff.py` | Sole writer of the mode-0600 `runtime-handoff.json` rendered from committed state |
 | `disclaimer.py` | The mandatory safety gate; privileged or destructive paths call `require_acknowledgment` |
 | `llmmode.py` / `desktop.py` | Platform-gated reboot safety: LLM mode is per-boot only; the next boot always returns to the desktop |
@@ -32,7 +33,7 @@ module layout and the invariants that keep the hardware safe.
 | `thermals.py` | Thermal watchdog: pure hysteresis state machine + thin host side effects (clock cap, service stop) |
 | `tune.py` | `autotune`: fit-checked benchmark sweep with per-combo rollback |
 | `chat.py` | Streaming terminal chat (prompt caching, timings, think-filter, trim/export/persistence), benchmark helpers |
-| `gui/` | one-root tkinter application: `shell.py` (routing/lifecycle), `setup_page.py` + `setup_forms.py` (five-chapter resumable setup), Home/Models/Chat/Activity/System/Settings/Help pages, one refresh coordinator, three bounded task lanes, and an in-window log/confirmation drawer |
+| `gui/` | one-root tkinter application: `shell.py` (routing/lifecycle), `setup_page.py` + `setup_forms.py` (five-chapter resumable setup), Home/Models/Chat/Connections/Activity/System/Settings/Help pages, one refresh coordinator, three bounded task lanes, and an in-window log/confirmation drawer |
 | `sharing.py` / `tailscale.py` / `openwebui.py` | Optional tailnet HTTPS sharing stack |
 
 ## Invariants
@@ -61,8 +62,10 @@ module layout and the invariants that keep the hardware safe.
    always the normal desktop with no auto-start.
 6. **Reversibility.** Host optimizations record their previous state and are
    reverted by `revert-optimizations` and uninstall.
-7. **No secrets in argv or state.** Credentials stay in the environment; state
-   files are mode `0600`.
+7. **No secrets in argv or durable state.** Each connection key lives in its
+   own non-user-named mode-0600 file; SQLite stores only fingerprints and
+   redacted usage freshness. Default JSON, logs, events, notices, support
+   bundles, and client cards never contain a key. Reveal is one-time.
 8. **One host-platform authority.** Distribution observations are recomputed
    at composition and never persisted as truth. Frontends use composed services;
    Pacman never refreshes its database or performs a partial upgrade, and
@@ -78,6 +81,10 @@ module layout and the invariants that keep the hardware safe.
   real `ApplicationWindow` constructs without a display, every route stays in
   one root, and private setup method names remain free to change.
 - Schema migrations are tested from real legacy JSON shapes.
+- Connection protocol qualification uses real temporary backend/gateway
+  sockets for named scopes, required auth-negative behavior, alias listing,
+  SSE, and independent revocation. This is protocol evidence only; the
+  Bazzite/CachyOS second-device matrix remains physical evidence pending.
 
 ## Release authority (separate from runtime)
 

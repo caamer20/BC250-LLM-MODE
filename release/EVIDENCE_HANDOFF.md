@@ -52,12 +52,21 @@ to the exact package candidate; one host cannot qualify the other.
 - [ ] five-chapter setup resumes correctly across relaunch/reboot
 - [ ] exact disclaimer blocks mutation until acknowledged
 - [ ] Home/Models/Chat/Activity/System/Settings/Help stay in the same window
+- [ ] Connections stays in the same window and shows exact `:8443/` WebUI and
+      `:10000/v1` OpenAI values; `/api`, raw port 8080, and model file paths
+      are absent
 - [ ] clean install → setup completes → server healthy
 - [ ] Vulkan load + generation on a standard-layout GGUF
 - [ ] measurements: device, driver, UMA split, first paint, idle/active RSS and
       CPU, repeated navigation growth, load/generation results
 - [ ] screenshots: setup, Home, Models, native Chat, Activity, System, narrow
       window, keyboard focus, and reduced-motion preference
+- [ ] second-device connection checklist completed from
+      `docs/connection-physical-qualification.md`: PocketPal client/version,
+      Open WebUI, generic OpenAI/SSE, auth-negative requests, Funnel off,
+      two-client independent revoke, and emergency disable while model unhealthy
+- [ ] connection evidence contains classifications/timings only—no key,
+      authorization header, prompt/completion, address, or user label
 - [ ] result PASS signed by the operator (mechanism per policy)
 
 ### SOAK_TEST

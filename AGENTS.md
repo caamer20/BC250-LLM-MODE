@@ -3,7 +3,8 @@
 ## Unified native GUI and appliance-experience planning checkpoint
 
 **GUI-1 THROUGH GUI-8 ARE DEVELOPER-COMPLETE; PHYSICAL EVIDENCE IS PENDING.
-EXP IMPLEMENTATION REMAINS IN PROGRESS — DO NOT CLAIM FULL EXPERIENCE OR
+EXP-1 AND EXP-2 ARE DEVELOPER-IMPLEMENTED; THEIR PHYSICAL EVIDENCE IS PENDING.
+EXP-3 THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL EXPERIENCE OR
 RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
@@ -53,11 +54,32 @@ Implementation commits after the planning checkpoint:
 - `064207b` — GUI-8 concrete window hierarchy; transitional setup mixins,
   legacy forms path, 11-step public export, and private method-name freeze
   removed.
+- `2774806` — EXP-2 multi-client gateway/credential contract (ADR 009).
+- `4a7b048` — migration 011 plus typed client/access repositories.
+- `3dae5cb` — exact connection snapshot, versioned cards, named gateway
+  principals/scopes, atomic secret custody, and bounded positive/negative/SSE
+  probes.
+- `fb28b4c` — one-window Connections page, CLI parity, Open WebUI/sharing
+  credential integration, and Home/Doctor migration-011 awareness.
 
-EXP-1 is developer-implemented but not physically qualified on Bazzite or
-CachyOS. EXP-2 through EXP-8 are not implemented. The next safe boundary is
-EXP-2 (client-ready connection guidance and independently revocable
-credentials), following the exact reviewed plan.
+EXP-1 and EXP-2 are developer-implemented but not physically qualified on
+Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
+or a second-device tailnet journey; use
+`docs/connection-physical-qualification.md` on the exact candidate. The next
+safe boundary is EXP-3: ADR/migration 012 and named workload profiles with
+evidence-bound coaching, following the exact reviewed plan.
+
+EXP-2 developer qualification at this checkpoint: authoritative default
+collection **1277** (exit 0; two expected platform skips), slow battery
+**52/52**, focused connection/docs/package battery **43/43**, and the dedicated
+real-socket two-client gateway journey green. Forced compileall and diff-check
+are clean. A clean wheel rebuilt from the generated sdist initializes schema
+11, imports the connection service and Connections route, and contains none of
+the deleted dashboard/forms/steps modules. The initial direct-checkout wheel
+was intentionally rejected because the ignored long-lived `build/` directory
+contained those stale deleted files; it is not a candidate artifact. The clean
+sdist/wheel checksums are developer diagnostics only, not release artifacts or
+physical evidence.
 
 Implementation superseded package candidate `ccd1777`. No physical evidence
 from that older candidate may qualify this GUI/EXP line. GUI-8 developer gates:

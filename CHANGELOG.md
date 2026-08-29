@@ -5,6 +5,29 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Appliance experience EXP-1 and EXP-2
+
+- Added an atomic user-local application-menu launcher and bounded same-user
+  single-instance activation broker; no autostart, tray daemon, or listener
+  thread was introduced.
+- Added migration 011 named client credentials with case-insensitive bounded
+  labels, closed scopes/kinds, revision fencing, independent revoke/rotation,
+  optional 1–900 second overlap, a global disable record, and preservation of
+  the legacy singleton. Secret bytes remain in separate non-user-named 0600
+  files and never enter SQLite.
+- Added one authoritative Connection Assistant snapshot, locally versioned
+  Open WebUI/PocketPal/OpenAI/curl/Python/SSE cards, exact `:8443/` and
+  `:10000/v1` URLs, safe observed model aliases, mandatory positive/negative
+  probes, a bounded SSE probe, named gateway principals/scopes, and redacted
+  last-used endpoint-class receipts.
+- Added a primary native Connections page and matching `connections` CLI for
+  status, listing, add/rotate/revoke/disable, instructions, and tests. One-time
+  key reveal is TTY-gated in CLI and time-limited/cleared in GUI; emergency
+  disable does not depend on llama.cpp health.
+- Developer protocol fixtures include a real-socket two-client journey and
+  independent revocation. Physical PocketPal, Open WebUI, generic SSE,
+  Bazzite, and CachyOS qualification remains evidence pending.
+
 ### Unified native appliance window (GUI-1 through GUI-8)
 
 - Replaced the transitional 11-screen/dashboard/second-window experience with
