@@ -85,7 +85,9 @@ class _StubModule(types.ModuleType):
 
 def install() -> None:
     """Idempotent headless-tkinter installation for GUI-touching tests."""
-    if "bc250_llm_mode.gui" in sys.modules:
+    # Pure GUI contracts deliberately import the package without importing
+    # tkinter.  Only refuse a late stub swap after a widget module has loaded.
+    if "bc250_llm_mode.gui.app" in sys.modules:
         return
     for name in ("tkinter", "tkinter.ttk", "tkinter.filedialog", "tkinter.messagebox"):
         sys.modules.setdefault(name, _StubModule(name))
