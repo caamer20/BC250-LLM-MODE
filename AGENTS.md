@@ -2,7 +2,7 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**PLAN READY; IMPLEMENTATION NOT STARTED.**
+**IMPLEMENTATION IN PROGRESS; DO NOT CLAIM GUI/EXP COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
 second-window/terminal-handoff experience with one lightweight tkinter shell:
@@ -24,10 +24,28 @@ accessibility/privacy polish, and candidate-bound journey qualification. It
 explicitly rejects a tray daemon, telemetry, public Funnel/raw exposure,
 automatic updates, generic one-click repair, and on-the-fly UMA changes.
 
-These two planning checkpoints are documentation-only. The unified GUI plan
-was written from `18aa49f` and the lifecycle follow-up from `1911ad5`;
-packaged code remains `ccd1777`, so the current physical-evidence candidate is
-unchanged.
+Implementation commits after the planning checkpoint:
+
+- `09f8c60` — GUI-1 pure route/setup/action/notice/theme/task/refresh contracts;
+  GUI package pure contracts no longer require Tk to import.
+- `4635234` — GUI-2 persistent `ApplicationWindow`, one refresh coordinator,
+  three lazy bounded lanes, bounded log drawer, inline error notice, and
+  in-window Activity navigation. The legacy setup/dashboard is still mounted;
+  GUI-3 through GUI-8 are NOT complete.
+- `9079bf3` — EXP-1 user-local desktop integration (atomic owned launcher,
+  desktop entry, packaged icon, no autostart) plus same-user GUI ownership via
+  flock, nonce, bounded AF_UNIX protocol, and coordinator polling with no
+  listener thread.
+- `84bcd2b` — architecture-guard naming correction; no legacy activation
+  orchestrator returned.
+
+EXP-1 is developer-implemented but not physically qualified on Bazzite or
+CachyOS. EXP-2 through EXP-8 are not implemented. The next safe boundary is
+GUI-3 (five-chapter setup conversion), not migration 011 or gateway changes.
+
+The plans themselves were documentation-only, but implementation has now
+superseded package candidate `ccd1777`. No physical evidence from that older
+candidate may qualify the new GUI/EXP work.
 Before GUI implementation begins, the owner must explicitly choose whether to
 qualify `ccd1777` first or supersede it and collect C4 evidence only for the
 eventual GUI candidate. Any GUI package-code change invalidates candidate-bound

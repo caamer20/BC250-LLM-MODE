@@ -1,6 +1,7 @@
 # BC250 LLM MODE — Appliance Experience Completion Implementation Plan
 
-**Status:** Implementation-ready follow-up plan; implementation not started
+**Status:** Implementation in progress — EXP-1 developer implementation landed;
+physical qualification and EXP-2 through EXP-8 remain pending
 
 **Plan IDs:** EXP-1 through EXP-8
 

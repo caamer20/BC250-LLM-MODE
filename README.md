@@ -2,7 +2,12 @@
 
 BC250 LLM MODE is a lightweight native desktop application, setup wizard, and terminal chat client for turning an AMD BC-250 running Bazzite or CachyOS into a dedicated local `llama.cpp`/Vulkan inference station—and operating it afterward from one place.
 
-The interface is a real local `tkinter` window—not a web app. The window code lives in the `bc250_llm_mode/gui/` package: `app.py` (shell, threading, navigation), `steps.py` (setup wizard screens), `dashboard.py` (operations dashboard, catalog browser, llama.cpp runtime card), and `forms.py` (model/optimization forms with unit-tested pure decision helpers); the composed `Wizard` surface is frozen by a headless contract test. After the resumable setup flow completes, the same window becomes an operations dashboard for the model server, models, a searchable catalog browser with live VRAM fit badges and one-click install, one-click benchmarks, llama.cpp updates/rollback, context, Open WebUI, Tailscale HTTPS sharing, logs, performance settings, and desktop/LLM mode transitions. The streaming terminal chat provides matching management commands.
+The interface is a real local `tkinter` window—not a web app. A persistent
+one-root shell now owns navigation, bounded foreground task lanes, one refresh
+coordinator, inline notices, an in-window Activity route, and a bounded log
+drawer. The existing resumable setup and management controls remain mounted
+while the remaining planned pages are converted. The streaming terminal chat
+continues to provide matching management commands during that transition.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
@@ -331,6 +336,9 @@ Use the full virtual-environment path shown below, or activate the environment a
 
 ```text
 bc250-llm-mode                         Open setup or the completed management GUI
+bc250-llm-mode gui [--route PAGE]      Open or activate the one native GUI instance
+bc250-llm-mode desktop-integration     status | plan | install | remove the
+  <action>                             user-local application-menu launcher
 bc250-llm-mode setup                   Open/resume the native wizard
 bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON

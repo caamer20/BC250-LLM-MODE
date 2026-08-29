@@ -1,6 +1,7 @@
 # BC250 LLM MODE — Unified Native GUI Implementation Plan
 
-**Status:** Implementation-ready plan; implementation not started
+**Status:** Implementation in progress — GUI-1 and GUI-2 landed; GUI-3 through
+GUI-8 remain pending
 
 **Plan IDs:** GUI-1 through GUI-8
 
