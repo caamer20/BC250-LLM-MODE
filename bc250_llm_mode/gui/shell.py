@@ -144,6 +144,24 @@ class ApplicationWindow(StepsMixin, DashboardMixin, FormsMixin, GuiBase):
     def _open_activity_center(self) -> None:
         self.navigate(Route.ACTIVITY)
 
+    def _refresh_cycle(self) -> None:
+        broker = getattr(self, "instance_broker", None)
+        if broker is not None:
+            for request in broker.poll():
+                try:
+                    self.deiconify()
+                    self.lift()
+                    self.focus_force()
+                except Exception:
+                    pass
+                if request.route:
+                    self.navigate(request.route)
+                elif request.verb == "OPEN_OPERATION":
+                    self.navigate(Route.ACTIVITY, {"operation_id": request.identifier})
+                elif request.verb == "OPEN_MODEL":
+                    self.navigate(Route.MODELS, {"model_id": request.identifier})
+        super()._refresh_cycle()
+
     def destroy(self) -> None:
         coordinator = getattr(self, "_refresh_coordinator", None)
         if coordinator is not None:

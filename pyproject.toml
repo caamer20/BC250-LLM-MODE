@@ -30,6 +30,9 @@ packages = [
   "bc250_llm_mode.operations",
 ]
 
+[tool.setuptools.package-data]
+bc250_llm_mode = ["assets/*.svg"]
+
 [project.optional-dependencies]
 test = ["pytest>=8"]
 

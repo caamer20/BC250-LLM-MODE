@@ -30,12 +30,32 @@ def __getattr__(name: str):
     raise AttributeError(name)
 
 
-def run_gui(application, management: bool = False) -> None:
+def run_gui(application, management: bool = False, *, route: str | None = None) -> None:
+    from ..instance_broker import ActivationRequest, GuiInstanceBroker
+
+    broker = None
+    if getattr(getattr(application, "paths", None), "app_dir", None) is not None:
+        broker = GuiInstanceBroker(application.paths.app_dir)
+        request = ActivationRequest("ROUTE" if route else "ACTIVATE", route=route)
+        if not broker.acquire():
+            if broker.activate_existing(request):
+                return
+            raise RuntimeError(
+                "Another GUI instance owns this profile but could not be activated. "
+                "Close it normally and try again."
+            )
     try:
         import tkinter as tk
 
-        window = _window_class()
-        window(application, management=management).mainloop()
+        # The explicit global permits narrow headless entry-boundary fakes;
+        # production resolves the one ApplicationWindow lazily.
+        window = globals().get("Wizard") or _window_class()
+        instance = window(application, management=management)
+        if broker is not None:
+            instance.instance_broker = broker
+        if route:
+            instance.navigate(route)
+        instance.mainloop()
     except (ImportError, ModuleNotFoundError) as exc:
         raise RuntimeError(
             "Tkinter is not available. Install the reviewed host Tk package "
@@ -45,6 +65,9 @@ def run_gui(application, management: bool = False) -> None:
         raise RuntimeError(
             "A local graphical display is required for BC250 LLM MODE."
         ) from exc
+    finally:
+        if broker is not None:
+            broker.close()
 
 
 __all__ = ["Wizard", "run_gui", "STEP_TITLES"]

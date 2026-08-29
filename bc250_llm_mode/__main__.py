@@ -75,6 +75,16 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Open/resume the native setup wizard")
+    gui = sub.add_parser("gui", help="Open or activate the native management window")
+    gui.add_argument(
+        "--route",
+        choices=("home", "models", "chat", "activity", "system", "settings", "help", "connections", "profiles", "maintenance", "maintenance/repair", "maintenance/updates"),
+        default=None,
+    )
+    desktop_integration = sub.add_parser(
+        "desktop-integration", help="Manage the user-local application-menu launcher"
+    )
+    desktop_integration.add_argument("action", choices=("status", "plan", "install", "remove"))
     sub.add_parser("repair", help="Open the native wizard at hardware validation")
     sub.add_parser(
         "repair-status",
@@ -397,11 +407,15 @@ def main(argv: list[str] | None = None) -> int:
     # state, last_verified_at) without persisting them here.
     if args.command in {"gateway", "serve", "share", "webui", "openwebui"}:
         application.gateway.write_state_fields(state)
-    if args.command in (None, "setup"):
+    if args.command in (None, "setup", "gui"):
         if not bootstrap_tkinter(application):
             return 0
         from .gui import run_gui
-        run_gui(application, management=bool(state.get("setup_complete")))
+        run_gui(
+            application,
+            management=bool(state.get("setup_complete")),
+            route=getattr(args, "route", None),
+        )
         return 0
     if args.command == "repair":
         if not bootstrap_tkinter(application):
@@ -417,6 +431,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat":
         require_acknowledgment(state)
         run_chat(application)
+        return 0
+    if args.command == "desktop-integration":
+        service = application.desktop_integration
+        if args.action == "status":
+            payload = service.status()
+        elif args.action == "plan":
+            payload = service.plan()
+        elif args.action == "install":
+            payload = service.install()
+        else:
+            payload = service.remove()
+        print(json.dumps(payload, indent=2))
         return 0
     if args.command == "status":
         report = detect_hardware(state["models_dir"])

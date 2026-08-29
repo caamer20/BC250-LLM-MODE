@@ -81,6 +81,7 @@ class Application:
     model_library: Any = None
     storage_capacity: Any = None
     platform: Any = None
+    desktop_integration: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -266,6 +267,11 @@ class Application:
 
         application.storage_capacity = StorageCapacityService(
             units, application.paths
+        )
+        from .desktop_integration import DesktopIntegrationService
+
+        application.desktop_integration = DesktopIntegrationService(
+            application.paths
         )
         application.setup = SetupService(units)
         application.safety = ThermalStateService(units)
