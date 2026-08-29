@@ -133,6 +133,10 @@ Implement one `gateway.py` module that:
 
 ### 3.3 D3 — scoped credentials with rotation/revocation
 
+> **EXP-2 addendum:** ADR 009 supersedes the singleton lifecycle below with
+> independently revocable, purpose-scoped client credentials. Migration 008
+> remains preserved and is imported as `legacy-install` by migration 011.
+
 - On provisioning, generate a per-install secret, store it in a 0600
   config/env file within the profile (never argv/logs/labels); record a
   non-secret credential *fingerprint* (sha256 of the secret) in SQLite so
