@@ -1,6 +1,6 @@
 """C2 §C2.2 (V1_0_RELEASE_CLOSURE plan): migration 010 + backup repositories.
 
-Covers fresh creation at schema v10, a v9 -> v10 upgrade preserving every
+Backup tables remain present at the current schema; a v9 -> v10+ upgrade preserves every
 durable row, newer-schema refusal, and the revision-fenced (CAS) backup/restore
 repositories with fail-closed refusal of malformed digests/states.
 """
@@ -36,7 +36,7 @@ def _applied_versions(db_path) -> list[int]:
         read.close()
 
 
-def test_fresh_install_reaches_v10_with_backup_tables(tmp_path):
+def test_fresh_install_reaches_current_schema_with_backup_tables(tmp_path):
     database = tmp_path / "fresh.db"
     initialize_and_close(database)
     assert _applied_versions(database) == list(range(1, SCHEMA_VERSION + 1))
@@ -84,6 +84,11 @@ def test_v9_database_upgrades_to_v10_preserving_rows(tmp_path):
             updated_at TEXT NOT NULL);
         INSERT INTO model_library_meta (alias, pinned, updated_at)
             VALUES ('tiny', 1, 't0');
+        CREATE TABLE gateway_credentials (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            fingerprint TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL, rotated_at TEXT, revoked_at TEXT,
+            revision INTEGER NOT NULL DEFAULT 1);
         PRAGMA user_version = 9;
         """
     )

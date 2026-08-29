@@ -56,7 +56,8 @@ def test_v8_database_upgrades_to_v9_preserving_artifacts_and_lineage(tmp_path):
             VALUES (1, 5, 't0');
         CREATE TABLE gateway_credentials (id INTEGER PRIMARY KEY CHECK (id = 1),
             fingerprint TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1);
+            created_at TEXT NOT NULL, rotated_at TEXT, revoked_at TEXT,
+            revision INTEGER NOT NULL DEFAULT 1);
         INSERT INTO gateway_credentials (id, fingerprint, created_at)
             VALUES (1, 'deadbeef', 't0');
         PRAGMA user_version = 8;

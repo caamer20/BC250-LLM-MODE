@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -668,6 +668,116 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
                 revision INTEGER NOT NULL DEFAULT 1
                     CHECK (revision >= 1)
             )
+            """,
+        ),
+    ),
+    (
+        11,
+        "multi-client-credentials",
+        (
+            # ADR 009 / EXP-2: independently revocable client metadata.
+            # Secret bytes remain in separate mode-0600 files and never enter
+            # these tables. Labels are display-only and never form paths.
+            """
+            CREATE TABLE connection_clients (
+                client_id TEXT PRIMARY KEY
+                    CHECK (length(client_id) BETWEEN 1 AND 64),
+                label TEXT NOT NULL
+                    CHECK (length(trim(label)) BETWEEN 1 AND 80),
+                client_kind TEXT NOT NULL
+                    CHECK (client_kind IN
+                           ('openwebui', 'pocketpal', 'openai', 'curl', 'sse')),
+                scopes TEXT NOT NULL
+                    CHECK (length(scopes) BETWEEN 1 AND 128),
+                active_fingerprint TEXT NOT NULL
+                    CHECK (length(active_fingerprint) = 64
+                           AND active_fingerprint GLOB '[0-9a-f]*'),
+                active_generation INTEGER NOT NULL DEFAULT 1
+                    CHECK (active_generation >= 1),
+                secret_storage TEXT NOT NULL DEFAULT 'managed'
+                    CHECK (secret_storage IN ('managed', 'legacy-singleton')),
+                created_at TEXT NOT NULL,
+                rotated_at TEXT,
+                revoked_at TEXT,
+                last_used_at TEXT,
+                last_endpoint_class TEXT
+                    CHECK (last_endpoint_class IN
+                           ('models', 'chat', 'stream')
+                           OR last_endpoint_class IS NULL),
+                revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (revision >= 1)
+            )
+            """,
+            """
+            CREATE UNIQUE INDEX idx_connection_clients_active_label
+                ON connection_clients(lower(label))
+                WHERE revoked_at IS NULL
+            """,
+            """
+            CREATE INDEX idx_connection_clients_state
+                ON connection_clients(revoked_at, created_at, client_id)
+            """,
+            """
+            CREATE TABLE connection_client_secrets (
+                client_id TEXT NOT NULL
+                    REFERENCES connection_clients(client_id) ON DELETE CASCADE,
+                generation INTEGER NOT NULL CHECK (generation >= 1),
+                fingerprint TEXT NOT NULL UNIQUE
+                    CHECK (length(fingerprint) = 64
+                           AND fingerprint GLOB '[0-9a-f]*'),
+                state TEXT NOT NULL
+                    CHECK (state IN ('ACTIVE', 'OVERLAP', 'RETIRED')),
+                created_at TEXT NOT NULL,
+                overlap_expires_at TEXT,
+                retired_at TEXT,
+                PRIMARY KEY (client_id, generation)
+            )
+            """,
+            """
+            CREATE INDEX idx_connection_client_secrets_auth
+                ON connection_client_secrets(state, overlap_expires_at)
+            """,
+            """
+            CREATE TABLE connection_access_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+                disabled_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)
+            )
+            """,
+            """
+            INSERT INTO connection_access_state(id, enabled, revision)
+                VALUES (1, 1, 1)
+            """,
+            # Preserve the migration-008 singleton as metadata only. Invalid
+            # handcrafted legacy fingerprints remain untouched in their old
+            # table but are not promoted into an authenticatable client.
+            """
+            INSERT INTO connection_clients (
+                client_id, label, client_kind, scopes, active_fingerprint,
+                active_generation, secret_storage, created_at, rotated_at,
+                revoked_at, revision
+            )
+            SELECT 'legacy-install', 'Legacy installation', 'openwebui',
+                   scopes, fingerprint, 1, 'legacy-singleton', created_at,
+                   rotated_at, revoked_at, revision
+              FROM gateway_credentials
+             WHERE id = 1
+               AND length(fingerprint) = 64
+               AND fingerprint NOT GLOB '*[^0-9a-f]*'
+            """,
+            """
+            INSERT INTO connection_client_secrets (
+                client_id, generation, fingerprint, state, created_at,
+                retired_at
+            )
+            SELECT 'legacy-install', 1, fingerprint,
+                   CASE WHEN revoked_at IS NULL THEN 'ACTIVE' ELSE 'RETIRED' END,
+                   created_at, revoked_at
+              FROM gateway_credentials
+             WHERE id = 1
+               AND length(fingerprint) = 64
+               AND fingerprint NOT GLOB '*[^0-9a-f]*'
             """,
         ),
     ),
