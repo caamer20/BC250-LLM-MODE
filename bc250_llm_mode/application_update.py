@@ -938,25 +938,37 @@ class ApplicationUpdateQueryService:
     def __init__(
         self,
         *,
-        installed: InstalledApplication,
+        installed: InstalledApplication | Callable[[], InstalledApplication],
         verifier: ApplicationReleaseVerifier,
         platform_profile: str,
         channel: ApplicationReleaseChannel | None = None,
-        free_bytes: int = 0,
+        free_bytes: int | Callable[[], int] = 0,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         self._installed = installed
         self._verifier = verifier
         self._platform_profile = platform_profile
         self._channel = channel or UnavailableApplicationReleaseChannel()
-        self._free_bytes = max(0, int(free_bytes))
+        self._free_bytes = free_bytes if callable(free_bytes) else max(0, int(free_bytes))
         self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def _installed_now(self) -> InstalledApplication:
+        value = self._installed() if callable(self._installed) else self._installed
+        if not isinstance(value, InstalledApplication):
+            raise ValueError("installed application observation is invalid")
+        return value
+
+    def _free_bytes_now(self) -> int:
+        value = self._free_bytes() if callable(self._free_bytes) else self._free_bytes
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError("free-space observation is invalid")
+        return max(0, value)
 
     def status(self) -> ApplicationUpdateStatus:
         available = bool(self._channel.available and self._verifier.trust.available)
         code = UpdateCode.OK if available else UpdateCode.SIGNED_UPDATE_CHANNEL_UNAVAILABLE
         return ApplicationUpdateStatus(
-            installed=self._installed,
+            installed=self._installed_now(),
             outcome=UpdateOutcome.AVAILABLE if available else UpdateOutcome.UNAVAILABLE,
             reason_code=code,
             channel_available=available,
@@ -971,11 +983,12 @@ class ApplicationUpdateQueryService:
             return ()
         if len(materials) > 16:
             return ()
+        installed = self._installed_now()
         verified: list[VerifiedApplicationRelease] = []
         for material in materials:
             result = self._verifier.verify(
                 material,
-                installed_schema=self._installed.database_schema,
+                installed_schema=installed.database_schema,
                 platform_profile=self._platform_profile,
             )
             if result.release is not None:
@@ -1016,16 +1029,18 @@ class ApplicationUpdateQueryService:
         staging = release.total_bytes * 2
         retained = release.total_bytes
         required = release.total_bytes + staging + retained + (512 * 1024 * 1024)
-        if self._free_bytes < required:
+        available_free = self._free_bytes_now()
+        if available_free < required:
             return ApplicationUpdatePreview(
                 UpdateOutcome.UNAVAILABLE,
                 UpdateCode.INSUFFICIENT_SPACE,
                 version=release.version,
                 release_set_digest=release.release_set_digest,
                 required_free_bytes=required,
-                available_free_bytes=self._free_bytes,
+                available_free_bytes=available_free,
             )
 
+        installed = self._installed_now()
         now = self._now()
         if not isinstance(now, datetime) or now.tzinfo is None:
             raise ValueError("update preview clock must return an aware datetime")
@@ -1037,10 +1052,10 @@ class ApplicationUpdateQueryService:
             "mode": "APPLY",
             "release_set_digest": release.release_set_digest,
             "version": release.version,
-            "expected_current_installation": self._installed.current_installation_id,
-            "expected_previous_installation": self._installed.previous_installation_id,
-            "expected_pointer_generation": self._installed.pointer_generation,
-            "expected_installation_revision": self._installed.revision,
+            "expected_current_installation": installed.current_installation_id,
+            "expected_previous_installation": installed.previous_installation_id,
+            "expected_pointer_generation": installed.pointer_generation,
+            "expected_installation_revision": installed.revision,
             "source_schema": release.source_schema,
             "target_schema": release.target_schema,
             "required_free_bytes": required,
@@ -1065,13 +1080,13 @@ class ApplicationUpdateQueryService:
             staging_bytes=staging,
             retained_bytes=retained,
             required_free_bytes=required,
-            available_free_bytes=self._free_bytes,
+            available_free_bytes=available_free,
             backup_required=True,
             restart_required=True,
-            rollback_installation_id=self._installed.current_installation_id,
+            rollback_installation_id=installed.current_installation_id,
             profile_restore_on_rollback=(release.target_schema != release.source_schema),
             release_notes_plain_text=release.notes,
-            expected_installation_revision=self._installed.revision,
+            expected_installation_revision=installed.revision,
             preview_digest=digest,
             confirmation_token=confirmation,
             expires_at=expires,

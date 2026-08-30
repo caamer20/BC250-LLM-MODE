@@ -229,6 +229,15 @@ class ApplicationWindow(SetupWindow):
             self._page.enter(context)
             self.heading.focus_set()
             return
+        if target is Route.UPDATES:
+            self.heading.configure(text="Maintenance · Updates")
+            from .updates_page import UpdatesPage
+
+            self._page = UpdatesPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
         if target is Route.SYSTEM:
             self.heading.configure(text="System")
             from .system_page import SystemPage
@@ -429,7 +438,7 @@ class ApplicationWindow(SetupWindow):
         if page is not None and self._route in {
             Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
             Route.ACTIVITY, Route.MAINTENANCE,
-            Route.REPAIR,
+            Route.REPAIR, Route.UPDATES,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:

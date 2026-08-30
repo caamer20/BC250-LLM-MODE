@@ -85,6 +85,16 @@ class AppPaths:
         return self.application_releases_dir / ".staging"
 
     @property
+    def application_update_bundles_dir(self) -> Path:
+        """Verified, content-addressed release bundles (ADR 013)."""
+        return self.app_dir / "update-bundles"
+
+    @property
+    def application_update_import_staging_dir(self) -> Path:
+        """Private staging for untrusted offline archives before verification."""
+        return self.application_update_bundles_dir / ".staging"
+
+    @property
     def application_current_link(self) -> Path:
         return self.app_dir / "current"
 
@@ -109,6 +119,8 @@ class AppPaths:
             self.conversations_dir, self.backups_dir, self.staging_dir,
             self.migration_receipts_dir, self.application_releases_dir,
             self.application_release_staging_dir,
+            self.application_update_bundles_dir,
+            self.application_update_import_staging_dir,
         ):
             ensure_private_dir(directory)
 

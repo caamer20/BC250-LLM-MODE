@@ -213,7 +213,8 @@ class ApplicationUpdateHostAdapter:
                     RecoveryClass.UNCERTAIN_MANUAL, "HELD_RELEASE_UNREADABLE"
                 )
             return ProbeResult(
-                RecoveryClass.COMPLETE, "VERIFIED_RELEASE_RESERVED", release
+                RecoveryClass.COMPLETE, "VERIFIED_RELEASE_RESERVED",
+                {"release": release},
             )
         if state.pending_update_operation_id is None:
             return ProbeResult(RecoveryClass.ABSENT, "UPDATE_NOT_RESERVED")
@@ -278,8 +279,8 @@ class ApplicationUpdateHostAdapter:
         ):
             return ProbeResult(
                 RecoveryClass.COMPLETE, "CANDIDATE_RELEASE_PRESENT",
-                {"stage_identity": None,
-                 "release_set_digest": held.release.release_set_digest},
+                {"stage": {"stage_identity": None,
+                 "release_set_digest": held.release.release_set_digest}},
             )
         staged = self.stager.probe(held.stage_request(ctx.operation_id))
         if staged is None:
@@ -287,7 +288,8 @@ class ApplicationUpdateHostAdapter:
                 RecoveryClass.UNCERTAIN_MANUAL, "STAGING_RECORD_WITHOUT_TREE"
             )
         return ProbeResult(
-            RecoveryClass.COMPLETE, "CANDIDATE_STAGED", staged.to_dict()
+            RecoveryClass.COMPLETE, "CANDIDATE_STAGED",
+            {"stage": staged.to_dict()},
         )
 
     def discard_stage(self, ctx: EffectContext) -> dict[str, Any]:
@@ -361,8 +363,8 @@ class ApplicationUpdateHostAdapter:
             )
         return ProbeResult(
             RecoveryClass.COMPLETE, "UPDATE_BACKUP_VERIFIED",
-            {"backup_id": row["backup_id"],
-             "manifest_digest": row["manifest_digest"]},
+            {"backup": {"backup_id": row["backup_id"],
+             "manifest_digest": row["manifest_digest"]}},
         )
 
     # -- pointer ----------------------------------------------------------
@@ -389,12 +391,16 @@ class ApplicationUpdateHostAdapter:
             "pointer_generation": ctx.request.expected_pointer_generation + 1,
         }
         if state == "COMPLETE":
-            return ProbeResult(RecoveryClass.COMPLETE, "POINTERS_PUBLISHED", output)
+            return ProbeResult(
+                RecoveryClass.COMPLETE, "POINTERS_PUBLISHED",
+                {"publication": output},
+            )
         if state == "ABSENT":
             return ProbeResult(RecoveryClass.ABSENT, "POINTERS_UNCHANGED")
         if state == "PREPARED":
             return ProbeResult(
-                RecoveryClass.PARTIALLY_RESUMABLE, "POINTERS_PREPARED", output
+                RecoveryClass.PARTIALLY_RESUMABLE, "POINTERS_PREPARED",
+                {"publication": output},
             )
         return ProbeResult(
             RecoveryClass.UNCERTAIN_MANUAL, "POINTER_IDENTITY_MISMATCH"
@@ -430,8 +436,13 @@ class ApplicationUpdateHostAdapter:
         )
 
     def probe_acknowledgment(self, ctx: EffectContext) -> ProbeResult:
-        return self.post_update.probe(
+        result = self.post_update.probe(
             operation_id=ctx.operation_id, release=self._held(ctx).release
+        )
+        if result.output is None:
+            return result
+        return ProbeResult(
+            result.classification, result.reason_code, {"ack": result.output}
         )
 
     def restore_profile(self, ctx: EffectContext) -> dict[str, Any]:
@@ -452,8 +463,13 @@ class ApplicationUpdateHostAdapter:
         )
 
     def probe_health(self, ctx: EffectContext) -> ProbeResult:
-        return self.post_update.probe_health(
+        result = self.post_update.probe_health(
             operation_id=ctx.operation_id, release=self._held(ctx).release
+        )
+        if result.output is None:
+            return result
+        return ProbeResult(
+            result.classification, result.reason_code, {"health": result.output}
         )
 
     # -- final record -----------------------------------------------------
@@ -546,7 +562,8 @@ class ApplicationUpdateHostAdapter:
         return ProbeResult(
             RecoveryClass.COMPLETE if complete else RecoveryClass.ABSENT,
             "INSTALLATION_RECORDED" if complete else "INSTALLATION_RECORD_ABSENT",
-            {"pointer_generation": state.pointer_generation} if complete else None,
+            {"record": {"pointer_generation": state.pointer_generation}}
+            if complete else None,
         )
 
 

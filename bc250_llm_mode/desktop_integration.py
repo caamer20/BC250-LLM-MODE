@@ -55,11 +55,26 @@ def render_desktop_entry(*, launcher: Path, icon: Path) -> str:
     ))
 
 
-def render_launcher(*, python: Path) -> str:
+def render_launcher(*, python: Path, current_link: Path | None = None) -> str:
     value = str(python)
     if not value.startswith("/") or any(c in value for c in ("\n", "\r", "\x00", "'")):
         raise ValueError("launcher requires a safe absolute Python path")
-    return "#!/bin/sh\nexec '" + value + "' -m bc250_llm_mode \"$@\"\n"
+    lines = ["#!/bin/sh"]
+    if current_link is not None:
+        slot_python = str(current_link / "venv" / "bin" / "python")
+        if not slot_python.startswith("/") or any(
+            c in slot_python for c in ("\n", "\r", "\x00", "'")
+        ):
+            raise ValueError("launcher requires a safe absolute current link")
+        # No eval, interpolation, or versioned path: the atomically published
+        # package-owned link is resolved on every invocation.
+        lines.extend((
+            "if [ -x '" + slot_python + "' ]; then",
+            "  exec '" + slot_python + "' -m bc250_llm_mode \"$@\"",
+            "fi",
+        ))
+    lines.append("exec '" + value + "' -m bc250_llm_mode \"$@\"")
+    return "\n".join(lines) + "\n"
 
 
 @dataclass(frozen=True)
@@ -114,7 +129,9 @@ class DesktopIntegrationService:
     def _payloads(self) -> dict[str, bytes]:
         targets = self.targets()
         return {
-            "launcher": render_launcher(python=self.python).encode(),
+            "launcher": render_launcher(
+                python=self.python, current_link=self.paths.application_current_link
+            ).encode(),
             "desktop_entry": render_desktop_entry(
                 launcher=targets.launcher, icon=targets.icon
             ).encode(),

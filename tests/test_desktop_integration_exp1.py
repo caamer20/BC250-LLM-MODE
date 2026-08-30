@@ -41,6 +41,9 @@ def test_install_status_remove_are_owned_and_atomic(tmp_path):
     installed = service.install()
     assert installed["installed"] is True
     assert service.targets().launcher.stat().st_mode & 0o111
+    launcher = service.targets().launcher.read_text()
+    assert str(service.paths.application_current_link / "venv/bin/python") in launcher
+    assert "eval" not in launcher
     receipt = json.loads(service.targets().receipt.read_text())
     assert set(receipt["digests"]) == {"launcher", "desktop_entry", "icon"}
     removed = service.remove()

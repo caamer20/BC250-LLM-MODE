@@ -5,6 +5,26 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Appliance experience EXP-6
+
+- Added ADR 013's fail-closed application release verifier and migration 014
+  two-slot installation/import state. Candidate identity is evaluator-,
+  manifest-, inventory-, checksum-, SBOM-, provenance-, signature-, platform-,
+  and database-compatibility-bound; production remains honestly unavailable
+  until a reviewed trust root and eligible signed release exist.
+- Added isolated exact-wheel staging, digest-pinned `current`/`previous`
+  publication, durable `APPLICATION_UPDATE v1` crash recovery, verified profile
+  backup, bounded replacement-process acknowledgment, health verification, and
+  exact rollback evidence. No smoke path starts a model or managed component.
+- Added a hostile-archive-safe offline importer using the identical verifier,
+  plus one-window Updates UI and `update status/check/preview/import-bundle/
+  apply/rollback/cleanup --dry-run` CLI parity. Checks and mutations are never
+  automatic; signed notes render as literal text and the prior readable slot is
+  retention-protected.
+- Developer tamper/crash/GUI/CLI tests are included. Eligible signed artifacts
+  and physical Bazzite/CachyOS update, migration, rollback, restart, and profile-
+  restore evidence remain release/owner-gated and are not claimed.
+
 ### Appliance experience EXP-5
 
 - Added ADR 012 and a closed 15-action Repair contract. Every action now has a

@@ -541,6 +541,43 @@ The exact physical qualification checklist is
 [`docs/repair-physical-qualification.md`](docs/repair-physical-qualification.md).
 No physical PASS is inferred from developer tests.
 
+### Application updates (late-gated beta capability)
+
+The native **Maintenance · Updates** page and matching `update` CLI never run
+an automatic check, download, or install. They accept only a complete release
+set that passes the project's sole release evaluator, immutable tag/commit,
+manifest/inventory/checksum/SBOM, provenance, signature, platform-evidence,
+and database-compatibility gates. Release notes are displayed as literal plain
+text. There is no fallback to `pip install --upgrade`, a branch, an arbitrary
+URL, or an unsigned local wheel.
+
+```bash
+bc250-llm-mode update status
+bc250-llm-mode update check
+bc250-llm-mode update preview VERSION
+bc250-llm-mode update import-bundle /path/to/signed-release.tar
+bc250-llm-mode update apply VERSION --preview DIGEST --confirm TOKEN
+bc250-llm-mode update rollback                         # preview only
+bc250-llm-mode update rollback --preview DIGEST --confirm TOKEN
+bc250-llm-mode update cleanup --dry-run
+```
+
+An eligible update is staged into a new immutable venv without modifying the
+running installation, smoke-tested offline, backed up, and published through
+the `current`/`previous` two-slot pointers. A bounded replacement process
+verifies the new slot, database, composition, model-library read, and host
+observation while starting no model or managed service. Failure restores exact
+evidence where safe or stops at `RECOVERY_REQUIRED`; the prior readable slot is
+retained. Offline imports use the identical verifier and reject traversal,
+links, special files, duplicate/unknown members, oversized content, and
+mutation.
+
+The development build intentionally packages no reviewed production signing
+root or eligible release channel yet, so normal production status is
+`SIGNED_UPDATE_CHANNEL_UNAVAILABLE`. This is an honest release gate, not a
+prompt to bypass verification. Physical Bazzite/CachyOS update and rollback
+qualification remains pending.
+
 Update a source checkout:
 
 ```bash

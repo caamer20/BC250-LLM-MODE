@@ -46,6 +46,13 @@ def test_activity_navigation_is_in_window(tmp_path):
     assert window._route is Route.ACTIVITY
 
 
+def test_updates_navigation_is_one_window_and_status_only(tmp_path):
+    window = ApplicationWindow(_application(tmp_path), management=True)
+    window.navigate(Route.UPDATES)
+    assert window._route is Route.UPDATES
+    assert window._page.__class__.__name__ == "UpdatesPage"
+
+
 def test_default_shell_source_creates_no_toplevel_or_messagebox():
     source = Path("bc250_llm_mode/gui/shell.py").read_text(encoding="utf-8")
     tree = ast.parse(source)

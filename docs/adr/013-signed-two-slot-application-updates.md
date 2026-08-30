@@ -80,6 +80,14 @@ plain-text release notes. File names are taken from the signed inventory or a
 closed metadata map; no member name becomes a filesystem path without strict
 validation.
 
+The offline tar transport contains one canonical control member named
+`release-set.json`, every member named by that envelope, and the fixed detached
+signature member `release-signature.sig`—nothing else. The control member is
+not part of its own recursive signed-member list; the signature covers its
+canonical bytes. Import streams regular files only into a private staging
+directory, verifies every observed size/hash and the complete release contract,
+then publishes the directory under the envelope's SHA-256 content identity.
+
 The signed canonical envelope binds:
 
 - format and verifier-policy versions;

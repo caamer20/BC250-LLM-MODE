@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import tarfile
 from dataclasses import replace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -74,6 +77,8 @@ def _release_material(
     *,
     wheel_digest: str = "1" * 64,
     wheel_size: int = 1000,
+    sdist_digest: str = "2" * 64,
+    sdist_size: int = 2000,
 ):
     version = "1.0.0"
     wheel = ReleaseMember(
@@ -82,7 +87,7 @@ def _release_material(
     )
     sdist = ReleaseMember(
         "bc250_llm_mode-1.0.0.tar.gz", "python-sdist",
-        "2" * 64, 2000, "application/gzip",
+        sdist_digest, sdist_size, "application/gzip",
     )
     sbom = {
         "bomFormat": "CycloneDX",
@@ -208,6 +213,37 @@ def _verifier():
     return ApplicationReleaseVerifier(
         expected_repository=REPOSITORY, trust=_TestTrust()
     )
+
+
+def _write_offline_bundle(path, material, *, wheel: bytes, sdist: bytes,
+                          extra: tuple[tuple[str, bytes], ...] = ()):
+    by_role = {member.role: member for member in material.members}
+    payloads = {
+        "python-wheel": wheel,
+        "python-sdist": sdist,
+        "checksums": material.checksums.encode(),
+        "cyclonedx-sbom": _canonical(material.sbom),
+        "artifact-inventory": _canonical(material.inventory),
+        "release-manifest": _canonical(material.manifest),
+        "release-decision": _canonical(material.decision),
+        "verified-evidence": _canonical(material.evidence),
+        "build-provenance": _canonical(material.provenance),
+        "database-compatibility": _canonical(material.compatibility),
+        "release-notes": material.release_notes.encode(),
+        "release-signature": material.signature,
+    }
+    members = [("release-set.json", _canonical(material.envelope))]
+    members.extend(
+        (by_role[role].name, payload) for role, payload in payloads.items()
+    )
+    members.extend(extra)
+    with tarfile.open(path, "w") as archive:
+        for name, payload in members:
+            info = tarfile.TarInfo(name)
+            info.size = len(payload)
+            info.mode = 0o600
+            archive.addfile(info, io.BytesIO(payload))
+    return path
 
 
 def _installed():
@@ -337,6 +373,105 @@ def test_preview_is_revision_bound_literal_and_space_checked():
     ).preview("1.0.0")
     assert too_small.reason_code is UpdateCode.INSUFFICIENT_SPACE
     assert too_small.confirmation_token is None
+
+
+def _offline_store(tmp_path):
+    from bc250_llm_mode.app import Application
+    from bc250_llm_mode.application_bundle import OfflineApplicationBundleStore
+    from bc250_llm_mode.paths import AppPaths
+
+    application = Application.compose(AppPaths.temporary(tmp_path))
+    store = OfflineApplicationBundleStore(
+        application.paths,
+        application.units,
+        _verifier(),
+        platform_profile=PLATFORM,
+        installed_schema=13,
+    )
+    return application, store
+
+
+def test_offline_bundle_streams_verifies_publishes_and_reverifies(tmp_path):
+    wheel = b"wheel-content"
+    sdist = b"sdist-content"
+    material = _release_material(
+        wheel_digest=_digest(wheel), wheel_size=len(wheel),
+        sdist_digest=_digest(sdist), sdist_size=len(sdist),
+    )
+    archive = _write_offline_bundle(
+        tmp_path / "release.tar", material, wheel=wheel, sdist=sdist
+    )
+    application, store = _offline_store(tmp_path / "profile")
+
+    imported = store.import_bundle(archive)
+    assert imported.ok
+    assert imported.release.version == "1.0.0"
+    held = store.resolve(imported.release.release_set_digest)
+    assert (held.bundle_root / held.wheel_name).read_bytes() == wheel
+    assert store.release_available(imported.release.release_set_digest)
+    assert len(store.candidates()) == 1
+
+    from bc250_llm_mode.application_installation import (
+        ApplicationUpdateImportRepository, ImportSource, ImportState,
+    )
+    with application.units.read() as conn:
+        row = ApplicationUpdateImportRepository(conn).get(
+            imported.release.release_set_digest
+        )
+    assert row.source_class is ImportSource.OFFLINE
+    assert row.state is ImportState.VERIFIED
+
+
+@pytest.mark.parametrize("attack", ["traversal", "symlink", "duplicate", "extra", "mutation"])
+def test_offline_bundle_rejects_hostile_archive_shapes(tmp_path, attack):
+    from bc250_llm_mode.application_bundle import ApplicationBundleError
+
+    wheel = b"wheel-content"
+    sdist = b"sdist-content"
+    material = _release_material(
+        wheel_digest=_digest(wheel), wheel_size=len(wheel),
+        sdist_digest=_digest(sdist), sdist_size=len(sdist),
+    )
+    archive = tmp_path / f"{attack}.tar"
+    if attack == "traversal":
+        with tarfile.open(archive, "w") as output:
+            info = tarfile.TarInfo("../release-set.json")
+            payload = _canonical(material.envelope)
+            info.size = len(payload)
+            output.addfile(info, io.BytesIO(payload))
+            extra = tarfile.TarInfo("release-signature.sig")
+            extra.size = len(material.signature)
+            output.addfile(extra, io.BytesIO(material.signature))
+    elif attack == "symlink":
+        _write_offline_bundle(archive, material, wheel=wheel, sdist=sdist)
+        # Rebuild with one symlink because tar append is not supported for a
+        # freshly closed deterministic archive on every platform.
+        with tarfile.open(archive, "w") as output:
+            info = tarfile.TarInfo("release-set.json")
+            info.type = tarfile.SYMTYPE
+            info.linkname = "/etc/passwd"
+            output.addfile(info)
+            sig = tarfile.TarInfo("release-signature.sig")
+            sig.size = len(material.signature)
+            output.addfile(sig, io.BytesIO(material.signature))
+    elif attack == "duplicate":
+        _write_offline_bundle(
+            archive, material, wheel=wheel, sdist=sdist,
+            extra=(("release-notes.txt", material.release_notes.encode()),),
+        )
+    elif attack == "extra":
+        _write_offline_bundle(
+            archive, material, wheel=wheel, sdist=sdist,
+            extra=(("surprise.txt", b"unknown"),),
+        )
+    else:
+        _write_offline_bundle(
+            archive, material, wheel=b"tampered", sdist=sdist
+        )
+    _application, store = _offline_store(tmp_path / "profile")
+    with pytest.raises(ApplicationBundleError):
+        store.import_bundle(archive)
+    assert tuple(store.paths.application_update_import_staging_dir.iterdir()) == ()
 
 
 def _create_v13_database(path, monkeypatch):
@@ -685,6 +820,82 @@ def test_pointer_helper_digest_hostility_and_unknown_pointer_refuse(tmp_path):
     with pytest.raises(PointerRefusal) as failure:
         observe_pointers(paths.app_dir)
     assert failure.value.code == "POINTER_NOT_SYMLINK"
+
+
+def test_post_update_process_binds_slot_nonce_schema_and_starts_no_model(
+    tmp_path, monkeypatch
+):
+    from bc250_llm_mode.app import Application
+    from bc250_llm_mode.application_post_update import (
+        ApplicationPostUpdateProcessPort, run_post_update_mode,
+    )
+    from bc250_llm_mode.paths import AppPaths
+
+    paths = AppPaths.temporary(tmp_path / "profile")
+    application = Application.compose(paths)
+    material = _release_material()
+    release = _verifier().verify(
+        material, installed_schema=13, platform_profile=PLATFORM
+    ).release
+    slot = paths.application_releases_dir / release.release_set_digest
+    _write_release_tree(slot, release.release_set_digest)
+    (slot / "venv/bin").mkdir(parents=True)
+    paths.application_current_link.symlink_to(
+        f"releases/{release.release_set_digest}"
+    )
+    observed = {"snapshot": 0, "models": 0, "platform": 0}
+    fake_application = SimpleNamespace(
+        operational=True,
+        query=SimpleNamespace(snapshot=lambda: observed.__setitem__(
+            "snapshot", observed["snapshot"] + 1
+        )),
+        model_library=SimpleNamespace(entries=lambda: observed.__setitem__(
+            "models", observed["models"] + 1
+        )),
+        platform=SimpleNamespace(status=lambda: (
+            observed.__setitem__("platform", observed["platform"] + 1)
+            or {"integration_tier": "native"}
+        )),
+    )
+    monkeypatch.setattr(
+        Application, "compose", classmethod(lambda cls, injected: fake_application)
+    )
+
+    class Runner:
+        def run(self, spec):
+            argv = spec.argv
+            values = {argv[index]: argv[index + 1]
+                      for index in range(4, len(argv), 2)}
+            assert spec.redaction_tokens == (values["--nonce"],)
+            assert run_post_update_mode(
+                paths=paths,
+                operation_id=values["--operation-id"],
+                release_set_digest=values["--release-set-digest"],
+                process_nonce=values["--nonce"],
+                target_schema=int(values["--target-schema"]),
+                executable_prefix=slot / "venv",
+            ) == 0
+            return SimpleNamespace(exit_code=0)
+
+    port = ApplicationPostUpdateProcessPort(
+        paths, application.units, runner=Runner(),
+        nonce_factory=lambda: "9" * 64,
+    )
+    output = port.launch(
+        operation_id="update-post-1", release=release, backup={},
+        publication={"candidate_installation_id": release.release_set_digest},
+    )
+    assert len(output["acknowledgment_digest"]) == 64
+    assert port.probe(
+        operation_id="update-post-1", release=release
+    ).classification.value == "COMPLETE"
+    assert port.health(
+        operation_id="update-post-1", release=release
+    )["model_started"] is False
+    assert observed == {"snapshot": 1, "models": 1, "platform": 1}
+    receipts = paths.migration_receipts_dir
+    serialized = b"".join(path.read_bytes() for path in receipts.iterdir())
+    assert b"9" * 64 not in serialized
 
 
 class _UpdateFakeHost:

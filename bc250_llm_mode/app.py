@@ -99,6 +99,8 @@ class Application:
     storage_cleanup: Any = None
     undo: Any = None
     application_update: Any = None
+    application_update_store: Any = None
+    application_update_commands: Any = None
     application_update_host: Any = None
     platform: Any = None
     desktop_integration: Any = None
@@ -299,21 +301,57 @@ class Application:
             EXPECTED_RELEASE_REPOSITORY,
             InstalledApplication,
         )
+        from .application_bundle import OfflineApplicationBundleStore
+        from .application_installation import (
+            ApplicationInstallationRepository,
+            ApplicationInstallationStateRepository,
+        )
         from .db import SCHEMA_VERSION as _DATABASE_SCHEMA_VERSION
 
-        application.application_update = ApplicationUpdateQueryService(
-            installed=InstalledApplication(
-                version=_application_version,
-                source_commit=None,
-                release_set_digest=None,
-                slot_id=None,
+        _update_verifier = ApplicationReleaseVerifier(
+            expected_repository=EXPECTED_RELEASE_REPOSITORY
+        )
+
+        def _installed_application():
+            with units.read() as conn:
+                installation_state = ApplicationInstallationStateRepository(conn).get()
+                installation = (
+                    ApplicationInstallationRepository(conn).get(
+                        installation_state.current_installation_id
+                    ) if installation_state.current_installation_id else None
+                )
+            return InstalledApplication(
+                version=(installation.version if installation else _application_version),
+                source_commit=(installation.source_commit if installation else None),
+                release_set_digest=(
+                    installation.release_set_digest if installation else None
+                ),
+                slot_id=(
+                    installation.release_directory_identity if installation else None
+                ),
                 database_schema=_DATABASE_SCHEMA_VERSION,
-            ),
-            verifier=ApplicationReleaseVerifier(
-                expected_repository=EXPECTED_RELEASE_REPOSITORY
-            ),
+                channel_id="verified-offline",
+                current_installation_id=installation_state.current_installation_id,
+                previous_installation_id=installation_state.previous_installation_id,
+                pointer_generation=installation_state.pointer_generation,
+                pending_operation_id=installation_state.pending_update_operation_id,
+                recovery_barrier=installation_state.recovery_barrier,
+                revision=installation_state.revision,
+            )
+
+        application.application_update_store = OfflineApplicationBundleStore(
+            application.paths,
+            units,
+            _update_verifier,
             platform_profile=application.platform.profile.family.value,
-            free_bytes=_shutil.disk_usage(application.paths.app_dir).free,
+            installed_schema=lambda: _DATABASE_SCHEMA_VERSION,
+        )
+        application.application_update = ApplicationUpdateQueryService(
+            installed=_installed_application,
+            verifier=_update_verifier,
+            platform_profile=application.platform.profile.family.value,
+            channel=application.application_update_store,
+            free_bytes=lambda: _shutil.disk_usage(application.paths.app_dir).free,
         )
         from .maintenance_center import MaintenanceCenterQueryService
 
@@ -580,13 +618,21 @@ class Application:
         # row has an exact recovery definition. Production release trust and
         # post-update execution remain fail-closed until the next boundary
         # composes a verified bundle source and command surface.
+        from .application_bundle import OfflineReleaseResolver
+        from .application_post_update import ApplicationPostUpdateProcessPort
         from .application_update_adapter import ApplicationUpdateHostAdapter
         from .operations.application_update import build_application_update_workflow
 
         application.application_update_host = ApplicationUpdateHostAdapter(
             units,
             application.paths,
+            resolver=OfflineReleaseResolver(application.application_update_store),
             backup_supplier=lambda: getattr(application, "backup", None),
+            post_update=ApplicationPostUpdateProcessPort(
+                application.paths,
+                units,
+                backup_supplier=lambda: getattr(application, "backup", None),
+            ),
         )
         registry.register(build_application_update_workflow(
             application.application_update_host
@@ -670,6 +716,16 @@ class Application:
             cleanup=application.storage_cleanup,
             adapter=cleanup_adapter,
             clock=utcnow,
+        )
+        from .application_update_command import ApplicationUpdateCommandService
+
+        application.application_update_commands = ApplicationUpdateCommandService(
+            units=units,
+            query=application.application_update,
+            store=application.application_update_store,
+            enqueue=enqueue,
+            engine_factory=engine_factory,
+            now=utcnow,
         )
         # P6 §12.4: model conversion — honestly unavailable in this build.
         from .model_convert_command import ModelConvertCommandService

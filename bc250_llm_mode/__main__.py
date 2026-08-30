@@ -76,6 +76,11 @@ def _parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command")
     sub.add_parser("setup", help="Open/resume the native setup wizard")
+    post_update = sub.add_parser("_post-update", help=argparse.SUPPRESS)
+    post_update.add_argument("--operation-id", required=True)
+    post_update.add_argument("--release-set-digest", required=True)
+    post_update.add_argument("--nonce", required=True)
+    post_update.add_argument("--target-schema", required=True, type=int)
     gui = sub.add_parser("gui", help="Open or activate the native management window")
     gui.add_argument(
         "--route",
@@ -111,6 +116,35 @@ def _parser() -> argparse.ArgumentParser:
     undo_run.add_argument("undo_id")
     undo_run.add_argument("--preview", required=True)
     undo_run.add_argument("--confirm", required=True)
+    update = sub.add_parser(
+        "update", help="Check, import, apply, roll back, or inspect application updates"
+    )
+    update_sub = update.add_subparsers(dest="update_action", required=True)
+    update_sub.add_parser("status", help="Show installed slot and signed-channel status")
+    update_sub.add_parser("check", help="Explicitly check the configured signed channel")
+    update_preview = update_sub.add_parser(
+        "preview", help="Preview one immutable verified release"
+    )
+    update_preview.add_argument("version")
+    update_apply = update_sub.add_parser(
+        "apply", help="Apply an exact, fresh update preview"
+    )
+    update_apply.add_argument("version")
+    update_apply.add_argument("--preview", required=True)
+    update_apply.add_argument("--confirm", required=True)
+    update_import = update_sub.add_parser(
+        "import-bundle", help="Import an explicitly selected signed offline bundle"
+    )
+    update_import.add_argument("path")
+    update_rollback = update_sub.add_parser(
+        "rollback", help="Restore the exact verified previous application slot"
+    )
+    update_rollback.add_argument("--preview")
+    update_rollback.add_argument("--confirm")
+    update_cleanup = update_sub.add_parser(
+        "cleanup", help="List update artifacts eligible for typed cleanup"
+    )
+    update_cleanup.add_argument("--dry-run", action="store_true", required=True)
     sub.add_parser(
         "repair-status",
         help="Report why the state migration requires repair (repair mode)",
@@ -603,6 +637,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "import-state":
         return _import_state_entry(args)
 
+    if args.command == "_post-update":
+        from .application_post_update import run_post_update_mode
+
+        return run_post_update_mode(
+            paths=AppPaths.for_home(),
+            operation_id=args.operation_id,
+            release_set_digest=args.release_set_digest,
+            process_nonce=args.nonce,
+            target_schema=args.target_schema,
+        )
+
     if args.command == "platform":
         # This diagnostic is intentionally pre-composition: it creates no
         # profile directories or database and remains usable during repair.
@@ -662,6 +707,53 @@ def main(argv: list[str] | None = None) -> int:
         return _run_repair_cli(application, args, state)
     if args.command == "undo":
         return _run_undo_cli(application, args, state)
+    if args.command == "update":
+        service = application.application_update_commands
+        if args.update_action == "status":
+            result = service.status()
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0
+        if args.update_action == "check":
+            result = service.check()
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.release is not None else 1
+        if args.update_action == "preview":
+            result = service.preview(args.version)
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.outcome.value == "READY" else 1
+        if args.update_action == "import-bundle":
+            result = service.import_bundle(args.path)
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.ok else 1
+        if args.update_action == "apply":
+            require_acknowledgment(state)
+            result = service.apply(
+                args.version,
+                preview_digest=args.preview,
+                confirmation_token=args.confirm,
+                requested_by="cli",
+            )
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.ok else 1
+        if args.update_action == "rollback":
+            if not args.preview and not args.confirm:
+                result = service.rollback_preview()
+                print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+                return 0 if result.outcome.value == "READY" else 1
+            if not args.preview or not args.confirm:
+                print("update rollback requires both --preview and --confirm", file=sys.stderr)
+                return 2
+            require_acknowledgment(state)
+            result = service.rollback(
+                preview_digest=args.preview,
+                confirmation_token=args.confirm,
+                requested_by="cli",
+            )
+            print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+            return 0 if result.ok else 1
+        result = service.cleanup_preview()
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        return 0
     if args.command == "repair":
         if not bootstrap_tkinter(application):
             return 0
