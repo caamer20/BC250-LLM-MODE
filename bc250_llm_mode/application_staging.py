@@ -235,6 +235,22 @@ class ApplicationInstallationStager:
             already_complete=True,
         )
 
+    def probe(
+        self, request: ApplicationStageRequest
+    ) -> ApplicationStageResult | None:
+        """Inspect the exact operation-owned stage without mutating it."""
+        release_digest = request.release.release_set_digest
+        if (
+            not _IDENTITY_RE.fullmatch(request.operation_id)
+            or not re.fullmatch(r"[0-9a-f]{64}", release_digest)
+        ):
+            return None
+        stage_identity = f"{request.operation_id}-{release_digest[:16]}"
+        stage = self.paths.application_release_staging_dir / stage_identity
+        if stage.is_symlink() or not stage.is_dir():
+            return None
+        return self._probe_stage(stage, request=request)
+
     def stage(self, request: ApplicationStageRequest) -> ApplicationStageResult:
         if not isinstance(request.release, VerifiedApplicationRelease):
             raise ApplicationStagingError("RELEASE_DECISION_INELIGIBLE")

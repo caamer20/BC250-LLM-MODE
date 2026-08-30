@@ -66,6 +66,7 @@ class BackupCommandService:
         include_runtime: bool = False,
         encrypt: bool = False,
         requested_by: str = "cli",
+        parent_operation_id: str | None = None,
     ) -> BackupOutcome:
         if encrypt:
             # ADR 006 D2: refuse BEFORE any effect until reviewed crypto exists.
@@ -80,6 +81,7 @@ class BackupCommandService:
                      "encrypt": False,
                      "requested_by": requested_by},
             surface=requested_by,
+            parent_operation_id=parent_operation_id,
         )
         return self._map_create(record.id, self._run(record.id))
 

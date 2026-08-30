@@ -234,7 +234,9 @@ reset or silently recreated.
 `APPLICATION_UPDATE` joins the frozen registry with request version 1 and
 recovery-policy version 1. Its closed request selects mode `APPLY` or
 `ROLLBACK`, release-set identity, expected current/previous installation IDs,
-preview digest, confirmation token, and surface. It carries no URL, path,
+preview digest, a SHA-256 confirmation-proof digest, and surface. The raw
+confirmation token is validated at the command boundary and is not persisted
+(operation payload validation rejects token-like fields). It carries no URL, path,
 signature, release note, command, secret, or arbitrary argument.
 
 The forward apply checkpoints are:

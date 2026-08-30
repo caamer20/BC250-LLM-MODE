@@ -99,6 +99,7 @@ class Application:
     storage_cleanup: Any = None
     undo: Any = None
     application_update: Any = None
+    application_update_host: Any = None
     platform: Any = None
     desktop_integration: Any = None
     optimizations: Any = None
@@ -574,6 +575,22 @@ class Application:
             units, application.paths, clock=utcnow
         )
         registry.register(build_storage_cleanup_workflow(cleanup_adapter))
+
+        # EXP-6 / ADR 013: durable self-update is registered now so any future
+        # row has an exact recovery definition. Production release trust and
+        # post-update execution remain fail-closed until the next boundary
+        # composes a verified bundle source and command surface.
+        from .application_update_adapter import ApplicationUpdateHostAdapter
+        from .operations.application_update import build_application_update_workflow
+
+        application.application_update_host = ApplicationUpdateHostAdapter(
+            units,
+            application.paths,
+            backup_supplier=lambda: getattr(application, "backup", None),
+        )
+        registry.register(build_application_update_workflow(
+            application.application_update_host
+        ))
 
         # ONE freeze point for ALL durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.

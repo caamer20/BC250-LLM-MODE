@@ -588,3 +588,265 @@ def test_staging_rejects_mutated_or_linked_wheel_and_keeps_running_tree_untouche
     with pytest.raises(ApplicationStagingError) as failure:
         stager.stage(request)
     assert failure.value.code == "BUNDLE_MEMBER_REFUSED"
+
+
+def _write_release_tree(path, identity):
+    path.mkdir(parents=True)
+    (path / "venv").mkdir()
+    (path / ".bc250-release.json").write_text(json.dumps({
+        "schema_version": 1,
+        "operation_id": "fixture",
+        "stage_identity": path.name,
+        "release_set_digest": identity,
+        "wheel_digest": "f" * 64,
+        "version": "1.0.0",
+        "smoke_codes": ["PACKAGE_IMPORT_SMOKE_PASSED"],
+    }, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+
+
+class _PointerDeath(BaseException):
+    pass
+
+
+def test_pointer_publication_recovers_death_between_ordered_atomic_replaces(tmp_path):
+    from bc250_llm_mode.application_pointer_helper import observe_pointers
+    from bc250_llm_mode.application_publisher import (
+        ApplicationPointerPublisher,
+        PointerPublishRequest,
+    )
+    from bc250_llm_mode.paths import AppPaths
+
+    old_current, old_previous, candidate = "a" * 64, "b" * 64, "c" * 64
+    paths = AppPaths.temporary(tmp_path / "profile")
+    paths.ensure_directories()
+    _write_release_tree(paths.application_releases_dir / old_current, old_current)
+    _write_release_tree(paths.application_releases_dir / old_previous, old_previous)
+    stage_identity = "update-op-pointer-candidate"
+    _write_release_tree(
+        paths.application_release_staging_dir / stage_identity, candidate
+    )
+    paths.application_current_link.symlink_to(f"releases/{old_current}")
+    paths.application_previous_link.symlink_to(f"releases/{old_previous}")
+    request = PointerPublishRequest(
+        operation_id="update-op-pointer",
+        candidate_installation_id=candidate,
+        expected_current_installation_id=old_current,
+        expected_previous_installation_id=old_previous,
+        expected_pointer_generation=4,
+        stage_identity=stage_identity,
+    )
+
+    def die(point):
+        if point == "after_previous_replace":
+            raise _PointerDeath(point)
+
+    with pytest.raises(_PointerDeath):
+        ApplicationPointerPublisher(paths, crash_hook=die).publish(request)
+    prepared = observe_pointers(paths.app_dir)
+    assert prepared.current == old_current
+    assert prepared.previous == old_current
+    assert (paths.application_releases_dir / candidate).is_dir()
+
+    result = ApplicationPointerPublisher(paths).publish(request)
+    assert result.recovered is True
+    assert result.pointer_generation == 5
+    published = observe_pointers(paths.app_dir)
+    assert (published.current, published.previous) == (candidate, old_current)
+    assert not paths.application_release_staging_dir.joinpath(stage_identity).exists()
+
+    restored = ApplicationPointerPublisher(paths).restore(request)
+    assert restored.pointer_generation == 6
+    after_rollback = observe_pointers(paths.app_dir)
+    assert (after_rollback.current, after_rollback.previous) == (
+        old_current, candidate
+    )
+
+
+def test_pointer_helper_digest_hostility_and_unknown_pointer_refuse(tmp_path):
+    from bc250_llm_mode.application_pointer_helper import (
+        POINTER_HELPER_DIGEST,
+        POINTER_HELPER_SOURCE,
+        PointerRefusal,
+        observe_pointers,
+        verify_pointer_helper_digest,
+    )
+    from bc250_llm_mode.paths import AppPaths
+
+    assert hashlib.sha256(POINTER_HELPER_SOURCE.encode()).hexdigest() == (
+        POINTER_HELPER_DIGEST
+    )
+    verify_pointer_helper_digest(POINTER_HELPER_DIGEST)
+    with pytest.raises(PointerRefusal, match="POINTER_HELPER_DIGEST_MISMATCH"):
+        verify_pointer_helper_digest("0" * 64)
+
+    paths = AppPaths.temporary(tmp_path / "profile")
+    paths.ensure_directories()
+    paths.application_current_link.write_text("not a link", encoding="utf-8")
+    with pytest.raises(PointerRefusal) as failure:
+        observe_pointers(paths.app_dir)
+    assert failure.value.code == "POINTER_NOT_SYMLINK"
+
+
+class _UpdateFakeHost:
+    def __init__(self):
+        self.effects = {}
+        self.restored = set()
+
+    def _effect(self, key):
+        if not self.effects.get(key):
+            self.effects[key] = 1
+        return {"identity": key}
+
+    def _probe(self, key):
+        from bc250_llm_mode.operations.recovery import RecoveryClass
+        from bc250_llm_mode.operations.workflow import ProbeResult
+
+        return ProbeResult(
+            RecoveryClass.COMPLETE if self.effects.get(key)
+            else RecoveryClass.ABSENT,
+            f"{key.upper()}_" + ("COMPLETE" if self.effects.get(key) else "ABSENT"),
+            {key: {"identity": key}} if self.effects.get(key) else None,
+        )
+
+    def verify_release(self, ctx): return self._effect("release")
+    def probe_release(self, ctx): return self._probe("release")
+    def stage_candidate(self, ctx): return self._effect("stage")
+    def probe_staged(self, ctx): return self._probe("stage")
+    def ensure_backup(self, ctx): return self._effect("backup")
+    def probe_backup(self, ctx): return self._probe("backup")
+    def publish_pointer(self, ctx): return self._effect("pointer")
+    def probe_pointer(self, ctx): return self._probe("pointer")
+    def launch_post_update(self, ctx): return self._effect("ack")
+    def probe_acknowledgment(self, ctx): return self._probe("ack")
+    def verify_health(self, ctx): return self._effect("health")
+    def probe_health(self, ctx): return self._probe("health")
+    def record_installation(self, ctx):
+        self._effect("record")
+        return {"pointer_generation": 2}
+    def probe_recorded(self, ctx): return self._probe("record")
+
+    def discard_stage(self, ctx):
+        self.restored.add("stage")
+        return {"retained": True}
+
+    def probe_stage_discarded(self, ctx):
+        from bc250_llm_mode.operations.recovery import RecoveryClass
+        from bc250_llm_mode.operations.workflow import ProbeResult
+        return ProbeResult(
+            RecoveryClass.COMPLETE if "stage" in self.restored else RecoveryClass.ABSENT,
+            "STAGE_RETAINED" if "stage" in self.restored else "STAGE_ACTIVE",
+        )
+
+    def restore_pointer(self, ctx):
+        self.restored.add("pointer")
+        return {"restored": True}
+
+    def probe_pointer_restored(self, ctx):
+        from bc250_llm_mode.operations.recovery import RecoveryClass
+        from bc250_llm_mode.operations.workflow import ProbeResult
+        return ProbeResult(
+            RecoveryClass.COMPLETE if "pointer" in self.restored else RecoveryClass.ABSENT,
+            "POINTER_RESTORED" if "pointer" in self.restored else "POINTER_ACTIVE",
+        )
+
+    def restore_profile(self, ctx):
+        self.restored.add("profile")
+        return {"restored": True}
+
+    def probe_profile_restored(self, ctx):
+        from bc250_llm_mode.operations.recovery import RecoveryClass
+        from bc250_llm_mode.operations.workflow import ProbeResult
+        return ProbeResult(
+            RecoveryClass.COMPLETE if "profile" in self.restored else RecoveryClass.ABSENT,
+            "PROFILE_RESTORED" if "profile" in self.restored else "PROFILE_ACTIVE",
+        )
+
+
+class _UpdateClock:
+    def __init__(self):
+        self.second = 0
+
+    def now(self):
+        return f"2026-08-30T12:{self.second // 60:02d}:{self.second % 60:02d}Z"
+
+    def advance(self, seconds):
+        self.second += seconds
+
+
+def _update_payload():
+    return {
+        "mode": "APPLY",
+        "release_set_digest": "c" * 64,
+        "expected_current_installation_id": "a" * 64,
+        "expected_previous_installation_id": "b" * 64,
+        "expected_pointer_generation": 1,
+        "preview_digest": "d" * 64,
+        "confirmation_digest": "e" * 64,
+        "requested_by": "test",
+    }
+
+
+def test_application_update_workflow_recovers_death_after_pointer_effect_once(tmp_path):
+    from bc250_llm_mode.db import initialize_and_close
+    from bc250_llm_mode.operations.application_update import (
+        UPDATE_RESOURCES,
+        build_application_update_workflow,
+    )
+    from bc250_llm_mode.operations.engine import ExecutionEngine
+    from bc250_llm_mode.operations.model import OperationState, OperationType
+    from bc250_llm_mode.operations.repositories import OperationRepository
+    from bc250_llm_mode.operations.workflow import EnqueueService, WorkflowRegistry
+    from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
+
+    database = tmp_path / "operations.db"
+    initialize_and_close(database)
+    units = UnitOfWorkFactory(database)
+    host = _UpdateFakeHost()
+    definition = build_application_update_workflow(host)
+    assert definition.all_resources() == UPDATE_RESOURCES
+    assert definition.phase_scoped_resources is True
+    registry = WorkflowRegistry()
+    registry.register(definition)
+    registry = registry.freeze()
+    clock = _UpdateClock()
+    ids = iter(f"effect-{index}" for index in range(100))
+    enqueue = EnqueueService(
+        units, registry, clock=clock.now, uuid_factory=lambda: next(ids)
+    )
+    operation = enqueue.enqueue(
+        operation_type=OperationType.APPLICATION_UPDATE,
+        payload=_update_payload(), surface="test", operation_id="app-update-1",
+    )
+
+    class _Death(BaseException): pass
+    fired = False
+
+    def crash(step, point):
+        nonlocal fired
+        if not fired and step == "publish_pointers" and point == "before_step_checkpoint":
+            fired = True
+            raise _Death()
+
+    worker_a = ExecutionEngine(
+        units, registry, clock=clock.now, uuid_factory=lambda: next(ids),
+        worker_id="worker-a", lease_ttl_seconds=60, crash_hook=crash,
+    )
+    with pytest.raises(_Death):
+        worker_a.execute_one(operation.id)
+    assert host.effects["pointer"] == 1
+    with units.read() as conn:
+        row = OperationRepository(conn).require(operation.id)
+        assert row.state in {OperationState.RUNNING, OperationState.COMMITTING}
+
+    clock.advance(120)
+    worker_b = ExecutionEngine(
+        units, registry, clock=clock.now, uuid_factory=lambda: next(ids),
+        worker_id="worker-b", lease_ttl_seconds=60,
+    )
+    outcome = worker_b.execute_one(operation.id)
+    assert outcome.kind == "COMPLETED"
+    assert host.effects["pointer"] == 1
+    with units.read() as conn:
+        final = OperationRepository(conn).require(operation.id)
+        assert final.state is OperationState.SUCCEEDED
+        assert final.result_code == "APPLICATION_UPDATED"

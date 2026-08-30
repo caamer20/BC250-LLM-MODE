@@ -292,6 +292,9 @@ class ApplicationInstallationStateRepository:
     ) -> ApplicationInstallationStateRow:
         if not isinstance(operation_id, str) or not operation_id:
             raise ApplicationInstallationError("operation identity is required")
+        current = self.get()
+        if current.pending_update_operation_id == operation_id:
+            return current
         cursor = self.conn.execute(
             """
             UPDATE application_installation_state
@@ -305,6 +308,71 @@ class ApplicationInstallationStateRepository:
         )
         if cursor.rowcount != 1:
             raise ApplicationInstallationError("application update reservation lost")
+        return self.get()
+
+    def commit_publication(
+        self,
+        *,
+        operation_id: str,
+        candidate_installation_id: str,
+        prior_current_installation_id: str,
+        expected_previous_installation_id: str | None,
+        expected_pointer_generation: int,
+        acknowledgment_digest: str,
+        expected_revision: int,
+    ) -> ApplicationInstallationStateRow:
+        candidate = _hex(candidate_installation_id)
+        prior = _hex(prior_current_installation_id)
+        previous = (
+            _hex(expected_previous_installation_id)
+            if expected_previous_installation_id is not None else None
+        )
+        ack = _hex(acknowledgment_digest)
+        cursor = self.conn.execute(
+            """
+            UPDATE application_installation_state
+               SET current_installation_id = ?,
+                   previous_installation_id = ?,
+                   pointer_generation = pointer_generation + 1,
+                   pending_update_operation_id = NULL,
+                   recovery_barrier = NULL,
+                   last_ack_installation_id = ?,
+                   last_ack_process_nonce_digest = ?,
+                   updated_at = ?, revision = revision + 1
+             WHERE id = 1 AND revision = ?
+               AND current_installation_id = ?
+               AND (previous_installation_id = ? OR
+                    (previous_installation_id IS NULL AND ? IS NULL))
+               AND pointer_generation = ?
+               AND pending_update_operation_id = ?
+               AND recovery_barrier IS NULL
+            """,
+            (
+                candidate, prior, candidate, ack, self.clock(),
+                expected_revision, prior, previous, previous,
+                expected_pointer_generation, operation_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            raise ApplicationInstallationError("publication state CAS fence lost")
+        return self.get()
+
+    def release_reservation(
+        self, operation_id: str, *, expected_revision: int
+    ) -> ApplicationInstallationStateRow:
+        cursor = self.conn.execute(
+            """
+            UPDATE application_installation_state
+               SET pending_update_operation_id = NULL, updated_at = ?,
+                   revision = revision + 1
+             WHERE id = 1 AND revision = ?
+               AND pending_update_operation_id = ?
+               AND recovery_barrier IS NULL
+            """,
+            (self.clock(), expected_revision, operation_id),
+        )
+        if cursor.rowcount != 1:
+            raise ApplicationInstallationError("reservation release CAS fence lost")
         return self.get()
 
     def set_recovery_barrier(
