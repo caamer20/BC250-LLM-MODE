@@ -2,10 +2,10 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-7 ARE DEVELOPER-IMPLEMENTED;
-THEIR PHYSICAL/HUMAN EVIDENCE IS PENDING. EXP-8 DOCUMENTATION IS IN PROGRESS;
-ITS CANDIDATE-BOUND JOURNEY AND RESOURCE QUALIFICATION IS NOT COMPLETE. DO NOT
-CLAIM FULL EXPERIENCE OR RELEASE COMPLETION.**
+**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-8 ARE DEVELOPER-IMPLEMENTED AND
+THE DEVELOPER GATES ARE GREEN. PHYSICAL BAZZITE/CACHYOS, SECURITY, SOAK,
+NON-DEVELOPER HUMAN, AND RELEASE/PUBLICATION EVIDENCE IS PENDING. THE RELEASE
+REMAINS BLOCKED; DO NOT CLAIM PHYSICAL, EXPERIENCE, OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
 second-window/terminal-handoff experience with one lightweight tkinter shell:
@@ -107,8 +107,13 @@ Implementation commits after the planning checkpoint:
   and persistent interface scale.
 - `e141629` — EXP-7 keyboard/focus/contrast/terminology/privacy/resource gates
   and physical accessibility handoff.
+- `f803fb1` — EXP-8 end-user/operator documentation and reconciled beta,
+  platform, lifecycle, privacy, update, uninstall, and preservation guidance.
+- `2237d3c` — EXP-8 14-journey/four-cell resource and participant worksheet
+  plus fail-closed automated qualification gates; all external results remain
+  explicitly PENDING.
 
-EXP-1 through EXP-7 are developer-implemented but not physically qualified on
+EXP-1 through EXP-8 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
 or a second-device tailnet journey; use
 `docs/connection-physical-qualification.md` on the exact candidate. The next
@@ -123,10 +128,24 @@ sharing, desktop-return, quarantine/restore/purge, and privacy evidence must
 follow `docs/repair-physical-qualification.md`. EXP-6 physical signed-update,
 rollback, restart, migration, and profile-restore evidence follows
 `docs/application-update-physical-qualification.md`. EXP-7 screen-reader,
-keyboard-only, scale, theme, and resource evidence remains pending. The next
-safe boundary is EXP-8 commit 35: documentation, followed by fail-closed
-candidate-bound journey/resource records; no physical or human PASS may be
-inferred from developer tests.
+keyboard-only, scale, theme, and resource evidence remains pending. EXP-8 is
+coordinated by `docs/appliance-experience-physical-qualification.md`: run all
+14 journeys in Bazzite/CachyOS fresh/upgraded cells with all five participant
+roles and live resource measurements. The next authorized boundary is C4
+physical evidence collection on the eventual exact candidate, followed by C5
+independent security review, C6 non-developer acceptance, and owner-gated C8.
+Do not change package code during collection unless fixing a discovered defect;
+such a fix creates a new candidate and invalidates affected evidence.
+
+EXP-8 developer qualification at this checkpoint: authoritative collected
+inventory **1463** across the default and slow gates (**1461 passed + 2
+expected platform skips**); complete slow/security/clean-wheel battery
+**52/52**; focused EXP-8 journey/resource gate **12/12**; combined final
+documentation/accessibility/resource/package focus **52 passed + 1 expected
+platform skip**; clean installed wheel CLI/worker/runtime workflows green.
+Forced compileall and `git diff --check` are clean. No physical device,
+participant, security-review, signed-release, soak, or publication evidence was
+fabricated. The nine owner-controlled untracked files remain untouched.
 
 EXP-7 developer qualification at this checkpoint: authoritative default
 collection **1451** (**1449 passed + 2 expected platform skips**, exit 0);

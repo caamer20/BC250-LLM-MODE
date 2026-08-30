@@ -38,6 +38,24 @@ Candidate identity at the G6 dry run (recompute for the final candidate):
 - policy digest: `sha256:1883cbfc7deb694a336b4e2163d8767550a3734e3a93b9f53471b41d15d9ed20`
   (policy revision 3, `release/policy-v3.json`)
 
+## Appliance-experience qualification addendum (EXP-8)
+
+Use `docs/appliance-experience-physical-qualification.md` as the top-level
+operator worksheet. It requires J01–J14 independently in four cells:
+Bazzite-fresh, Bazzite-upgraded, CachyOS-fresh, and CachyOS-upgraded. It also
+freezes the required per-journey usability/safety/privacy fields, five
+participant roles, resource procedure, and specialization links. Its PENDING
+tables are not evidence and must never be copied into `release/evidence/`.
+
+The GUI resource targets are: first meaningful paint within 1.5 seconds after
+tkinter is available; idle RSS at or below 90 MiB after two refresh cycles;
+settled CPU below 1% over 60 seconds; at most three GUI-owned background
+threads; retained RSS growth at or below 5 MiB after 100 route changes; and
+idle/status callback p95 below 50 ms. Also record bounded queue/list/chat/log
+behavior, FD/socket stability, notice impact, peak host-memory pressure, and
+the absence of a full-model host read or `--no-mmap`. Measurements are local,
+scrubbed attachments—not telemetry.
+
 ## C4 — physical BC250 qualification (role: hardware operator, independent
 of the code author)
 
@@ -48,17 +66,23 @@ to the exact package candidate; one host cannot qualify the other.
 
 ### HARDWARE_QUALIFICATION
 - [ ] device identity + firmware/BIOS UMA split recorded
+- [ ] all J01–J14 rows completed in the exact applicable Bazzite/CachyOS fresh
+      or upgraded cell; outcomes from one cell are never reused for another
 - [ ] desktop-menu launch opens exactly one native window
 - [ ] five-chapter setup resumes correctly across relaunch/reboot
 - [ ] exact disclaimer blocks mutation until acknowledged
-- [ ] Home/Models/Chat/Activity/System/Settings/Help stay in the same window
+- [ ] Home/Models/Profiles/Chat/Connections/Activity/Maintenance/System/
+      Settings/Help stay in the same window; Repair, Updates, Privacy, command
+      palette, logs, and confirmations never create a second application root
 - [ ] Connections stays in the same window and shows exact `:8443/` WebUI and
       `:10000/v1` OpenAI values; `/api`, raw port 8080, and model file paths
       are absent
 - [ ] clean install → setup completes → server healthy
 - [ ] Vulkan load + generation on a standard-layout GGUF
 - [ ] measurements: device, driver, UMA split, first paint, idle/active RSS and
-      CPU, repeated navigation growth, load/generation results
+      CPU, GUI-owned/total threads, callbacks, queues, FD/socket stability,
+      notice impact, repeated navigation growth, and load/generation results;
+      every EXP-8 target is measured rather than inferred from constants
 - [ ] screenshots: setup, Home, Models, native Chat, Activity, System, narrow
       window, keyboard focus, and reduced-motion preference
 - [ ] second-device connection checklist completed from
@@ -75,6 +99,23 @@ to the exact package candidate; one host cannot qualify the other.
 - [ ] application-update evidence records no nonce, credential, user path,
       hostname/address, release-note content, raw log, prompt, or completion;
       the checklist's current PENDING state is not evidence
+- [ ] workload profile checklist completed from
+      `docs/profile-physical-qualification.md` for Interactive, Long context,
+      Shared, and Cool using both small and 9B standard-layout models
+- [ ] Maintenance/notices checklist completed from
+      `docs/notification-physical-qualification.md`, including enabled,
+      disabled, unavailable-session, dedupe, thermal, delivery-failure,
+      resource, and privacy behavior
+- [ ] Repair/cleanup/Undo checklist completed from
+      `docs/repair-physical-qualification.md`, including interruption,
+      recovery barrier, quarantine/restore/purge, support handoff, credential,
+      sharing, and desktop-return cases
+- [ ] accessibility/privacy checklist completed from
+      `docs/gui-physical-qualification.md` and `docs/accessibility-privacy.md`
+      at 100/125/150/175/200% scale with keyboard-only and available Linux
+      screen-reader passes; Tk limitations are recorded, never waived
+- [ ] uninstall without model deletion, reinstall, and managed/external model
+      rediscovery completed with the Open WebUI named volume preserved
 - [ ] result PASS signed by the operator (mechanism per policy)
 
 ### SOAK_TEST
@@ -93,14 +134,22 @@ development line; sign-off is human)
 
 ### SECURITY_REVIEW
 - [ ] scope: privilege boundaries, secrets handling, service/system changes,
-      gateway/sharing surface, supply chain (SBOM + pins)
+      gateway/sharing surface, named/revocable credentials, repair/cleanup/
+      Undo containment, backup/restore, offline/online application update,
+      single-instance protocol, local notices/support, privacy inventory, and
+      supply chain (SBOM + pins)
 - [ ] findings + dispositions recorded; reviewer identity in `issuer`
 - [ ] result PASS with reviewer attestation
 
 ## C6 — non-developer human acceptance (role: a NON-DEVELOPER operator)
 
 ### HUMAN_ACCEPTANCE
-- [ ] setup, daily chat, operations, recovery, diagnostics exercised
+- [ ] all 14 journeys observed across: a Linux user unfamiliar with llama.cpp,
+      an existing BC-250 owner, a recovery operator, a keyboard-only pass, and
+      a PocketPal/second-client mobile pass
+- [ ] completion, wrong turns, terminal use, unclear labels,
+      time-to-first-safe-action, and safety/privacy/accessibility defects
+      recorded locally; feedback is tracked and no safety gate is weakened
 - [ ] acceptance statement + operator identity in `issuer` (type: human)
 
 ## Owner acceptance of accepted limitations (role: repository owner)
@@ -133,3 +182,6 @@ BUILD_PROVENANCE, ARTIFACT_ATTESTATION.
 3. Every candidate-bound record whose `source_commit` or
    `artifact_inventory_digest` no longer matches is rejected automatically —
    recollect it. There is no manual override.
+4. Re-run the full EXP-8 four-cell journey/resource matrix and every linked
+   specialization after any package-code change. Documentation or test output
+   cannot replace the physical, security, soak, or human records.

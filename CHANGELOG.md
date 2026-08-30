@@ -20,6 +20,10 @@ versions are tagged in git.
   desktop-menu launch, first run, exact remote endpoints, profiles,
   Maintenance/Repair/Updates, offline bundles, privacy, durable recovery,
   uninstall/reinstall, and model preservation.
+- Added one candidate-bound EXP-8 worksheet freezing all 14 end-to-end
+  journeys in Bazzite/CachyOS fresh/upgraded cells, five participant roles,
+  exact usability/safety/privacy capture fields, GUI resource thresholds, and
+  release-evidence routing. Every external result is explicitly PENDING.
 - Developer accessibility, privacy, terminology, scale, and bounded-resource
   gates pass. EXP-8 physical journeys, participant acceptance, Bazzite/CachyOS
   resource measurements, security review, and release evidence remain pending;

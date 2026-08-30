@@ -1,7 +1,9 @@
 # BC250 LLM MODE — Appliance Experience Completion Implementation Plan
 
-**Status:** Implementation in progress — EXP-1 developer implementation landed;
-physical qualification and EXP-2 through EXP-8 remain pending
+**Status:** Developer implementation complete through EXP-8; exact-candidate
+physical Bazzite/CachyOS journeys and resources, independent security review,
+non-developer human acceptance, soak, and release/publication evidence remain
+pending. The release is blocked; no external PASS is implied by this plan.
 
 **Plan IDs:** EXP-1 through EXP-8
 
