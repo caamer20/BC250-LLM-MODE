@@ -4,7 +4,9 @@
 
 **GUI-1 THROUGH GUI-8 ARE DEVELOPER-COMPLETE; PHYSICAL EVIDENCE IS PENDING.
 EXP-1 THROUGH EXP-3 ARE DEVELOPER-IMPLEMENTED; THEIR PHYSICAL EVIDENCE IS
-PENDING. EXP-4 THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL
+PENDING. EXP-4'S QUERY SNAPSHOT AND NOTIFICATION CONTRACT ARE IMPLEMENTED;
+NOTIFICATION PERSISTENCE, DELIVERY, UI, AND QUALIFICATION ARE NOT. EXP-5
+THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL
 EXPERIENCE OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
@@ -70,6 +72,9 @@ Implementation commits after the planning checkpoint:
 - `381f1e4` — one-window Profiles page, query-only bounded Performance Coach,
   durable `PROFILE_CALIBRATE v1`, fixed-prompt/metrics-only adapter, CLI parity,
   and stop-only idle-policy enforcement.
+- `b5ecdea` — EXP-4 bounded, query-only Maintenance snapshot with the closed
+  nine-level priority policy, at-most-five items, evidence freshness, and no
+  refresh-time doctor/hash/network/command work.
 
 EXP-1 through EXP-3 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
@@ -78,8 +83,10 @@ or a second-device tailnet journey; use
 EXP-3 hardware task is
 `docs/profile-physical-qualification.md`: Interactive/Long context/Shared/Cool
 must be measured with both a small and a 9B standard-layout model on each host,
-without storing prompts/completions. The next safe boundary is EXP-4 commit 16,
-the bounded prioritized Maintenance snapshot — not notification migration.
+without storing prompts/completions. ADR 011 freezes the notification privacy,
+dedupe, retention, and failure-isolation policy. The next safe boundary is
+EXP-4 commit 18, atomic migration 013 plus the bounded adapter/preferences —
+not the Maintenance GUI or repair work.
 
 EXP-3 developer qualification at this checkpoint: authoritative default
 collection **1307** (exit 0; two expected platform skips), slow battery
