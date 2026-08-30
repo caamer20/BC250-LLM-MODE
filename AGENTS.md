@@ -3,9 +3,9 @@
 ## Unified native GUI and appliance-experience planning checkpoint
 
 **GUI-1 THROUGH GUI-8 ARE DEVELOPER-COMPLETE; PHYSICAL EVIDENCE IS PENDING.
-EXP-1 AND EXP-2 ARE DEVELOPER-IMPLEMENTED; THEIR PHYSICAL EVIDENCE IS PENDING.
-EXP-3 THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL EXPERIENCE OR
-RELEASE COMPLETION.**
+EXP-1 THROUGH EXP-3 ARE DEVELOPER-IMPLEMENTED; THEIR PHYSICAL EVIDENCE IS
+PENDING. EXP-4 THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL
+EXPERIENCE OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
 second-window/terminal-handoff experience with one lightweight tkinter shell:
@@ -61,13 +61,40 @@ Implementation commits after the planning checkpoint:
   probes.
 - `fb28b4c` — one-window Connections page, CLI parity, Open WebUI/sharing
   credential integration, and Home/Doctor migration-011 awareness.
+- `062fa86` — EXP-3 workload-profile/evidence/coach/calibration/idle contract
+  frozen in ADR 010.
+- `1dfda88` — migration 012, typed workload-profile repositories, stable
+  built-ins, bounded validation, and canonical resolution identity.
+- `86763c6` — pure profile preview/compare, revision-fenced custom CRUD,
+  exact durable activation binding, and known-good rollback identity.
+- `381f1e4` — one-window Profiles page, query-only bounded Performance Coach,
+  durable `PROFILE_CALIBRATE v1`, fixed-prompt/metrics-only adapter, CLI parity,
+  and stop-only idle-policy enforcement.
 
-EXP-1 and EXP-2 are developer-implemented but not physically qualified on
+EXP-1 through EXP-3 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
 or a second-device tailnet journey; use
 `docs/connection-physical-qualification.md` on the exact candidate. The next
-safe boundary is EXP-3: ADR/migration 012 and named workload profiles with
-evidence-bound coaching, following the exact reviewed plan.
+EXP-3 hardware task is
+`docs/profile-physical-qualification.md`: Interactive/Long context/Shared/Cool
+must be measured with both a small and a 9B standard-layout model on each host,
+without storing prompts/completions. The next safe boundary is EXP-4 commit 16,
+the bounded prioritized Maintenance snapshot — not notification migration.
+
+EXP-3 developer qualification at this checkpoint: authoritative default
+collection **1307** (exit 0; two expected platform skips), slow battery
+**52/52**, focused profile/calibration/GUI/runtime/activation/inventory battery
+**45/45**, forced compileall and diff-check clean. Clean source → sdist → wheel
+builds succeeded with no isolation/network dependency; the installed wheel
+initializes schema 12, exposes five built-ins plus `PROFILE_CALIBRATE`, includes
+the Profiles route, and its full CLI help exposes `profiles`, `coach`, and
+`calibrate`. Calibration tests cover a production-adapter round trip, exact
+optimization-set restoration, death-before-checkpoint takeover without a
+duplicate trial, cancellation only between candidates, closed/bounded SSE and
+receipt parsing, prompt absence from SQLite, exact profile+runtime evidence
+attribution, no auto-apply, and stop-only idle behavior. Physical temperature,
+throughput, concurrent-client, host, and reboot evidence remains pending and
+was not fabricated. The nine owner-controlled untracked files remain untouched.
 
 EXP-2 developer qualification at this checkpoint: authoritative default
 collection **1277** (exit 0; two expected platform skips), slow battery

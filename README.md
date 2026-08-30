@@ -31,6 +31,10 @@ unsatisfied), *published* (exact artifacts externally published and verified).
   developer-qualified with bounded real-socket fixtures. Physical PocketPal,
   Open WebUI, and second-device SSE evidence is still pending for the exact
   candidate; no hardware-tested client claim is inferred from those fixtures.
+- EXP-3 named workload profiles, evidence-bound coaching, durable calibration,
+  and stop-only idle behavior are developer-qualified. Physical calibration on
+  Bazzite and CachyOS with small and 9B standard-layout models remains pending;
+  estimates and simulated metrics are never presented as hardware results.
 - Release qualification is decided ONLY by the evidence-driven evaluator
   (`python -m tools.release evaluate`); the release workflow builds once,
   verifies, attests, verifies the attestations, and gates approval/publish on
@@ -171,13 +175,16 @@ After a reboot, the desktop starts normally and no LLM model is loaded. Starting
 ## Daily use after setup
 
 Running `bc250-llm-mode` after setup opens Home in the same native window.
-Home, Models, Chat, Connections, Activity, System, Settings, and Help all stay in that
+Home, Models, Profiles, Chat, Connections, Activity, System, Settings, and Help all stay in that
 window. The experience provides:
 
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
 - Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**, and **Open WebUI** controls;
 - optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
+- named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;
+- a query-only Performance Coach that shows at most three evidence-labelled suggestions and never applies a change automatically;
+- durable fixed-prompt calibration with thermal/fit preflight, cancellation only between candidates, exact prior-runtime restoration, and a separately applied winner proposal;
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - native bounded streaming chat plus optional terminal-chat launch;
 - recent model-server and setup logs only when the in-window drawer is opened;
@@ -409,6 +416,16 @@ bc250-llm-mode models search [query]   Search the catalog by tag/name with live 
 bc250-llm-mode models recommend        Rank catalog models that safely fit a budget
   [--ctx N] [--slots N] [--tag X] [--limit N]
 bc250-llm-mode models use <model-id>   Select an installed/discovered model and restart safely
+bc250-llm-mode profiles list|show      List or inspect built-in/custom workload profiles
+bc250-llm-mode profiles preview        Preview or compare up to three profiles without writes
+bc250-llm-mode profiles create|edit|delete
+                                       Manage bounded custom profiles; edits never alter a running server
+bc250-llm-mode profiles apply <id> --revision N --fingerprint SHA256
+                                       Apply one exact preview through durable model activation
+bc250-llm-mode coach [--profile ID] [--model ID] [--ctx N] [--users 1-8]
+                                       Show up to three query-only evidence-bound suggestions
+bc250-llm-mode calibrate --profile ID [--model ID] [--accept-tight]
+                                       Run up to three restored fixed-prompt trials; never auto-apply
 bc250-llm-mode bench [--max-tokens N] [--repeat 1-10] [--prompt "..."]
                                        Measure generation speed; repeats report min/median/max
 bc250-llm-mode doctor                  Run local diagnostics and print a JSON report
@@ -552,7 +569,7 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-The current suite covers hardware and memory-profile discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, catalog search, best-fit quantization selection, and budget-aware model recommendations, download-space and checksum safeguards, optimizer bounds including governor profiles and thermal limits, the hysteresis thermal watchdog state machine, launcher thread/cache-reuse generation, systemd memory guards, transactional activation rollback, existing-model discovery, GGUF metadata healing, service lifecycle management including self-healing restarts, Tailscale state separation, server generation, chat benchmarking with persisted history, streaming timing capture, reasoning-block filtering, conversation trimming/export/persistence, and desktop-mode reversion.
+The current suite covers hardware and memory-profile discovery, the safety gate, state migration, VRAM fit calculations, forbidden artifacts, catalog search, best-fit quantization selection, and budget-aware model recommendations, download-space and checksum safeguards, optimizer bounds including governor profiles and thermal limits, named workload-profile resolution and revision fencing, evidence-bound coaching, durable calibration crash/cancel recovery and exact restoration, idle-policy suppression, the hysteresis thermal watchdog state machine, launcher thread/cache-reuse generation, systemd memory guards, transactional activation rollback, existing-model discovery, GGUF metadata healing, service lifecycle management including self-healing restarts, Tailscale state separation, server generation, chat benchmarking with persisted history, streaming timing capture, reasoning-block filtering, conversation trimming/export/persistence, and desktop-mode reversion.
 
 ## License
 
