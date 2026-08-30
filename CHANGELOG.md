@@ -5,6 +5,26 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Appliance experience EXP-7 and EXP-8 documentation
+
+- Centralized stable user-facing result copy with safe unknown-code and
+  exception fallbacks, and added a bundled 22-term offline glossary. Help,
+  command-palette, glossary, and icon use remains local and performs no network
+  fetch.
+- Added a bounded local `Ctrl+K` command palette, query-only Privacy Center,
+  locale-ready display formatting, persistent 100–200% interface scaling,
+  stronger keyboard/focus behavior, selected-row text alternatives, and
+  explicit accessibility limitations. Protected actions still require their
+  normal preview and confirmation; the palette cannot execute them.
+- Added separate end-user and operator guides covering source installation,
+  desktop-menu launch, first run, exact remote endpoints, profiles,
+  Maintenance/Repair/Updates, offline bundles, privacy, durable recovery,
+  uninstall/reinstall, and model preservation.
+- Developer accessibility, privacy, terminology, scale, and bounded-resource
+  gates pass. EXP-8 physical journeys, participant acceptance, Bazzite/CachyOS
+  resource measurements, security review, and release evidence remain pending;
+  this documentation does not claim them.
+
 ### Appliance experience EXP-6
 
 - Added ADR 013's fail-closed application release verifier and migration 014

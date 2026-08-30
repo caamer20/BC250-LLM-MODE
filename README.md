@@ -5,12 +5,17 @@ BC250 LLM MODE is a lightweight native desktop application, setup wizard, and te
 The interface is a real local `tkinter` window—not a web app. One persistent,
 resizable window owns five-chapter setup, task-oriented Home, Model Library,
 native streaming Chat, Connections, Activity, System, Settings, Help, inline notices,
+Maintenance/Repair/Updates, a local command palette, a Privacy Center,
 confirmations, and a bounded log drawer. It uses one Tk root, one refresh
 coordinator, and three lazily-created bounded worker lanes. Terminal chat
 remains available as an optional client with the same lifecycle semantics.
 
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
+
+Detailed guides: [end-user guide](docs/end-user-guide.md),
+[operator guide](docs/operator-guide.md), and
+[accessibility and privacy](docs/accessibility-privacy.md).
 
 ## Release status
 
@@ -41,6 +46,16 @@ unsatisfied), *published* (exact artifacts externally published and verified).
   pending on both advertised host profiles; see
   `docs/notification-physical-qualification.md` and
   `docs/repair-physical-qualification.md`.
+- EXP-6 signed two-slot application-update mechanics are developer-qualified,
+  including hostile offline-bundle rejection and deterministic crash recovery.
+  The production channel remains honestly unavailable because no reviewed
+  production trust root or eligible signed release ships in this development
+  build. Physical update/rollback evidence is pending on both hosts.
+- EXP-7 stable copy, bundled glossary, `Ctrl+K` local command palette,
+  100–200% interface scaling, text alternatives, locale-ready display
+  formatting, and the query-only Privacy Center are developer-qualified.
+  Linux screen-reader behavior and resource/keyboard journeys remain physical
+  and human evidence pending; see `docs/accessibility-privacy.md`.
 - Release qualification is decided ONLY by the evidence-driven evaluator
   (`python -m tools.release evaluate`); the release workflow builds once,
   verifies, attests, verifies the attestations, and gates approval/publish on
@@ -106,6 +121,24 @@ Launch it from a terminal inside the BC-250 desktop session:
 ```bash
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode
 ```
+
+After verifying that launch, install the owned user-local application-menu
+entry. Previewing shows every target and writes nothing:
+
+```bash
+~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop-integration plan
+~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop-integration install
+```
+
+Open **BC250 LLM MODE** from the desktop application menu. Reopening it
+activates the existing same-user window; it does not create a second refresh
+owner. The launcher creates no login autostart and starts no model. Remove only
+the app-owned menu files with `desktop-integration remove`.
+
+This is currently the documented developer/source installation path. A
+production online or offline installer bundle must remain unavailable until an
+exact signed release passes the evaluator and publication gates. Do not treat a
+source checkout, arbitrary wheel, or `curl | sh` command as a verified release.
 
 The application invokes `pkexec` when available or falls back to `sudo` for privileged operations. Installing the Python package itself does not need `sudo` when the virtual environment is in your home directory.
 
@@ -204,6 +237,15 @@ window. The experience provides:
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - native bounded streaming chat plus optional terminal-chat launch;
 - recent model-server and setup logs only when the in-window drawer is opened;
+- `Ctrl+K` bounded local command search; protected results open their normal
+  preview page and never execute from the palette;
+- a bundled offline glossary plus keyboard guidance, 100–200% interface scale,
+  reduced motion, written status labels, and adjacent text for important
+  tables where Tk accessibility is weak;
+- a Privacy Center that inventories conversation, log, operation, benchmark,
+  credential, Open WebUI, backup, bundle, notification, and update-network
+  behavior without reading those stores or offering a fictional telemetry
+  toggle—the application has no telemetry;
 - platform diagnostics, optimization controls, repair, current-boot LLM Mode, and non-destructive desktop mode.
 
 One coalescing refresh coordinator updates service, API, WebUI, Tailscale,
@@ -408,6 +450,7 @@ bc250-llm-mode desktop-integration     status | plan | install | remove the
 bc250-llm-mode setup                   Open/resume the native wizard
 bc250-llm-mode repair                  Restart validation and safely rerun setup
 bc250-llm-mode status                  Print hardware, saved state, and server status as JSON
+bc250-llm-mode privacy                 Print the query-only local data and network inventory
 bc250-llm-mode platform [status|plan]  Detect host support and print read-only package/boot plans
 bc250-llm-mode memory-profile          Analyze the fixed boot-time UMA split and host-RAM safety
 bc250-llm-mode chat                    Start terminal chat
@@ -467,6 +510,21 @@ bc250-llm-mode notifications status|test
                                        Show redacted delivery state or send fixed test copy
 bc250-llm-mode notifications set CATEGORY on|off
                                        Change master/all or one closed category preference
+bc250-llm-mode support-bundle --output DIRECTORY
+                                       Create one bounded redacted local diagnostic bundle
+bc250-llm-mode backup create LABEL [--include-models] [--include-runtime]
+bc250-llm-mode backup list|verify [BACKUP-ID]
+bc250-llm-mode restore inspect BACKUP-ID
+bc250-llm-mode restore start BACKUP-ID --confirmation-digest SHA256
+bc250-llm-mode restore status OPERATION-ID
+                                       Create, inspect, and run durable profile backup/restore
+bc250-llm-mode update status|check
+bc250-llm-mode update preview VERSION
+bc250-llm-mode update import-bundle ARCHIVE
+bc250-llm-mode update apply VERSION --preview SHA256 --confirm TOKEN
+bc250-llm-mode update rollback [--preview SHA256 --confirm TOKEN]
+bc250-llm-mode update cleanup --dry-run
+                                       Verify, preview, apply, roll back, or clean signed releases
 bc250-llm-mode autotune [--repeat 1-3] [--max-tokens N]
                                        Benchmark runtime combos and apply the fastest safe one
 bc250-llm-mode thermals status|once|watch [--interval SEC]
@@ -505,6 +563,38 @@ systemctl reboot
 ```
 
 The command does not delete models, containers, or setup records.
+
+### Workload profiles
+
+Use **Profiles** when the goal is more important than individual llama.cpp
+flags. **Interactive** favors one responsive conversation, **Long context**
+reserves more history, **Shared** budgets for concurrent users, **Cool** lowers
+thermal pressure, and **Throughput** favors batch work. Select a profile and
+review its exact model, context per user, concurrent slots, quantization, KV
+cache, projected VRAM, thermal readiness, evidence class, and rollback status.
+Applying always uses the normal durable activation path; a failed verification
+restores the last known-good runtime where that identity is still proven.
+
+The Performance Coach shows no more than three evidence-labelled suggestions.
+Estimated results are not hardware measurements. Calibration is explicit,
+uses fixed prompts whose content is not retained in events, restores the prior
+runtime after every trial, and proposes rather than automatically applies a
+winner.
+
+### Maintenance and privacy
+
+**Maintenance** shows at most five items ordered by safety, recovery, security,
+integrity, storage, backup, operation, update, then information. Normal refresh
+uses existing evidence; **Run full check** is the explicit action that invokes
+live diagnostics. Notifications are local, fixed-copy, privacy-safe, and off by
+default. There is no tray process or notification polling thread.
+
+Open **Settings → Privacy**, or run `bc250-llm-mode privacy`, for the same
+query-only inventory of retained data, actual storage locations, retention,
+network behavior, and safe management pages. BC250 LLM MODE has no telemetry
+and does not send usage analytics. See
+[`docs/accessibility-privacy.md`](docs/accessibility-privacy.md) for keyboard,
+scale, screen-reader-limit, privacy, and network details.
 
 ## Repair, update, and uninstall
 
@@ -578,6 +668,14 @@ root or eligible release channel yet, so normal production status is
 prompt to bypass verification. Physical Bazzite/CachyOS update and rollback
 qualification remains pending.
 
+An **offline update bundle** is not a general installer and is not trusted
+because it arrived on removable media. `update import-bundle` streams the
+selected archive through the same manifest, inventory, checksum, SBOM,
+provenance, signature, platform, schema, member-set, size, and path checks as
+the signed channel. Until a qualified production signing root and release
+exist, both online and offline production updates remain unavailable by
+design.
+
 Update a source checkout:
 
 ```bash
@@ -607,6 +705,15 @@ Permanently remove application-managed model files as well:
 > [!CAUTION]
 > `--remove-models` permanently deletes model files inside the application-managed models directory. It cannot be undone by the app. Models selected from external folders are not deleted by this option.
 
+The default uninstall preserves `~/.bc250-llm-mode/models/`, external model
+folders, profile data, backups, conversations, and the Open WebUI volume. It
+marks setup incomplete and removes/reverts the selected service and host-mode
+integration. Reinstall the package into the same user profile, reinstall the
+desktop entry if needed, and run setup; the Model chapter scans the managed
+and configured external folders again. Use `--remove-models` only when the
+permanent deletion is intentional. Removing the Open WebUI container does not
+remove its named data volume.
+
 ## Files, services, and ports
 
 Default paths are relative to the account that runs setup:
@@ -617,7 +724,12 @@ Default paths are relative to the account that runs setup:
 | Runtime handoff (rendered, mode 0600) | `~/.bc250-llm-mode/runtime-handoff.json` |
 | Legacy JSON | `~/.bc250-llm-mode/state.json` — immutable import source only |
 | Managed models | `~/.bc250-llm-mode/models/` |
-| Setup log | `~/.bc250-llm-mode/logs/setup.log` |
+| Saved conversations (mode 0600) | `~/.bc250-llm-mode/conversations/` |
+| Setup/worker/server logs | `~/.bc250-llm-mode/logs/` |
+| Named client secret files (mode 0600) | `~/.bc250-llm-mode/connection-secrets/` |
+| Durable profile backups | `~/.bc250-llm-mode/backups/` |
+| Verified offline update bundles | `~/.bc250-llm-mode/update-bundles/` |
+| Immutable application release slots | `~/.bc250-llm-mode/releases/` |
 | Generated launcher | `~/.bc250-llm-mode/run-model.sh` |
 | llama.cpp source/build in container | `/root/llama.cpp` |
 | Preparation environment in container | `/root/.venvs/hf` |
@@ -626,6 +738,7 @@ Default paths are relative to the account that runs setup:
 | Root-run model server log | `/var/log/bc250-llm-server.log` |
 | Model API | `127.0.0.1:8080` |
 | Optional Open WebUI | `127.0.0.1:3000` |
+| Open WebUI persistent data | Podman named volume `bc250-open-webui` |
 | Tailnet HTTPS Open WebUI | `https://<node>.<tailnet>.ts.net:8443/` |
 | Tailnet HTTPS model API | `https://<node>.<tailnet>.ts.net:10000/v1` |
 

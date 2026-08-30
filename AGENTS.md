@@ -2,10 +2,10 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-5 ARE DEVELOPER-IMPLEMENTED;
-THEIR PHYSICAL EVIDENCE IS PENDING. EXP-6 THROUGH EXP-8 ARE NOT IMPLEMENTED —
-DO NOT CLAIM FULL
-EXPERIENCE OR RELEASE COMPLETION.**
+**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-7 ARE DEVELOPER-IMPLEMENTED;
+THEIR PHYSICAL/HUMAN EVIDENCE IS PENDING. EXP-8 DOCUMENTATION IS IN PROGRESS;
+ITS CANDIDATE-BOUND JOURNEY AND RESOURCE QUALIFICATION IS NOT COMPLETE. DO NOT
+CLAIM FULL EXPERIENCE OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
 second-window/terminal-handoff experience with one lightweight tkinter shell:
@@ -92,8 +92,23 @@ Implementation commits after the planning checkpoint:
   a schema change.
 - `c99a34e` — evidence-gated cleanup Undo as a child operation, bounded local
   support handoff, real one-window Repair/Cleanup/Undo page, and CLI parity.
+- `cc9ce1c` — EXP-5 crash/recovery/exclusion/physical-handoff qualification;
+  no physical PASS evidence was fabricated.
+- `9df80aa` — EXP-6 signed two-slot application-update contract (ADR 013).
+- `cd3045c` — fail-closed release query, verifier, and update preview.
+- `22a3428` — migration 014 installation slots and bounded staging.
+- `4be27ff` — digest-pinned publisher and durable update recovery workflow.
+- `6958200` — one-window/CLI update controls, hostile-safe offline import,
+  exact rollback, and cleanup preview.
+- `a6a798a` — EXP-6 tamper/crash/package gates and pending physical update
+  qualification worksheet.
+- `51d98d5` — EXP-7 stable copy catalog, safe fallbacks, and offline glossary.
+- `4920dfb` — bounded command palette, Privacy Center, locale-ready formatting,
+  and persistent interface scale.
+- `e141629` — EXP-7 keyboard/focus/contrast/terminology/privacy/resource gates
+  and physical accessibility handoff.
 
-EXP-1 through EXP-5 are developer-implemented but not physically qualified on
+EXP-1 through EXP-7 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
 or a second-device tailnet journey; use
 `docs/connection-physical-qualification.md` on the exact candidate. The next
@@ -105,9 +120,20 @@ unavailable-session, dedupe, thermal-stop, delivery-failure, resource, and
 privacy evidence must follow `docs/notification-physical-qualification.md` on
 the exact candidate. EXP-5 interruption, recovery, rollback, credential,
 sharing, desktop-return, quarantine/restore/purge, and privacy evidence must
-follow `docs/repair-physical-qualification.md`. The next safe boundary is
-EXP-6 commit 26: freeze the signed two-slot application-update contract before
-migration 014 or any updater code.
+follow `docs/repair-physical-qualification.md`. EXP-6 physical signed-update,
+rollback, restart, migration, and profile-restore evidence follows
+`docs/application-update-physical-qualification.md`. EXP-7 screen-reader,
+keyboard-only, scale, theme, and resource evidence remains pending. The next
+safe boundary is EXP-8 commit 35: documentation, followed by fail-closed
+candidate-bound journey/resource records; no physical or human PASS may be
+inferred from developer tests.
+
+EXP-7 developer qualification at this checkpoint: authoritative default
+collection **1451** (**1449 passed + 2 expected platform skips**, exit 0);
+complete slow battery **52/52**; focused accessibility/locale/privacy gates
+green; forced compileall and `git diff --check` clean. Physical Linux
+accessibility and Bazzite/CachyOS resource evidence remains pending and was not
+fabricated. The nine owner-controlled untracked files remain untouched.
 
 EXP-5 developer qualification at this checkpoint: authoritative default
 collection **1374** (**1372 passed + 2 expected platform skips**, exit 0);
