@@ -10,6 +10,7 @@ trust inputs.
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import os
 import re
@@ -18,6 +19,7 @@ import tarfile
 import tempfile
 import unicodedata
 from dataclasses import dataclass
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -240,6 +242,18 @@ class OfflineApplicationBundleStore:
     def available(self) -> bool:
         return bool(self.verifier.trust.available)
 
+    @contextmanager
+    def _publication_lock(self):
+        lock_path = self.paths.application_update_bundles_dir / ".import.lock"
+        handle = lock_path.open("a+b")
+        try:
+            os.chmod(lock_path, 0o600)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+
     def _schema(self) -> int:
         value = self.installed_schema() if callable(self.installed_schema) else self.installed_schema
         if not isinstance(value, int) or isinstance(value, bool) or value < 1:
@@ -362,41 +376,42 @@ class OfflineApplicationBundleStore:
             if not _HEX64.fullmatch(digest):
                 raise ApplicationBundleError(UpdateCode.BUNDLE_MALFORMED)
             target = self.paths.application_update_bundles_dir / digest
-            if target.exists():
-                _existing_material, _existing_roles, existing = self._verify_tree(target)
-                if existing.release_set_digest != digest:
-                    raise ApplicationBundleError(UpdateCode.BUNDLE_MEMBER_REFUSED)
-                shutil.rmtree(stage)
+            with self._publication_lock():
+                if target.exists():
+                    _existing_material, _existing_roles, existing = self._verify_tree(target)
+                    if existing.release_set_digest != digest:
+                        raise ApplicationBundleError(UpdateCode.BUNDLE_MEMBER_REFUSED)
+                    shutil.rmtree(stage)
+                    with self.units.begin() as conn:
+                        repo = ApplicationUpdateImportRepository(conn)
+                        row = repo.get(digest)
+                        if row is None:
+                            repo.record_verified(existing, source_class=ImportSource.OFFLINE)
+                        elif row.state is not ImportState.VERIFIED:
+                            raise ApplicationInstallationError("import identity is terminal")
+                    return ImportedApplicationBundle(
+                        UpdateOutcome.AVAILABLE, UpdateCode.OK, existing, True
+                    )
+                receipt = {
+                    "schema_version": BUNDLE_RECEIPT_SCHEMA_VERSION,
+                    "release_set_digest": digest,
+                    "version": release.version,
+                    "wheel_name": by_role["python-wheel"].name,
+                    "wheel_size": by_role["python-wheel"].size,
+                }
+                atomic_write_text(
+                    stage / BUNDLE_RECEIPT_NAME,
+                    json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
+                )
+                os.rename(stage, target)
+                fsync_directory(target.parent)
                 with self.units.begin() as conn:
                     repo = ApplicationUpdateImportRepository(conn)
                     row = repo.get(digest)
                     if row is None:
-                        repo.record_verified(existing, source_class=ImportSource.OFFLINE)
+                        repo.record_verified(release, source_class=ImportSource.OFFLINE)
                     elif row.state is not ImportState.VERIFIED:
                         raise ApplicationInstallationError("import identity is terminal")
-                return ImportedApplicationBundle(
-                    UpdateOutcome.AVAILABLE, UpdateCode.OK, existing, True
-                )
-            receipt = {
-                "schema_version": BUNDLE_RECEIPT_SCHEMA_VERSION,
-                "release_set_digest": digest,
-                "version": release.version,
-                "wheel_name": by_role["python-wheel"].name,
-                "wheel_size": by_role["python-wheel"].size,
-            }
-            atomic_write_text(
-                stage / BUNDLE_RECEIPT_NAME,
-                json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n",
-            )
-            os.rename(stage, target)
-            fsync_directory(target.parent)
-            with self.units.begin() as conn:
-                repo = ApplicationUpdateImportRepository(conn)
-                row = repo.get(digest)
-                if row is None:
-                    repo.record_verified(release, source_class=ImportSource.OFFLINE)
-                elif row.state is not ImportState.VERIFIED:
-                    raise ApplicationInstallationError("import identity is terminal")
             return ImportedApplicationBundle(
                 UpdateOutcome.AVAILABLE, UpdateCode.OK, release, False
             )

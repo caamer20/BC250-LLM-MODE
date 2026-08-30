@@ -67,6 +67,14 @@ to the exact package candidate; one host cannot qualify the other.
       two-client independent revoke, and emergency disable while model unhealthy
 - [ ] connection evidence contains classifications/timings only—no key,
       authorization header, prompt/completion, address, or user label
+- [ ] when and only when an exact evaluator-eligible signed release plus a
+      reviewed production trust root exist, complete
+      `docs/application-update-physical-qualification.md` on both hosts:
+      signed check/import, update/restart acknowledgment, interruption,
+      rollback/profile restore, retention, no-autostart, privacy, and soak
+- [ ] application-update evidence records no nonce, credential, user path,
+      hostname/address, release-note content, raw log, prompt, or completion;
+      the checklist's current PENDING state is not evidence
 - [ ] result PASS signed by the operator (mechanism per policy)
 
 ### SOAK_TEST

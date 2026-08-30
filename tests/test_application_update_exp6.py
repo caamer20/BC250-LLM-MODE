@@ -7,6 +7,7 @@ import tarfile
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -216,7 +217,8 @@ def _verifier():
 
 
 def _write_offline_bundle(path, material, *, wheel: bytes, sdist: bytes,
-                          extra: tuple[tuple[str, bytes], ...] = ()):
+                          extra: tuple[tuple[str, bytes], ...] = (),
+                          control_bytes: bytes | None = None):
     by_role = {member.role: member for member in material.members}
     payloads = {
         "python-wheel": wheel,
@@ -232,7 +234,10 @@ def _write_offline_bundle(path, material, *, wheel: bytes, sdist: bytes,
         "release-notes": material.release_notes.encode(),
         "release-signature": material.signature,
     }
-    members = [("release-set.json", _canonical(material.envelope))]
+    members = [(
+        "release-set.json",
+        control_bytes if control_bytes is not None else _canonical(material.envelope),
+    )]
     members.extend(
         (by_role[role].name, payload) for role, payload in payloads.items()
     )
@@ -244,6 +249,41 @@ def _write_offline_bundle(path, material, *, wheel: bytes, sdist: bytes,
             info.mode = 0o600
             archive.addfile(info, io.BytesIO(payload))
     return path
+
+
+def _replace_signed_role(material, role: str, value):
+    """Test-only resign: refresh one member fact and the fake signed envelope."""
+    fields = {
+        "release-decision": "decision",
+        "release-manifest": "manifest",
+        "artifact-inventory": "inventory",
+        "checksums": "checksums",
+        "cyclonedx-sbom": "sbom",
+        "verified-evidence": "evidence",
+        "build-provenance": "provenance",
+        "database-compatibility": "compatibility",
+        "release-notes": "release_notes",
+        "release-signature": "signature",
+    }
+    if isinstance(value, dict):
+        payload = _canonical(value)
+    elif isinstance(value, str):
+        payload = value.encode()
+    else:
+        payload = value
+    members = tuple(
+        replace(item, sha256=_digest(payload), size=len(payload))
+        if item.role == role else item
+        for item in material.members
+    )
+    envelope = dict(material.envelope)
+    envelope["members"] = [
+        item.to_dict() for item in sorted(
+            (item for item in members if item.role != "release-signature"),
+            key=lambda item: (item.role, item.name),
+        )
+    ]
+    return replace(material, envelope=envelope, members=members, **{fields[role]: value})
 
 
 def _installed():
@@ -309,6 +349,69 @@ def test_decision_manifest_inventory_and_member_tamper_are_rejected():
     assert _verifier().verify(
         bad_decision, installed_schema=13, platform_profile=PLATFORM
     ).reason_code is UpdateCode.BUNDLE_MEMBER_REFUSED
+
+
+@pytest.mark.parametrize(
+    ("role", "mutation", "expected"),
+    [
+        (
+            "release-decision",
+            lambda value: {**value, "eligible_for_1_0_0": False},
+            UpdateCode.RELEASE_DECISION_INELIGIBLE,
+        ),
+        (
+            "release-manifest",
+            lambda value: {**value, "release_status": "BLOCKED"},
+            UpdateCode.MANIFEST_MISMATCH,
+        ),
+        (
+            "checksums",
+            lambda value: value.replace("1", "f", 1),
+            # The inventory binds the checksum artifact first, so the outer
+            # cross-document identity gate refuses before parsing its lines.
+            UpdateCode.INVENTORY_MISMATCH,
+        ),
+        (
+            "build-provenance",
+            lambda _value: {"test_fixture": "unverified"},
+            UpdateCode.PROVENANCE_INVALID,
+        ),
+        (
+            "verified-evidence",
+            lambda _value: {"test_fixture": "unverified"},
+            UpdateCode.PLATFORM_EVIDENCE_MISSING,
+        ),
+        (
+            "database-compatibility",
+            lambda value: {**value, "maximum_readable_schema": 12},
+            UpdateCode.DATABASE_INCOMPATIBLE,
+        ),
+        (
+            "release-signature",
+            lambda _value: b"invalid-signature",
+            UpdateCode.SIGNATURE_INVALID,
+        ),
+    ],
+)
+def test_each_release_trust_layer_refuses_after_outer_envelope_is_refreshed(
+    role, mutation, expected
+):
+    material = _release_material()
+    field = {
+        "release-decision": material.decision,
+        "release-manifest": material.manifest,
+        "checksums": material.checksums,
+        "build-provenance": material.provenance,
+        "verified-evidence": material.evidence,
+        "database-compatibility": material.compatibility,
+        "release-signature": material.signature,
+    }[role]
+    tampered = _replace_signed_role(material, role, mutation(field))
+    result = _verifier().verify(
+        tampered, installed_schema=13, platform_profile=PLATFORM
+    )
+    assert result.reason_code is expected
+    assert result.release is None
 
     bad_member = list(material.members)
     bad_member[0] = replace(bad_member[0], sha256="f" * 64)
@@ -422,6 +525,34 @@ def test_offline_bundle_streams_verifies_publishes_and_reverifies(tmp_path):
     assert row.state is ImportState.VERIFIED
 
 
+def test_concurrent_identical_offline_import_has_one_identity_and_no_partial_tree(
+    tmp_path
+):
+    wheel = b"concurrent-wheel"
+    sdist = b"concurrent-sdist"
+    material = _release_material(
+        wheel_digest=_digest(wheel), wheel_size=len(wheel),
+        sdist_digest=_digest(sdist), sdist_size=len(sdist),
+    )
+    archive = _write_offline_bundle(
+        tmp_path / "concurrent.tar", material, wheel=wheel, sdist=sdist
+    )
+    _application, store = _offline_store(tmp_path / "profile")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = tuple(pool.map(lambda _item: store.import_bundle(archive), range(2)))
+    assert all(item.ok for item in results)
+    assert {item.release.release_set_digest for item in results} == {
+        results[0].release.release_set_digest
+    }
+    assert sorted(item.already_present for item in results) == [False, True]
+    roots = [
+        item for item in store.paths.application_update_bundles_dir.iterdir()
+        if len(item.name) == 64
+    ]
+    assert len(roots) == 1
+    assert tuple(store.paths.application_update_import_staging_dir.iterdir()) == ()
+
+
 @pytest.mark.parametrize("attack", ["traversal", "symlink", "duplicate", "extra", "mutation"])
 def test_offline_bundle_rejects_hostile_archive_shapes(tmp_path, attack):
     from bc250_llm_mode.application_bundle import ApplicationBundleError
@@ -468,6 +599,55 @@ def test_offline_bundle_rejects_hostile_archive_shapes(tmp_path, attack):
         _write_offline_bundle(
             archive, material, wheel=b"tampered", sdist=sdist
         )
+    _application, store = _offline_store(tmp_path / "profile")
+    with pytest.raises(ApplicationBundleError):
+        store.import_bundle(archive)
+    assert tuple(store.paths.application_update_import_staging_dir.iterdir()) == ()
+
+
+@pytest.mark.parametrize("attack", [
+    "absolute", "hardlink", "fifo", "casefold-duplicate", "noncanonical-json",
+])
+def test_offline_bundle_rejects_additional_archive_and_json_ambiguity(
+    tmp_path, attack
+):
+    from bc250_llm_mode.application_bundle import ApplicationBundleError
+
+    wheel = b"wheel-content"
+    sdist = b"sdist-content"
+    material = _release_material(
+        wheel_digest=_digest(wheel), wheel_size=len(wheel),
+        sdist_digest=_digest(sdist), sdist_size=len(sdist),
+    )
+    archive = tmp_path / f"extra-{attack}.tar"
+    if attack == "casefold-duplicate":
+        _write_offline_bundle(
+            archive, material, wheel=wheel, sdist=sdist,
+            extra=(("RELEASE-NOTES.TXT", b"duplicate by case"),),
+        )
+    elif attack == "noncanonical-json":
+        _write_offline_bundle(
+            archive, material, wheel=wheel, sdist=sdist,
+            control_bytes=json.dumps(material.envelope, indent=2).encode(),
+        )
+    else:
+        with tarfile.open(archive, "w") as output:
+            control = _canonical(material.envelope)
+            info = tarfile.TarInfo("release-set.json")
+            info.size = len(control)
+            output.addfile(info, io.BytesIO(control))
+            name = "/absolute" if attack == "absolute" else "special"
+            special = tarfile.TarInfo(name)
+            if attack == "hardlink":
+                special.type = tarfile.LNKTYPE
+                special.linkname = "release-set.json"
+            elif attack == "fifo":
+                special.type = tarfile.FIFOTYPE
+            else:
+                special.size = 1
+            output.addfile(
+                special, io.BytesIO(b"x") if special.isreg() else None
+            )
     _application, store = _offline_store(tmp_path / "profile")
     with pytest.raises(ApplicationBundleError):
         store.import_bundle(archive)
@@ -997,7 +1177,18 @@ def _update_payload():
     }
 
 
-def test_application_update_workflow_recovers_death_after_pointer_effect_once(tmp_path):
+@pytest.mark.parametrize(("crash_step", "effect_key"), [
+    ("verify_release_set", "release"),
+    ("stage_candidate", "stage"),
+    ("verify_profile_backup", "backup"),
+    ("publish_pointers", "pointer"),
+    ("post_update_ack", "ack"),
+    ("verify_application_health", "health"),
+    ("record_installation", "record"),
+])
+def test_application_update_workflow_recovers_death_after_each_effect_once(
+    tmp_path, crash_step, effect_key
+):
     from bc250_llm_mode.db import initialize_and_close
     from bc250_llm_mode.operations.application_update import (
         UPDATE_RESOURCES,
@@ -1034,7 +1225,7 @@ def test_application_update_workflow_recovers_death_after_pointer_effect_once(tm
 
     def crash(step, point):
         nonlocal fired
-        if not fired and step == "publish_pointers" and point == "before_step_checkpoint":
+        if not fired and step == crash_step and point == "before_step_checkpoint":
             fired = True
             raise _Death()
 
@@ -1044,10 +1235,13 @@ def test_application_update_workflow_recovers_death_after_pointer_effect_once(tm
     )
     with pytest.raises(_Death):
         worker_a.execute_one(operation.id)
-    assert host.effects["pointer"] == 1
+    assert host.effects[effect_key] == 1
     with units.read() as conn:
         row = OperationRepository(conn).require(operation.id)
-        assert row.state in {OperationState.RUNNING, OperationState.COMMITTING}
+        assert row.state in {
+            OperationState.RUNNING, OperationState.COMMITTING,
+            OperationState.VERIFYING,
+        }
 
     clock.advance(120)
     worker_b = ExecutionEngine(
@@ -1056,7 +1250,7 @@ def test_application_update_workflow_recovers_death_after_pointer_effect_once(tm
     )
     outcome = worker_b.execute_one(operation.id)
     assert outcome.kind == "COMPLETED"
-    assert host.effects["pointer"] == 1
+    assert host.effects[effect_key] == 1
     with units.read() as conn:
         final = OperationRepository(conn).require(operation.id)
         assert final.state is OperationState.SUCCEEDED

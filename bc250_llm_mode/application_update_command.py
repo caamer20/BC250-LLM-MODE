@@ -241,6 +241,14 @@ class ApplicationUpdateCommandService:
         self, mode: str, preview: ApplicationUpdatePreview, *,
         preview_digest: str, confirmation_token: str, requested_by: str,
     ) -> ApplicationUpdateOutcome:
+        with self.units.read() as conn:
+            from .repositories import SettingsRepository
+
+            if not bool(SettingsRepository(conn).get("disclaimer_ack", False)):
+                return ApplicationUpdateOutcome(
+                    UpdateOutcome.FAILED_SAFE,
+                    "SAFETY_ACKNOWLEDGMENT_REQUIRED",
+                )
         if preview.outcome is not UpdateOutcome.READY:
             return ApplicationUpdateOutcome(
                 UpdateOutcome.UNAVAILABLE, preview.reason_code.value
