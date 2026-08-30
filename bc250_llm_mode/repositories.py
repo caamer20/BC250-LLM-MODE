@@ -60,7 +60,8 @@ class RuntimeConfigRepository:
 
     def get(self) -> dict:
         row = self.conn.execute(
-            "SELECT model_alias, context, slots FROM runtime_config WHERE id = 1"
+            "SELECT model_alias, context, slots, profile_id, profile_revision, "
+            "profile_fingerprint FROM runtime_config WHERE id = 1"
         ).fetchone()
         if row is None:
             return {}
@@ -68,16 +69,35 @@ class RuntimeConfigRepository:
             "model_alias": row["model_alias"],
             "context": row["context"],
             "slots": row["slots"],
+            "profile_id": row["profile_id"],
+            "profile_revision": row["profile_revision"],
+            "profile_fingerprint": row["profile_fingerprint"],
         }
 
-    def update(self, *, model_alias, context: int, slots: int) -> None:
+    def update(
+        self,
+        *,
+        model_alias,
+        context: int,
+        slots: int,
+        profile_id=None,
+        profile_revision=None,
+        profile_fingerprint=None,
+    ) -> None:
         self.conn.execute(
-            "INSERT INTO runtime_config(id, model_alias, context, slots, updated_at) "
-            "VALUES (1, ?, ?, ?, ?) "
+            "INSERT INTO runtime_config(id, model_alias, context, slots, profile_id, "
+            "profile_revision, profile_fingerprint, updated_at) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET model_alias=excluded.model_alias, "
             "context=excluded.context, slots=excluded.slots, "
+            "profile_id=excluded.profile_id, "
+            "profile_revision=excluded.profile_revision, "
+            "profile_fingerprint=excluded.profile_fingerprint, "
             "updated_at=excluded.updated_at",
-            (model_alias, context, slots, utcnow()),
+            (
+                model_alias, context, slots, profile_id, profile_revision,
+                profile_fingerprint, utcnow(),
+            ),
         )
 
 
@@ -516,7 +536,8 @@ class KnownGoodRuntimeRepository:
     def get(self):
         row = self.conn.execute(
             "SELECT model_alias, context, slots, profile_id, runtime_json, "
-            "runtime_fingerprint, runtime_component_identity, verified_at "
+            "runtime_fingerprint, runtime_component_identity, verified_at, "
+            "profile_revision, profile_fingerprint "
             "FROM known_good_runtime WHERE id = 1"
         ).fetchone()
         if row is None:
@@ -526,6 +547,8 @@ class KnownGoodRuntimeRepository:
             "context": row["context"],
             "slots": row["slots"],
             "profile_id": row["profile_id"],
+            "profile_revision": row["profile_revision"],
+            "profile_fingerprint": row["profile_fingerprint"],
             "runtime": json.loads(row["runtime_json"] or "{}"),
             "runtime_fingerprint": row["runtime_fingerprint"],
             "runtime_component_identity": row["runtime_component_identity"],
@@ -539,6 +562,8 @@ class KnownGoodRuntimeRepository:
         context: int,
         slots: int,
         profile_id=None,
+        profile_revision=None,
+        profile_fingerprint=None,
         runtime: dict | None = None,
         runtime_fingerprint=None,
         runtime_component_identity=None,
@@ -547,18 +572,22 @@ class KnownGoodRuntimeRepository:
         self.conn.execute(
             "INSERT INTO known_good_runtime(id, model_alias, context, slots, "
             "profile_id, runtime_json, runtime_fingerprint, "
-            "runtime_component_identity, verified_at) "
-            "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "runtime_component_identity, verified_at, profile_revision, "
+            "profile_fingerprint) "
+            "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET model_alias=excluded.model_alias, "
             "context=excluded.context, slots=excluded.slots, "
             "profile_id=excluded.profile_id, runtime_json=excluded.runtime_json, "
             "runtime_fingerprint=excluded.runtime_fingerprint, "
             "runtime_component_identity=excluded.runtime_component_identity, "
+            "profile_revision=excluded.profile_revision, "
+            "profile_fingerprint=excluded.profile_fingerprint, "
             "verified_at=excluded.verified_at",
             (
                 model_alias, int(context), int(slots), profile_id,
                 json.dumps(runtime or {}), runtime_fingerprint,
-                runtime_component_identity, verified_at,
+                runtime_component_identity, verified_at, profile_revision,
+                profile_fingerprint,
             ),
         )
 

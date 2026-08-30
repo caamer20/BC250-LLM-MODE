@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -778,6 +778,144 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
              WHERE id = 1
                AND length(fingerprint) = 64
                AND fingerprint NOT GLOB '*[^0-9a-f]*'
+            """,
+        ),
+    ),
+    (
+        12,
+        "workload-profiles",
+        (
+            # ADR 010 / EXP-3: named goal profiles. All runtime-affecting
+            # fields are explicit columns; arbitrary settings JSON is not a
+            # profile persistence surface.
+            """
+            CREATE TABLE workload_profiles (
+                profile_id TEXT PRIMARY KEY
+                    CHECK (length(profile_id) BETWEEN 1 AND 64),
+                owner TEXT NOT NULL
+                    CHECK (owner IN ('builtin', 'user')),
+                name TEXT NOT NULL
+                    CHECK (length(trim(name)) BETWEEN 1 AND 80),
+                purpose TEXT NOT NULL
+                    CHECK (purpose IN
+                           ('interactive', 'long_context', 'shared', 'cool',
+                            'throughput', 'custom')),
+                resolution_policy TEXT NOT NULL
+                    CHECK (resolution_policy IN
+                           ('interactive-v1', 'long-context-v1', 'shared-v1',
+                            'cool-v1', 'throughput-v1', 'custom-v1')),
+                schema_version INTEGER NOT NULL DEFAULT 1
+                    CHECK (schema_version = 1),
+                revision INTEGER NOT NULL DEFAULT 1
+                    CHECK (revision >= 1),
+                context_per_slot INTEGER
+                    CHECK (context_per_slot BETWEEN 512 AND 262144
+                           OR context_per_slot IS NULL),
+                slots INTEGER
+                    CHECK (slots BETWEEN 1 AND 8 OR slots IS NULL),
+                kv_cache_type TEXT NOT NULL DEFAULT 'q8_0'
+                    CHECK (kv_cache_type IN ('q8_0', 'q4_0')),
+                batch_size INTEGER NOT NULL DEFAULT 1024
+                    CHECK (batch_size BETWEEN 128 AND 2048
+                           AND batch_size % 64 = 0),
+                ubatch_size INTEGER NOT NULL DEFAULT 256
+                    CHECK (ubatch_size BETWEEN 64 AND 512
+                           AND ubatch_size % 64 = 0
+                           AND ubatch_size <= batch_size),
+                flash_attention TEXT NOT NULL DEFAULT 'auto'
+                    CHECK (flash_attention IN ('auto', 'on', 'off')),
+                optimization_preset_id TEXT NOT NULL DEFAULT 'balanced'
+                    CHECK (optimization_preset_id IN
+                           ('custom', 'cool-quiet', 'balanced', 'maximum')),
+                thermal_policy TEXT NOT NULL DEFAULT 'standard'
+                    CHECK (thermal_policy IN
+                           ('standard', 'cool', 'throughput-guarded')),
+                idle_policy TEXT NOT NULL DEFAULT 'KEEP_LOADED'
+                    CHECK (idle_policy IN
+                           ('KEEP_LOADED', 'STOP_AFTER', 'STOP_ON_DESKTOP')),
+                stop_after_minutes INTEGER
+                    CHECK (stop_after_minutes BETWEEN 5 AND 240
+                           OR stop_after_minutes IS NULL),
+                evidence_class TEXT NOT NULL DEFAULT 'ESTIMATED'
+                    CHECK (evidence_class IN
+                           ('MEASURED_LOCAL', 'HARDWARE_VALIDATED', 'ESTIMATED')),
+                evidence_fingerprint TEXT
+                    CHECK ((length(evidence_fingerprint) = 64
+                            AND evidence_fingerprint NOT GLOB '*[^0-9a-f]*')
+                           OR evidence_fingerprint IS NULL),
+                evidence_recorded_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT,
+                CHECK ((idle_policy = 'STOP_AFTER' AND stop_after_minutes IS NOT NULL)
+                       OR (idle_policy != 'STOP_AFTER'
+                           AND stop_after_minutes IS NULL)),
+                CHECK ((owner = 'builtin' AND purpose != 'custom')
+                       OR (owner = 'user' AND purpose = 'custom'))
+            )
+            """,
+            """
+            CREATE UNIQUE INDEX idx_workload_profiles_active_name
+                ON workload_profiles(lower(name))
+                WHERE deleted_at IS NULL
+            """,
+            """
+            CREATE INDEX idx_workload_profiles_owner_state
+                ON workload_profiles(owner, deleted_at, name, profile_id)
+            """,
+            """
+            ALTER TABLE runtime_config ADD COLUMN profile_revision INTEGER
+                CHECK (profile_revision >= 1 OR profile_revision IS NULL)
+            """,
+            """
+            ALTER TABLE runtime_config ADD COLUMN profile_fingerprint TEXT
+                CHECK ((length(profile_fingerprint) = 64
+                        AND profile_fingerprint NOT GLOB '*[^0-9a-f]*')
+                       OR profile_fingerprint IS NULL)
+            """,
+            """
+            ALTER TABLE known_good_runtime ADD COLUMN profile_revision INTEGER
+                CHECK (profile_revision >= 1 OR profile_revision IS NULL)
+            """,
+            """
+            ALTER TABLE known_good_runtime ADD COLUMN profile_fingerprint TEXT
+                CHECK ((length(profile_fingerprint) = 64
+                        AND profile_fingerprint NOT GLOB '*[^0-9a-f]*')
+                       OR profile_fingerprint IS NULL)
+            """,
+            """
+            INSERT INTO workload_profiles (
+                profile_id, owner, name, purpose, resolution_policy,
+                context_per_slot, slots, kv_cache_type, batch_size,
+                ubatch_size, flash_attention, optimization_preset_id,
+                thermal_policy, idle_policy, stop_after_minutes, evidence_class,
+                created_at, updated_at
+            ) VALUES
+                ('builtin-interactive', 'builtin', 'Interactive',
+                 'interactive', 'interactive-v1', NULL, 1, 'q8_0', 1024,
+                 256, 'auto', 'balanced', 'standard', 'KEEP_LOADED', NULL,
+                 'ESTIMATED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                ('builtin-long-context', 'builtin', 'Long context',
+                 'long_context', 'long-context-v1', NULL, 1, 'q8_0', 512,
+                 128, 'auto', 'balanced', 'standard', 'KEEP_LOADED', NULL,
+                 'ESTIMATED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                ('builtin-shared', 'builtin', 'Shared',
+                 'shared', 'shared-v1', NULL, 2, 'q4_0', 512,
+                 128, 'auto', 'balanced', 'standard', 'KEEP_LOADED', NULL,
+                 'ESTIMATED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                ('builtin-cool', 'builtin', 'Cool',
+                 'cool', 'cool-v1', NULL, 1, 'q8_0', 512,
+                 128, 'auto', 'cool-quiet', 'cool', 'STOP_AFTER', 30,
+                 'ESTIMATED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                ('builtin-throughput', 'builtin', 'Throughput',
+                 'throughput', 'throughput-v1', NULL, 1, 'q8_0', 1024,
+                 256, 'auto', 'balanced', 'throughput-guarded', 'KEEP_LOADED', NULL,
+                 'ESTIMATED', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                 strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             """,
         ),
     ),

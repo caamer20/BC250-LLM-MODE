@@ -36,6 +36,10 @@ def test_v8_database_upgrades_to_v9_preserving_artifacts_and_lineage(tmp_path):
             operation_type TEXT NOT NULL, state TEXT NOT NULL,
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             dismissed_at TEXT);
+        CREATE TABLE runtime_config (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL);
         INSERT INTO operations (id, operation_type, state, created_at,
             updated_at) VALUES ('op-old', 'MODEL_ACTIVATE', 'SUCCEEDED',
             't0', 't1');

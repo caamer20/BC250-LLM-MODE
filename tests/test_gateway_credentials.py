@@ -161,6 +161,16 @@ def test_v7_database_upgrades_to_v8_preserving_rows(tmp_path):
             created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
             operation_id TEXT, spec_json TEXT NOT NULL DEFAULT '{}',
             result_json TEXT, dismissed_at TEXT);
+        CREATE TABLE runtime_config (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL);
+        CREATE TABLE known_good_runtime (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            runtime_json TEXT NOT NULL DEFAULT '{}',
+            runtime_fingerprint TEXT, runtime_component_identity TEXT,
+            verified_at TEXT NOT NULL);
         INSERT INTO operations (id, state, revision, created_at, updated_at)
             VALUES ('op-old', 'SUCCEEDED', 3, 't', 't');
         """

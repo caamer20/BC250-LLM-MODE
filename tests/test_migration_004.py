@@ -52,6 +52,16 @@ def test_v3_to_v4_backfill_is_deterministic_and_file_free(tmp_path):
         """
         CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL,
             updated_at TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE runtime_config (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL);
+        CREATE TABLE known_good_runtime (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            runtime_json TEXT NOT NULL DEFAULT '{}',
+            runtime_fingerprint TEXT, runtime_component_identity TEXT,
+            verified_at TEXT NOT NULL);
         CREATE TABLE model_installations (
             id INTEGER PRIMARY KEY, alias TEXT NOT NULL UNIQUE,
             path TEXT NOT NULL, quant TEXT, display_name TEXT,

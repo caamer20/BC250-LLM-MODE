@@ -85,10 +85,20 @@ def test_v9_database_upgrades_to_v10_preserving_rows(tmp_path):
         INSERT INTO model_library_meta (alias, pinned, updated_at)
             VALUES ('tiny', 1, 't0');
         CREATE TABLE gateway_credentials (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            fingerprint TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL, rotated_at TEXT, revoked_at TEXT,
-            revision INTEGER NOT NULL DEFAULT 1);
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                fingerprint TEXT NOT NULL, scopes TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL, rotated_at TEXT, revoked_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1);
+        CREATE TABLE runtime_config (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            extra_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL);
+        CREATE TABLE known_good_runtime (id INTEGER PRIMARY KEY CHECK (id = 1),
+            model_alias TEXT, context INTEGER NOT NULL,
+            slots INTEGER NOT NULL DEFAULT 1, profile_id TEXT,
+            runtime_json TEXT NOT NULL DEFAULT '{}',
+            runtime_fingerprint TEXT, runtime_component_identity TEXT,
+            verified_at TEXT NOT NULL);
         PRAGMA user_version = 9;
         """
     )

@@ -36,6 +36,13 @@ def _v10(path, *, fingerprint=FP1, revoked=False):
         + "CREATE TABLE gateway_credentials (id INTEGER PRIMARY KEY, fingerprint TEXT NOT NULL, "
           "scopes TEXT NOT NULL, created_at TEXT NOT NULL, rotated_at TEXT, revoked_at TEXT, "
           "revision INTEGER NOT NULL);"
+          "CREATE TABLE runtime_config (id INTEGER PRIMARY KEY, model_alias TEXT, "
+          "context INTEGER NOT NULL, slots INTEGER NOT NULL, profile_id TEXT, "
+          "extra_json TEXT NOT NULL DEFAULT '{}', updated_at TEXT NOT NULL);"
+          "CREATE TABLE known_good_runtime (id INTEGER PRIMARY KEY, model_alias TEXT, "
+          "context INTEGER NOT NULL, slots INTEGER NOT NULL, profile_id TEXT, "
+          "runtime_json TEXT NOT NULL DEFAULT '{}', runtime_fingerprint TEXT, "
+          "runtime_component_identity TEXT, verified_at TEXT NOT NULL);"
           "CREATE TABLE preserved_marker (value TEXT);"
           "INSERT INTO preserved_marker VALUES ('keep-me');"
     )
@@ -52,7 +59,10 @@ def test_migration_011_preserves_v10_and_imports_legacy_singleton(tmp_path):
     _v10(path)
     conn = open_database(path, mode="migration")
     try:
-        assert initialize(conn) == 11 == SCHEMA_VERSION
+        assert initialize(conn) == SCHEMA_VERSION
+        assert 11 in {
+            row["version"] for row in conn.execute("SELECT version FROM schema_migrations")
+        }
         assert conn.execute("SELECT value FROM preserved_marker").fetchone()["value"] == "keep-me"
         row = conn.execute("SELECT * FROM connection_clients").fetchone()
         assert row["client_id"] == "legacy-install"
@@ -91,10 +101,12 @@ def test_migration_011_is_atomic_on_mid_migration_death(tmp_path, monkeypatch):
 
     path = tmp_path / "atomic.db"
     _v10(path)
-    broken = (11, "multi-client-credentials", db.MIGRATIONS[-1][2][:-1] + (
+    migration_011 = next(item for item in db.MIGRATIONS if item[0] == 11)
+    broken = (11, "multi-client-credentials", migration_011[2][:-1] + (
         "INSERT INTO absent_table VALUES (1)",
     ))
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:-1] + (broken,))
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:10] + (broken,))
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 11)
     conn = open_database(path, mode="migration")
     try:
         with pytest.raises(sqlite3.OperationalError):
