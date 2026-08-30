@@ -527,6 +527,151 @@ class ObservationRepository:
         }
 
 
+class MaintenanceSnapshotRepository:
+    """Bounded read model for the maintenance inbox (EXP-4).
+
+    The repository deliberately returns only counts, stable identities, and
+    timestamps needed to prioritize maintenance.  It never returns operation
+    requests/details, model paths, client labels/fingerprints, or secret
+    metadata.  Expensive verification (model hashing, doctor checks, network
+    probes) is represented only by already-persisted observations.
+    """
+
+    _OBSERVATION_KEYS = (
+        "last_doctor_report",
+        "last_inference_probe",
+        "last_optional_services_probe",
+        "last_storage_check",
+        "last_topology_probe",
+        "last_update_check",
+        "last_thermal_sample",
+    )
+
+    def __init__(self, conn) -> None:
+        self.conn = conn
+
+    def read(self) -> dict:
+        settings_rows = self.conn.execute(
+            "SELECT key, value_json, updated_at FROM settings WHERE key IN ("
+            "'backup_last_completed_at', 'current_model', 'funnel_enabled', "
+            "'tailscale_serving', 'https_sharing_enabled', "
+            "'verified_application_update', 'host_capability_summary', "
+            "'host_capability_observed_at')"
+        ).fetchall()
+        settings = {
+            row["key"]: {
+                "value": json.loads(row["value_json"]),
+                "updated_at": row["updated_at"],
+            }
+            for row in settings_rows
+        }
+
+        thermal = self.conn.execute(
+            "SELECT latch_state, updated_at FROM thermal_state WHERE id = 1"
+        ).fetchone()
+        runtime = self.conn.execute(
+            "SELECT model_alias, context, slots, profile_id, profile_revision, "
+            "profile_fingerprint, updated_at FROM runtime_config WHERE id = 1"
+        ).fetchone()
+        known_good = self.conn.execute(
+            "SELECT model_alias, context, slots, profile_id, profile_revision, "
+            "profile_fingerprint, runtime_fingerprint, "
+            "runtime_component_identity, verified_at "
+            "FROM known_good_runtime WHERE id = 1"
+        ).fetchone()
+        component = self.conn.execute(
+            "SELECT promoted_build_id, generation, updated_at "
+            "FROM runtime_component_state WHERE component = 'llamacpp'"
+        ).fetchone()
+
+        current_alias = (
+            runtime["model_alias"] if runtime and runtime["model_alias"]
+            else (settings.get("current_model") or {}).get("value")
+        )
+        model = None
+        if isinstance(current_alias, str) and current_alias:
+            model = self.conn.execute(
+                "SELECT i.alias, i.validation_status, a.storage_state, "
+                "a.trust_state, a.content_digest, a.validated_at "
+                "FROM model_installations AS i "
+                "LEFT JOIN model_artifacts AS a ON a.id = i.artifact_id "
+                "WHERE i.alias = ?",
+                (current_alias,),
+            ).fetchone()
+        artifact_counts = self.conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(CASE WHEN storage_state = 'QUARANTINED' OR "
+            "trust_state = 'QUARANTINED' THEN 1 ELSE 0 END), 0) AS quarantined, "
+            "COALESCE(SUM(CASE WHEN storage_state = 'MANAGED' AND NOT EXISTS "
+            "(SELECT 1 FROM model_installations i WHERE i.artifact_id = "
+            "model_artifacts.id) THEN byte_size ELSE 0 END), 0) AS reclaimable "
+            "FROM model_artifacts"
+        ).fetchone()
+
+        active_ops = self.conn.execute(
+            "SELECT state, COUNT(*) AS n, MIN(updated_at) AS oldest_at "
+            "FROM operations WHERE finished_at IS NULL "
+            "GROUP BY state ORDER BY state LIMIT 16"
+        ).fetchall()
+        recent_failures = self.conn.execute(
+            "SELECT id, operation_type, state, error_code, updated_at, finished_at "
+            "FROM operations WHERE state IN "
+            "('FAILED_SAFE', 'FAILED_ROLLED_BACK', 'RECOVERY_REQUIRED') "
+            "ORDER BY updated_at DESC, id DESC LIMIT 20"
+        ).fetchall()
+        failed_restore = self.conn.execute(
+            "SELECT restore_id, publish_state, post_verify_state, rollback_state, "
+            "updated_at FROM restore_attempts WHERE rollback_state = 'failed' OR "
+            "publish_state = 'recovery_required' ORDER BY updated_at DESC LIMIT 1"
+        ).fetchone()
+
+        backup = self.conn.execute(
+            "SELECT backup_id, verification_state, created_at, verified_at "
+            "FROM backup_sets ORDER BY created_at DESC, backup_id DESC LIMIT 1"
+        ).fetchone()
+        credential_counts = self.conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(CASE WHEN revoked_at IS NULL THEN 1 ELSE 0 END), 0) "
+            "AS active FROM connection_clients"
+        ).fetchone()
+        access = self.conn.execute(
+            "SELECT enabled, disabled_at FROM connection_access_state WHERE id = 1"
+        ).fetchone()
+
+        placeholders = ",".join("?" for _ in self._OBSERVATION_KEYS)
+        observations = self.conn.execute(
+            "SELECT key, payload_json, observed_at, stale FROM "
+            f"runtime_observations WHERE key IN ({placeholders}) "
+            "ORDER BY key LIMIT 16",
+            self._OBSERVATION_KEYS,
+        ).fetchall()
+        observation_map = {
+            row["key"]: {
+                "value": json.loads(row["payload_json"]),
+                "observed_at": row["observed_at"],
+                "stale": bool(row["stale"]),
+            }
+            for row in observations
+        }
+        return {
+            "settings": settings,
+            "thermal": dict(thermal) if thermal else None,
+            "runtime": dict(runtime) if runtime else None,
+            "known_good": dict(known_good) if known_good else None,
+            "component": dict(component) if component else None,
+            "current_alias": current_alias,
+            "model": dict(model) if model else None,
+            "artifacts": dict(artifact_counts) if artifact_counts else {},
+            "active_operations": [dict(row) for row in active_ops],
+            "recent_failures": [dict(row) for row in recent_failures],
+            "failed_restore": dict(failed_restore) if failed_restore else None,
+            "backup": dict(backup) if backup else None,
+            "credentials": dict(credential_counts) if credential_counts else {},
+            "access": dict(access) if access else None,
+            "observations": observation_map,
+        }
+
+
 class KnownGoodRuntimeRepository:
     """Single-row last verified-working runtime configuration (migration 002)."""
 

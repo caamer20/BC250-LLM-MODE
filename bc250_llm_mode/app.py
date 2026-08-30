@@ -72,6 +72,7 @@ class Application:
     model_remove: Any = None
     model_convert: Any = None
     maintenance: Any = None
+    maintenance_snapshot: Any = None
     operation_query: Any = None
     operation_commands: Any = None
     gateway: Any = None
@@ -284,6 +285,13 @@ class Application:
 
         application.storage_capacity = StorageCapacityService(
             units, application.paths
+        )
+        from .maintenance_center import MaintenanceCenterQueryService
+
+        application.maintenance_snapshot = MaintenanceCenterQueryService(
+            units,
+            application.paths.models_dir,
+            platform=application.platform,
         )
         from .desktop_integration import DesktopIntegrationService
 
