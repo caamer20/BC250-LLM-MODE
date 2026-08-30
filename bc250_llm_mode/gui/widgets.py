@@ -138,12 +138,15 @@ class BottomDrawer(ttk.Frame):
         ttk.Label(self._content, text=confirmation.title, style="DrawerTitle.TLabel").pack(anchor="w")
         ttk.Label(self._content, text=confirmation.consequence, wraplength=760).pack(anchor="w")
         ttk.Label(self._content, text=f"Recovery: {confirmation.recovery}", wraplength=760).pack(anchor="w")
+        typed_entry = None
         if confirmation.typed_phrase:
             ttk.Label(self._content, text=f'Type "{confirmation.typed_phrase}" to continue:').pack(anchor="w")
-            ttk.Entry(self._content, textvariable=self._typed).pack(fill="x")
+            typed_entry = ttk.Entry(self._content, textvariable=self._typed)
+            typed_entry.pack(fill="x")
         row = ttk.Frame(self._content)
         row.pack(fill="x", pady=(6, 0))
-        ttk.Button(row, text="Cancel", command=self.clear).pack(side="right")
+        cancel_button = ttk.Button(row, text="Cancel", command=self.clear)
+        cancel_button.pack(side="right")
 
         def confirm() -> None:
             if confirmation.typed_phrase and self._typed.get() != confirmation.typed_phrase:
@@ -151,8 +154,18 @@ class BottomDrawer(ttk.Frame):
             self.clear()
             on_confirm()
 
-        ttk.Button(row, text=confirmation.confirm_label, command=confirm).pack(side="right", padx=6)
+        confirm_button = ttk.Button(
+            row, text=confirmation.confirm_label, command=confirm
+        )
+        confirm_button.pack(side="right", padx=6)
         self.pack(fill="x")
+        if typed_entry is not None:
+            typed_entry.bind("<Return>", lambda _event: confirm())
+            typed_entry.focus_set()
+        else:
+            # A confirmation is never the implicit default. Keyboard users
+            # begin on the safe Cancel choice and may tab to the action.
+            cancel_button.focus_set()
 
     def show_log(self, title: str, lines: list[str]) -> None:
         self.clear()
@@ -189,6 +202,7 @@ class BottomDrawer(ttk.Frame):
         render()
         ttk.Button(self._content, text="Close", command=self.clear).pack(anchor="e", pady=(5, 0))
         self.pack(fill="both")
+        search.focus_set()
 
     def show_details(self, title: str, detail: str) -> None:
         """Show one bounded read-only technical record in the shared drawer."""

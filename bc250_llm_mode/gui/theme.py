@@ -20,8 +20,8 @@ class ThemeTokens:
 
 LIGHT = ThemeTokens(
     background="#f4f6f8", surface="#ffffff", foreground="#17212b",
-    muted="#5b6670", accent="#3a68d8", good="#157347", warning="#9a6700",
-    danger="#b42318", focus="#1f6feb",
+    muted="#5b6670", accent="#3a68d8", good="#157347", warning="#8a5b00",
+    danger="#b42318", focus="#1756a9",
 )
 
 DARK = ThemeTokens(
@@ -31,6 +31,33 @@ DARK = ThemeTokens(
 )
 
 THEMES = {"light": LIGHT, "dark": DARK, "system": LIGHT}
+
+
+def contrast_ratio(first: str, second: str) -> float:
+    """Return the WCAG relative-luminance contrast ratio for two hex colors."""
+    import re
+
+    def luminance(value: str) -> float:
+        if not isinstance(value, str) or not re.fullmatch(
+            r"#[0-9a-fA-F]{6}", value
+        ):
+            raise ValueError("contrast colors must use #RRGGBB")
+        channels = []
+        for offset in (1, 3, 5):
+            component = int(value[offset:offset + 2], 16) / 255
+            channels.append(
+                component / 12.92
+                if component <= 0.04045
+                else ((component + 0.055) / 1.055) ** 2.4
+            )
+        return (
+            0.2126 * channels[0]
+            + 0.7152 * channels[1]
+            + 0.0722 * channels[2]
+        )
+
+    high, low = sorted((luminance(first), luminance(second)), reverse=True)
+    return (high + 0.05) / (low + 0.05)
 
 
 def tokens(name: str) -> ThemeTokens:
@@ -69,3 +96,13 @@ def apply_theme(root, name: str, *, scale_percent: int = 100) -> ThemeTokens:
     except Exception:
         pass
     return palette
+
+
+for _theme in (LIGHT, DARK):
+    for _field in (
+        "foreground", "muted", "accent", "good", "warning", "danger", "focus",
+    ):
+        if contrast_ratio(getattr(_theme, _field), _theme.background) < 4.5:
+            raise RuntimeError(
+                f"theme {_field} does not meet the text contrast floor"
+            )

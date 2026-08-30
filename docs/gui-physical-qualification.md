@@ -35,9 +35,14 @@ status, and 12 GiB GPU / 4 GiB host UMA split.
 
 - Capture first-paint latency, idle RSS/CPU, active-chat RSS/CPU, and RSS after
   100 route changes. Record the measurement commands and raw attachment paths.
-- Verify 760×560 and a typical 1080p window, 100% and 200% scale, keyboard-only
-  navigation (`Ctrl+1`…`Ctrl+7`, `Ctrl+K`, `Ctrl+L`, `Esc`), visible focus,
-  light/dark/system appearance, and reduced motion.
+- Verify 760×560 and a typical 1080p window at 100%, 125%, 150%, 175%, and
+  200% scale. Complete keyboard-only navigation (`Ctrl+1`…`Ctrl+9`, `Ctrl+K`,
+  `Ctrl+F`, `Ctrl+L`, `Esc`), check visible focus and safe Enter semantics,
+  and review light/dark/system appearance plus reduced motion.
+- With the available Linux screen reader, traverse every table and its
+  adjacent text/Details alternative. Record the desktop, Tk, theme, and screen
+  reader versions; inconsistent table announcements remain a failure or
+  evidence-pending result, never an inferred pass.
 - Confirm minimized refresh backoff, one refresh timer, at most three lazy GUI
   worker threads, bounded model/activity/chat/log rendering, safe close during
   streaming chat, and safe close while a durable operation is active.

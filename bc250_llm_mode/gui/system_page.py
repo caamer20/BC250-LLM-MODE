@@ -76,7 +76,7 @@ def system_card_views(
     sharing_on = str(sharing.get("status") or "").lower() not in {"", "off", "disabled"}
     return (
         ServiceCardView(
-            "server", "Model server", "Running" if server_active else "Stopped",
+            "server", "Model server", "Service active" if server_active else "Stopped",
             "Single-owner llama.cpp service; model auto-start remains off for reboot.",
             "stop-server" if server_active else "start-server",
             "Stop" if server_active else "Start current model",

@@ -9,7 +9,7 @@ from typing import Any
 import tkinter as tk
 from tkinter import ttk
 
-from ..presentation import format_bytes
+from ..presentation import format_bytes, format_timestamp
 from ..storage_cleanup_adapter import MAX_DISCOVERY_ENTRIES
 from ..undo import MAX_UNDO_CANDIDATES
 from .view_state import Confirmation, Notice
@@ -136,6 +136,15 @@ class RepairPage(ttk.Frame):
             self._cleanup_tree.heading(column, text=title)
             self._cleanup_tree.column(column, width=width)
         self._cleanup_tree.pack(fill="both", expand=True)
+        self._cleanup_accessible = tk.StringVar(
+            value="No cleanup targets are selected."
+        )
+        ttk.Label(
+            tab, textvariable=self._cleanup_accessible, wraplength=800,
+        ).pack(anchor="w", fill="x", pady=(4, 0))
+        self._cleanup_tree.bind(
+            "<<TreeviewSelect>>", lambda _event: self._cleanup_selected()
+        )
 
     def _build_undo_tab(self) -> None:
         tab = ttk.Frame(self._tabs, padding=8)
@@ -159,6 +168,13 @@ class RepairPage(ttk.Frame):
         self._undo_tree.column("deadline", width=170)
         self._undo_tree.column("source", width=220)
         self._undo_tree.pack(fill="both", expand=True)
+        self._undo_accessible = tk.StringVar(value="No Undo is selected.")
+        ttk.Label(
+            tab, textvariable=self._undo_accessible, wraplength=800,
+        ).pack(anchor="w", fill="x", pady=(4, 0))
+        self._undo_tree.bind(
+            "<<TreeviewSelect>>", lambda _event: self._undo_selected()
+        )
         buttons = ttk.Frame(tab)
         buttons.pack(fill="x", pady=(6, 0))
         ttk.Button(
@@ -233,9 +249,38 @@ class RepairPage(ttk.Frame):
             self._undo_rows[undo_id] = item
             self._undo_tree.insert(
                 "", "end", iid=undo_id, text=str(item["title"]),
-                values=(item["deadline"], item["source_operation_id"]),
+                values=(
+                    format_timestamp(item["deadline"]),
+                    item["source_operation_id"],
+                ),
             )
+        if self._undo_rows:
+            self._undo_tree.selection_set(next(iter(self._undo_rows)))
+        self._undo_selected()
         self._loaded = True
+
+    def _cleanup_selected(self) -> None:
+        selected = tuple(str(item) for item in self._cleanup_tree.selection())
+        if not selected:
+            self._cleanup_accessible.set("No cleanup targets are selected.")
+            return
+        first = selected[0]
+        suffix = "" if len(selected) == 1 else f" and {len(selected) - 1} more"
+        self._cleanup_accessible.set(
+            f"Selected cleanup target: {first}{suffix}. Review the exact dry run before applying."
+        )
+
+    def _undo_selected(self) -> None:
+        selected = self._undo_tree.selection()
+        item = self._undo_rows.get(str(selected[0])) if selected else None
+        if item is None:
+            self._undo_accessible.set("No Undo is selected.")
+            return
+        self._undo_accessible.set(
+            f"Selected Undo: {item['title']} · available until "
+            f"{format_timestamp(item['deadline'])} · source operation "
+            f"{item['source_operation_id']}."
+        )
 
     def _repair_selected(self) -> None:
         selected = self._repair_tree.selection()
@@ -358,6 +403,7 @@ class RepairPage(ttk.Frame):
             f"{format_bytes(preview.reclaimable_bytes)} estimated · "
             f"expires {preview.expires_at}"
         )
+        self._cleanup_selected()
         self._apply_cleanup_button.configure(
             state="normal" if preview.ready else "disabled"
         )

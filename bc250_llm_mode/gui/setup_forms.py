@@ -14,6 +14,7 @@ from ..local_models import (
     fit_entry_for_local,
     selected_fit_entry,
 )
+from ..message_catalog import safe_exception_message
 from ..optimization_service import (
     DEFAULT_OPTIMIZATIONS,
     TRIMMABLE_SERVICES,
@@ -132,11 +133,16 @@ class SetupForms:
         ttk.Button(scan_row, text="Add folder…", command=self._add_model_folder).pack(side="right", padx=5)
         controls = ttk.Frame(self.content)
         controls.pack(fill="x", pady=10)
+        self.model_selection_summary = tk.StringVar(value="Selected model: checking")
+        ttk.Label(
+            controls, textvariable=self.model_selection_summary,
+            wraplength=760,
+        ).pack(anchor="w", fill="x", pady=(0, 5))
         ttk.Label(controls, text="Quant:").pack(side="left")
         self.quant_var = tk.StringVar()
         self.quant_box = ttk.Combobox(controls, textvariable=self.quant_var, state="readonly", width=12)
         self.quant_box.pack(side="left", padx=(5, 15))
-        ttk.Label(controls, text="Context:").pack(side="left")
+        ttk.Label(controls, text="Context per user:").pack(side="left")
         self.ctx_var = tk.IntVar(value=int(self.state_data.get("current_ctx", 8192)))
         ttk.Spinbox(controls, from_=512, to=262144, increment=512, textvariable=self.ctx_var, width=10, command=self._fit).pack(side="left", padx=5)
         self.fit_label = ttk.Label(controls)
@@ -194,6 +200,10 @@ class SetupForms:
         if not selection:
             return
         source, selected = self.model_choices[selection[0]]
+        self.model_selection_summary.set(
+            f"Selected model: {selected.display_name} · "
+            f"{'installed locally' if source == 'local' else 'available to download'}."
+        )
         model = fit_entry_for_local(selected) if source == "local" else selected
         values = [selected.quant] if source == "local" else list(model.allow_globs)
         self.quant_box.configure(values=values)
@@ -219,7 +229,8 @@ class SetupForms:
             self.continue_button.configure(state="normal" if can_continue else "disabled")
         except ValueError as exc:
             if hasattr(self, "fit_label"):
-                self.fit_label.configure(text=str(exc))
+                message = safe_exception_message(exc, code="SETTINGS_INVALID")
+                self.fit_label.configure(text=f"{message.title}. {message.body}")
                 self.continue_button.configure(state="disabled")
         except (KeyError, IndexError, tk.TclError):
             if hasattr(self, "fit_label"):
@@ -278,7 +289,9 @@ class SetupForms:
         self.opt_parallel = tk.IntVar(value=int(settings["parallel_slots"]))
         self._labeled_spin(runtime_row, "Batch", self.opt_batch, 128, 2048, 64)
         self._labeled_spin(runtime_row, "Micro-batch", self.opt_ubatch, 64, 512, 64)
-        self._labeled_spin(runtime_row, "User slots", self.opt_parallel, 1, 8, 1)
+        self._labeled_spin(
+            runtime_row, "Concurrent user slots", self.opt_parallel, 1, 8, 1
+        )
         self.opt_memory_note = ttk.Label(runtime)
         self.opt_memory_note.pack(anchor="w")
         self.opt_kv.trace_add("write", lambda *_: self._update_optimization_fit())

@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import tkinter as tk
 from tkinter import ttk
 
+from ..presentation import format_number, format_tokens
 from .view_state import Confirmation, Notice
 
 
@@ -109,7 +110,7 @@ class ProfilesPage(ttk.Frame):
         for label, variable, widget, options in (
             ("Name", self._name, "entry", ()),
             ("Context per user", self._context, "spin", (512, 262144, 512)),
-            ("Users", self._slots, "spin", (1, 8, 1)),
+            ("Concurrent user slots", self._slots, "spin", (1, 8, 1)),
             ("KV cache", self._kv, "choice", ("q8_0", "q4_0")),
             ("Batch", self._batch, "spin", (128, 2048, 128)),
             ("Micro-batch", self._ubatch, "spin", (64, 512, 64)),
@@ -117,7 +118,7 @@ class ProfilesPage(ttk.Frame):
             ("Tuning goal", self._preset, "choice", ("custom", "cool-quiet", "balanced", "maximum")),
             ("Thermal policy", self._thermal, "choice", ("standard", "cool", "throughput-guarded")),
             ("Idle behavior", self._idle, "choice", ("KEEP_LOADED", "STOP_AFTER", "STOP_ON_DESKTOP")),
-            ("Stop after min", self._stop_after, "spin", (5, 240, 5)),
+            ("Stop after minutes", self._stop_after, "spin", (5, 240, 5)),
         ):
             line = ttk.Frame(custom)
             line.pack(fill="x", pady=2)
@@ -224,12 +225,13 @@ class ProfilesPage(ttk.Frame):
             item = view.preview
             self._headline.set(str(item["profile"]["name"]))
             self._detail.set(
-                f"{item['model_alias']} · {item['context_per_slot']:,} context × "
-                f"{item['slots']} user slot(s)"
+                f"{item['model_alias']} · {format_tokens(item['context_per_slot'])} "
+                f"per user × {format_number(item['slots'])} concurrent slot(s)"
             )
             self._fit.set(
-                f"{item['fit_verdict']} · {item['required_gib']:.2f} of 12 GiB · "
-                f"{item['headroom_gib']:.2f} GiB headroom"
+                f"{item['fit_verdict']} · "
+                f"{format_number(item['required_gib'], decimals=2)} of 12 GiB · "
+                f"{format_number(item['headroom_gib'], decimals=2)} GiB headroom"
             )
             self._evidence.set(
                 f"{item['evidence_class']} · thermal {item['thermal_readiness']} · "
@@ -344,8 +346,10 @@ class ProfilesPage(ttk.Frame):
         def show(previews) -> None:
             lines = [
                 f"{item['profile']['name']}: {item['fit_verdict']} · "
-                f"{item['context_per_slot']:,} × {item['slots']} · "
-                f"{item['required_gib']:.2f} GiB · {item['evidence_class']}"
+                f"{format_tokens(item['context_per_slot'])} × "
+                f"{format_number(item['slots'])} · "
+                f"{format_number(item['required_gib'], decimals=2)} GiB · "
+                f"{item['evidence_class']}"
                 for item in previews
             ]
             self.shell.drawer.show_details("Profile comparison", "\n".join(lines))

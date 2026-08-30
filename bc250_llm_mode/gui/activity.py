@@ -26,6 +26,7 @@ from tkinter import ttk
 
 from ..operations.model import TERMINAL_STATES, OperationState
 from ..operations.views import OperationDetail, OperationSummary
+from ..presentation import format_timestamp
 from .view_state import Confirmation
 
 # -- pure presentation contract ----------------------------------------------------
@@ -328,7 +329,10 @@ class ActivityCenterFrame(ttk.Frame):
         for item in ordered:
             self.operation_tree.insert(
                 "", "end", iid=item.operation_id,
-                values=(headline(item), item.kind, progress_text(item), item.updated_at),
+                values=(
+                    headline(item), item.kind, progress_text(item),
+                    format_timestamp(item.updated_at),
+                ),
             )
             if item.operation_id == self._selected_id:
                 self.operation_tree.selection_set(item.operation_id)

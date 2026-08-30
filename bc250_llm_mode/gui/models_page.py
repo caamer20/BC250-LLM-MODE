@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from ..catalog import CATALOG, calculate_fit, validation_tier
+from ..presentation import format_number
 from .routes import Route
 from .view_state import Confirmation, Notice
 
@@ -243,9 +244,9 @@ class ModelsPage(ttk.Frame):
         ttk.Label(draft, text="Quant").grid(row=0, column=0, sticky="w")
         self.quant_box = ttk.Combobox(draft, state="readonly", textvariable=self.quant_var, width=12)
         self.quant_box.grid(row=0, column=1, sticky="w", padx=4)
-        ttk.Label(draft, text="Context / user").grid(row=1, column=0, sticky="w")
+        ttk.Label(draft, text="Context per user").grid(row=1, column=0, sticky="w")
         ttk.Spinbox(draft, from_=512, to=262144, increment=512, textvariable=self.context_var, width=12).grid(row=1, column=1, sticky="w", padx=4)
-        ttk.Label(draft, text="User slots").grid(row=2, column=0, sticky="w")
+        ttk.Label(draft, text="Concurrent user slots").grid(row=2, column=0, sticky="w")
         ttk.Spinbox(draft, from_=1, to=8, increment=1, textvariable=self.slots_var, width=12).grid(row=2, column=1, sticky="w", padx=4)
         ttk.Button(draft, text="Recalculate fit", command=self.refresh).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
         self.action_bar = ttk.Frame(right)
@@ -321,7 +322,10 @@ class ModelsPage(ttk.Frame):
         self._visible = {item.key: item for item in visible}
         self.tree.delete(*self.tree.get_children())
         for item in visible:
-            size = f"{item.size_gib:.1f} GiB" if item.size_gib is not None else "—"
+            size = (
+                f"{format_number(item.size_gib, decimals=1)} GiB"
+                if item.size_gib is not None else "—"
+            )
             self.tree.insert(
                 "", "end", iid=item.key, text=item.display_name,
                 values=(item.state, item.family, size, item.fit_verdict or "Unknown"),

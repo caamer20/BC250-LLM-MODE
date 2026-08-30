@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..connection_setup import CLIENT_CARDS, instructions_for
+from ..presentation import format_timestamp
 from .view_state import Confirmation, Notice
 
 
@@ -135,6 +136,13 @@ class ConnectionsPage(ttk.Frame):
         self._tree.column("state", width=75)
         self._tree.column("used", width=140)
         self._tree.pack(fill="both", expand=True)
+        self._tree.bind(
+            "<<TreeviewSelect>>", lambda _event: self._client_selected()
+        )
+        self._client_detail = tk.StringVar(value="Select a client for details.")
+        ttk.Label(
+            clients_box, textvariable=self._client_detail, wraplength=520,
+        ).pack(anchor="w", fill="x", pady=(4, 0))
         actions = ttk.Frame(clients_box)
         actions.pack(fill="x", pady=(5, 0))
         ttk.Button(actions, text="Rotate selected", command=self._rotate).pack(side="left")
@@ -253,11 +261,33 @@ class ConnectionsPage(ttk.Frame):
         for item in self._tree.get_children():
             self._tree.delete(item)
         for row in view.clients:
-            used = row.get("last_used_at") or "Never"
+            used = (
+                format_timestamp(str(row["last_used_at"]))
+                if row.get("last_used_at") else "Never"
+            )
             self._tree.insert(
                 "", "end", iid=row["client_id"], text=row["label"],
                 values=(row["client_kind"],
                         "Revoked" if row["revoked"] else "Active", used))
+        if view.clients:
+            self._tree.selection_set(view.clients[0]["client_id"])
+        self._client_selected()
+
+    def _client_selected(self) -> None:
+        selected = self._selected()
+        if selected is None:
+            self._client_detail.set("Select a client for details.")
+            return
+        last_use = (
+            format_timestamp(str(selected["last_used_at"]))
+            if selected.get("last_used_at") else "never"
+        )
+        state = "revoked" if selected["revoked"] else "active"
+        endpoint = selected.get("last_endpoint_class") or "no endpoint recorded"
+        self._client_detail.set(
+            f"{selected['label']}: {selected['client_kind']} · {state} · "
+            f"last used {last_use} · {endpoint}."
+        )
 
     def _selected(self) -> dict[str, Any] | None:
         selection = self._tree.selection()

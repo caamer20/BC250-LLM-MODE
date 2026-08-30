@@ -84,6 +84,34 @@ class HelpPage(ttk.Frame):
         self.glossary_terms.bind("<<ListboxSelect>>", self._select_glossary)
         self._render_glossary()
 
+        accessibility = ttk.LabelFrame(
+            self, text="Keyboard and accessibility", padding=7
+        )
+        accessibility.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            accessibility,
+            text=(
+                "Ctrl+1 through Ctrl+9 opens primary pages. Ctrl+K opens the "
+                "local command palette, Ctrl+F focuses the current page's "
+                "primary control, Ctrl+L opens bounded logs, and Escape closes "
+                "the in-window drawer. Settings offers 100–200% interface "
+                "scaling and reduced motion. Status is always written as text, "
+                "not conveyed by color alone."
+            ),
+            wraplength=720, justify="left",
+        ).pack(anchor="w", fill="x")
+        ttk.Label(
+            accessibility,
+            text=(
+                "Known limitation: Tk table and screen-reader announcements "
+                "vary across desktop environments. Important tables therefore "
+                "repeat the selected row in adjacent text or a Details view. "
+                "Screen-reader parity remains pending physical Bazzite and "
+                "CachyOS qualification."
+            ),
+            wraplength=720, justify="left",
+        ).pack(anchor="w", fill="x", pady=(4, 0))
+
     def _render_glossary(self, *_args) -> None:
         rows = glossary_entries(self.glossary_query.get())
         self._glossary_rows = rows

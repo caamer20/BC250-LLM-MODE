@@ -22,6 +22,7 @@ from ..local_models import (
     selected_fit_entry,
 )
 from ..memory_profile import analyze_memory_profile
+from ..message_catalog import safe_exception_message
 from .app import GuiBase
 from .setup_forms import SetupForms
 from .routes import Route, SETUP_CHAPTERS, setup_chapter_for
@@ -653,8 +654,9 @@ class SetupWindow(GuiBase):
             try:
                 settings = self.setup_forms.collect_optimization_settings()
             except (ValueError, tk.TclError) as exc:
+                message = safe_exception_message(exc, code="SETTINGS_INVALID")
                 self._show_setup_notice(
-                    "error", "Optimization settings are not valid", str(exc),
+                    message.level, message.title, message.body,
                     dismissible=False,
                 )
                 return
