@@ -123,7 +123,7 @@ def _fsync_dir(path: Path) -> None:
         os.close(fd)
 
 
-def _identity_via_nofollow(path: Path) -> str | None:
+def _identity_via_nofollow(path: Path, *, on_chunk=None) -> str | None:
     """Open an existing destination WITHOUT symlink following and prove a
     regular file before hashing; returns its digest or None if absent."""
     flags = os.O_RDONLY
@@ -140,11 +140,15 @@ def _identity_via_nofollow(path: Path) -> str | None:
         if not stat_module.S_ISREG(st.st_mode):
             raise PublicationCollision(path)
         h = hashlib.sha256()
+        total = 0
         while True:
             chunk = os.read(fd, CHUNK_BYTES)
             if not chunk:
                 break
             h.update(chunk)
+            total += len(chunk)
+            if on_chunk is not None:
+                on_chunk(total)
         return f"sha256:{h.hexdigest()}"
     finally:
         os.close(fd)
@@ -154,6 +158,8 @@ def publish_no_replace(
     source: Path,
     artifacts_root: Path,
     content_digest: str,
+    *,
+    on_chunk=None,
 ) -> Path:
     """Atomically move a validated candidate into managed storage.
 
@@ -166,7 +172,7 @@ def publish_no_replace(
     hex_part = content_digest.split(":", 1)[1]
     dest_dir = ensure_private_dir(artifacts_root / hex_part[:2])
     dest = dest_dir / f"{content_digest}.gguf"
-    existing = _identity_via_nofollow(dest)
+    existing = _identity_via_nofollow(dest, on_chunk=on_chunk)
     if existing is not None:
         if existing == content_digest:
             return dest  # exact-existing reuse
@@ -176,22 +182,26 @@ def publish_no_replace(
     try:
         with os.fdopen(fd, "wb") as out:
             with open(source, "rb") as src:
+                copied = 0
                 while True:
                     chunk = src.read(CHUNK_BYTES)
                     if not chunk:
                         break
                     out.write(chunk)
+                    copied += len(chunk)
+                    if on_chunk is not None:
+                        on_chunk(copied)
             out.flush()
             os.fsync(out.fileno())
         os.chmod(tmp, 0o600)
         # Defense in depth: published bytes must equal the claimed digest.
-        actual_digest, _ = streaming_sha256(tmp)
+        actual_digest, _ = streaming_sha256(tmp, on_chunk=on_chunk)
         if actual_digest != content_digest:
             raise PublicationCollision(source)
         try:
             os.link(tmp, dest)  # no-replace publication
         except FileExistsError:
-            existing = _identity_via_nofollow(dest)
+            existing = _identity_via_nofollow(dest, on_chunk=on_chunk)
             if existing == content_digest:
                 return dest
             raise PublicationCollision(dest)
@@ -209,6 +219,8 @@ def quarantine_candidate(
     operation_id: str,
     content_digest: str,
     reason_code: str,
+    *,
+    on_chunk=None,
 ) -> Path:
     """Move an invalid complete candidate into private quarantine.
 
@@ -221,7 +233,7 @@ def quarantine_candidate(
     dest_dir = ensure_private_dir(quarantine_root / operation_id)
     dest = dest_dir / f"{content_digest}.gguf"
     receipt_path = dest_dir / "quarantine.json"
-    existing = _identity_via_nofollow(dest)
+    existing = _identity_via_nofollow(dest, on_chunk=on_chunk)
     if existing is not None:
         receipt = read_receipt(receipt_path) or {}
         if existing == content_digest and receipt.get("reason_code") in (
@@ -246,23 +258,27 @@ def quarantine_candidate(
     try:
         with os.fdopen(tmp_fd, "wb") as out:
             with open(candidate, "rb") as src:
+                copied = 0
                 while True:
                     chunk = src.read(CHUNK_BYTES)
                     if not chunk:
                         break
                     out.write(chunk)
+                    copied += len(chunk)
+                    if on_chunk is not None:
+                        on_chunk(copied)
             out.flush()
             os.fsync(out.fileno())
         # Defense in depth: the staged bytes must equal the claimed digest
         # before any durable quarantine name is created.
-        actual_digest, _ = streaming_sha256(tmp)
+        actual_digest, _ = streaming_sha256(tmp, on_chunk=on_chunk)
         if actual_digest != content_digest:
             raise QuarantineCollision(candidate)
         os.chmod(tmp, 0o600)
         try:
             os.link(tmp, dest)  # no-replace quarantine publication
         except FileExistsError:
-            existing = _identity_via_nofollow(dest)
+            existing = _identity_via_nofollow(dest, on_chunk=on_chunk)
             if existing == content_digest:
                 _write_evidence()
                 return dest

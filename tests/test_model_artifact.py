@@ -8,15 +8,13 @@ state over observed bytes.
 from __future__ import annotations
 
 import struct
-import threading
-from pathlib import Path
 
 import pytest
 
 from bc250_llm_mode.model_artifact import (
     VERDICT_FUSED,
-    VERDICT_NOT_GGUF,
     VERDICT_NO_TENSORS,
+    VERDICT_NOT_GGUF,
     VERDICT_STANDARD,
     VERDICT_UNKNOWN_ARCH,
     gguf_layout_verdict,
@@ -85,6 +83,14 @@ def test_streaming_identity_detects_in_place_rewrite(tmp_path):
     assert first[1] == second[1] or first[2] != second[2]
     # Size and stable identity are part of the evidence triple.
     assert len(first) == 3
+
+
+def test_qwen35_is_a_supported_standard_architecture(tmp_path):
+    """Qwen3.5-family GGUFs (including Ornith) are standard layouts."""
+    path = tmp_path / "qwen35.gguf"
+    path.write_bytes(_gguf(arch=b"qwen35"))
+
+    assert gguf_layout_verdict(path) == VERDICT_STANDARD
 
 
 def test_streaming_identity_is_chunk_bounded(tmp_path):

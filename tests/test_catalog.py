@@ -95,7 +95,8 @@ def test_lfm25_rejects_context_above_trained_limit():
 
 def test_qwen38_uses_exact_standard_ggufs_and_bc250_fit_math():
     model = model_by_id("qwen38-9b")
-    assert model.repo == "empero-ai/Qwen3.8-9B-GGUF"
+    assert model.repo == "empero-ai/Qwen3.8-9B-Distill-GGUF"
+    assert model.source_repo == "empero-ai/Qwen3.8-9B-Distill"
     assert model.allow_globs["Q4_K_M"] == "Qwen3.8-9B-Q4_K_M.gguf"
     assert model.true_block_count == 32
     assert model.max_context_tokens == 262144

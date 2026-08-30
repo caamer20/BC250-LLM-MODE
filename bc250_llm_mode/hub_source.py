@@ -11,9 +11,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 import httpx
 
@@ -23,6 +23,7 @@ MAX_RETRIES = 2
 CHUNK_BYTES = 4 * 1024 * 1024
 CONNECT_TIMEOUT_S = 10.0
 READ_IDLE_TIMEOUT_S = 30.0
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class SourceError(RuntimeError):
@@ -100,15 +101,88 @@ class HubClient:
     def _same_origin(url: str, base: str) -> bool:
         from urllib.parse import urlparse
 
-        return urlparse(url).netloc == urlparse(base).netloc
+        def origin(value: str) -> tuple[str, str | None, int | None]:
+            parsed = urlparse(value)
+            default_port = 443 if parsed.scheme.lower() == "https" else None
+            return (
+                parsed.scheme.lower(),
+                parsed.hostname.lower() if parsed.hostname else None,
+                parsed.port or default_port,
+            )
+
+        try:
+            return origin(url) == origin(base)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _redirect_target(current_url: str, location: str) -> str:
+        from urllib.parse import urljoin, urlparse
+
+        if not location:
+            raise SourceError("SOURCE_REDIRECT_REFUSED", "empty redirect")
+        target = urljoin(current_url, location)
+        parsed = urlparse(target)
+        try:
+            _ = parsed.port
+        except ValueError as exc:
+            raise SourceError(
+                "SOURCE_REDIRECT_REFUSED", "unsafe redirect target"
+            ) from exc
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise SourceError("SOURCE_REDIRECT_REFUSED", "unsafe redirect target")
+        return target
+
+    def _advance_redirect(
+        self,
+        *,
+        current_url: str,
+        location: str,
+        trusted: bool,
+        trusted_base: str,
+        redirects: int,
+    ) -> tuple[str, bool, int]:
+        redirects += 1
+        if redirects > MAX_REDIRECTS:
+            raise SourceError("SOURCE_REDIRECT_REFUSED", "too many redirects")
+        target = self._redirect_target(current_url, location)
+        # Once a request crosses an origin boundary, credentials stay stripped
+        # for the remainder of that redirect chain even if it points back.
+        trusted = trusted and self._same_origin(target, trusted_base)
+        return target, trusted, redirects
 
     def resolve_revision(self, repo: str) -> str:
         """Pin the repository's current default revision to an immutable SHA."""
         url = f"{self.api_base}/models/{repo}"
         with self._client() as client:
             for attempt in range(MAX_RETRIES + 1):
+                target = url
+                trusted = True
+                redirects = 0
                 try:
-                    response = client.get(url, headers=self._auth_headers(True))
+                    while True:
+                        response = client.get(
+                            target,
+                            headers=self._auth_headers(trusted),
+                        )
+                        if response.status_code not in REDIRECT_STATUSES:
+                            break
+                        target, trusted, redirects = self._advance_redirect(
+                            current_url=target,
+                            location=response.headers.get("Location", ""),
+                            trusted=trusted,
+                            trusted_base=self.api_base,
+                            redirects=redirects,
+                        )
+                except httpx.InvalidURL as exc:
+                    raise SourceError(
+                        "SOURCE_REDIRECT_REFUSED", "unsafe redirect target"
+                    ) from exc
                 except httpx.HTTPError:
                     if attempt >= MAX_RETRIES:
                         raise SourceError("SOURCE_TIMEOUT", "metadata unreachable")
@@ -146,18 +220,22 @@ class HubClient:
             trusted = True
             redirects = 0
             while True:
-                response = client.head(target, headers=self._auth_headers(trusted))
-                if response.status_code in (301, 302, 303, 307, 308):
-                    location = response.headers.get("Location", "")
-                    if not location:
-                        raise SourceError("SOURCE_REDIRECT_REFUSED", "empty redirect")
-                    redirects += 1
-                    if redirects > MAX_REDIRECTS:
-                        raise SourceError(
-                            "SOURCE_REDIRECT_REFUSED", "too many redirects"
-                        )
-                    trusted = self._same_origin(location, self.file_base)
-                    target = location
+                try:
+                    response = client.head(
+                        target, headers=self._auth_headers(trusted)
+                    )
+                except httpx.InvalidURL as exc:
+                    raise SourceError(
+                        "SOURCE_REDIRECT_REFUSED", "unsafe redirect target"
+                    ) from exc
+                if response.status_code in REDIRECT_STATUSES:
+                    target, trusted, redirects = self._advance_redirect(
+                        current_url=target,
+                        location=response.headers.get("Location", ""),
+                        trusted=trusted,
+                        trusted_base=self.file_base,
+                        redirects=redirects,
+                    )
                     continue
                 if response.status_code == 401:
                     raise SourceError("SOURCE_AUTH_REQUIRED", "auth required")
@@ -223,44 +301,61 @@ class HubClient:
         written = resume_from
         with self._client() as client:
             for attempt in range(MAX_RETRIES + 1):
-                headers = self._auth_headers(True)
-                if written:
-                    headers["Range"] = f"bytes={written}-"
-                    headers["If-Range"] = blob.validator
+                target = url
+                trusted = True
+                redirects = 0
                 try:
-                    with client.stream("GET", url, headers=headers) as response:
-                        if response.status_code == 200 and written:
-                            written = 0  # server ignored Range: reset partial
-                        elif response.status_code == 416:
-                            if written == blob.expected_size:
+                    while True:
+                        headers = self._auth_headers(trusted)
+                        if written:
+                            headers["Range"] = f"bytes={written}-"
+                            headers["If-Range"] = blob.validator
+                        with client.stream(
+                            "GET", target, headers=headers
+                        ) as response:
+                            if response.status_code in REDIRECT_STATUSES:
+                                target, trusted, redirects = self._advance_redirect(
+                                    current_url=target,
+                                    location=response.headers.get("Location", ""),
+                                    trusted=trusted,
+                                    trusted_base=self.file_base,
+                                    redirects=redirects,
+                                )
+                                continue
+                            if response.status_code == 200 and written:
+                                written = 0  # server ignored Range: reset partial
+                            elif response.status_code == 416:
+                                if written == blob.expected_size:
+                                    break
+                                raise SourceError(
+                                    "SOURCE_RANGE_MISMATCH", "range refused"
+                                )
+                            elif response.status_code not in (200, 206):
+                                raise SourceError(
+                                    "SOURCE_REVISION_UNAVAILABLE",
+                                    f"status {response.status_code}",
+                                )
+                            with open(dest, "ab" if written else "wb") as fh:
+                                for chunk in response.iter_bytes(CHUNK_BYTES):
+                                    fh.write(chunk)
+                                    fh.flush()
+                                    written += len(chunk)
+                                    if pulse is not None:
+                                        pulse(
+                                            phase="transfer",
+                                            current=written,
+                                            total=blob.expected_size,
+                                            unit="bytes",
+                                            cancellation_safe=True,
+                                        )
                                 break
-                            raise SourceError("SOURCE_RANGE_MISMATCH", "range refused")
-                        elif response.status_code in (301, 302, 303, 307, 308):
-                            raise SourceError(
-                                "SOURCE_REDIRECT_REFUSED",
-                                "redirect on body not followed",
-                            )
-                        elif response.status_code not in (200, 206):
-                            raise SourceError(
-                                "SOURCE_REVISION_UNAVAILABLE",
-                                f"status {response.status_code}",
-                            )
-                        with open(dest, "ab" if written else "wb") as fh:
-                            for chunk in response.iter_bytes(CHUNK_BYTES):
-                                fh.write(chunk)
-                                fh.flush()
-                                written += len(chunk)
-                                if pulse is not None:
-                                    pulse(
-                                        phase="transfer",
-                                        current=written,
-                                        total=blob.expected_size,
-                                        unit="bytes",
-                                        cancellation_safe=True,
-                                    )
-                        break
+                    break
                 except SourceError:
                     raise
+                except httpx.InvalidURL as exc:
+                    raise SourceError(
+                        "SOURCE_REDIRECT_REFUSED", "unsafe redirect target"
+                    ) from exc
                 except httpx.HTTPError:
                     if attempt >= MAX_RETRIES:
                         raise SourceError(

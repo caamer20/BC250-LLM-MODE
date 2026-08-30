@@ -1,3 +1,5 @@
+import pytest
+
 from bc250_llm_mode import server
 from bc250_llm_mode.server import _service_text, diagnose_server_log, generate_launcher
 
@@ -10,6 +12,8 @@ def test_launcher_keeps_mmap_and_vulkan_workarounds(tmp_path):
     text = generate_launcher(state).read_text(encoding="utf-8")
     assert "--no-mmap" not in text
     assert "GGML_VK_DISABLE_F16=1" in text
+    assert '"--defrag-thold", "0.1"' in text
+    assert "--defrag-threshold" not in text
     assert '"--n-gpu-layers", "99"' in text
     # Handoff-only: the legacy state.json argv builder is gone.
     assert "state.json" not in text
@@ -76,6 +80,8 @@ def test_health_reports_actual_server_context_and_slots(monkeypatch):
         {"server_port": 8080, "current_model": "lfm", "current_ctx": 131072}, timeout=1
     )
     assert result["n_ctx"] == 128000
+    assert result["context_per_slot"] == 128000
+    assert result["context_total"] == 512000
     assert result["requested_ctx"] == 131072
     assert result["parallel_slots"] == 4
     # §11.2: model_id is the OBSERVED id from /v1/models, and the desired
@@ -128,3 +134,22 @@ def test_health_model_id_none_when_server_reports_nothing(monkeypatch):
     assert result["model_id"] is None
     assert result["desired_model"] == "desired-alias"
     assert result["model_matches_desired"] is False
+
+
+def test_health_polling_pulses_durable_operation_lease(monkeypatch):
+    calls = []
+    times = iter((0.0, 0.0, 1.0, 2.0))
+
+    def unavailable(_url, timeout=5):
+        raise OSError("not ready")
+
+    monkeypatch.setattr(server, "_json_get", unavailable)
+    with pytest.raises(TimeoutError):
+        server.health_check(
+            {"server_port": 8080},
+            timeout=2,
+            monotonic=lambda: next(times),
+            sleep=lambda _seconds: None,
+            pulse=lambda: calls.append("pulse"),
+        )
+    assert calls == ["pulse", "pulse"]

@@ -78,11 +78,13 @@ class ActivationServerPort:
         timeout: int = 120,
         monotonic: Any = None,
         sleep: Any = None,
+        pulse: Any = None,
     ) -> dict[str, Any]:
         from .server import health_check
 
         return health_check(
-            view, timeout=timeout, monotonic=monotonic, sleep=sleep
+            view, timeout=timeout, monotonic=monotonic, sleep=sleep,
+            pulse=pulse,
         )
 
     def inference(self, view: dict[str, Any], *, timeout: float = 20.0) -> dict:
@@ -129,6 +131,20 @@ class ActivationHostAdapter:
         optimizations["parallel_slots"] = candidate.parallel_slots
         view["optimizations"] = optimizations
         return view
+
+    @staticmethod
+    def _context_matches(
+        health: dict[str, Any], candidate: CandidateRuntimeV1,
+    ) -> bool:
+        """Compare like units across current and legacy health payloads."""
+        explicit = health.get("context_per_slot")
+        if explicit is not None:
+            return int(explicit) == candidate.context_per_slot
+        # Compatibility with health seams produced before context units were
+        # explicit: those tests/adapters reported aggregate ``n_ctx``.
+        return int(health.get("n_ctx") or 0) == (
+            candidate.context_per_slot * candidate.parallel_slots
+        )
 
     def _latch(self) -> str:
         with self._units.read() as conn:
@@ -353,7 +369,10 @@ class ActivationHostAdapter:
             )
             if active
             else None,
-            observed_context_total=health.get("n_ctx") if active else None,
+            observed_context_total=(
+                health.get("context_total", health.get("n_ctx"))
+                if active else None
+            ),
             observed_slots=health.get("parallel_slots") if active else None,
             inference_verified=inference_ok,
         )
@@ -486,8 +505,9 @@ class ActivationHostAdapter:
         candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1,
         external_effect_id: str,
+        pulse: Any = None,
     ) -> RestartEvidenceV1:
-        already = self.observe_restart(candidate, prior)
+        already = self.observe_restart(candidate, prior, pulse=pulse)
         if (
             already.classification is RecoveryClass.COMPLETE
             and already.reason_code == "CANDIDATE_RUNTIME_VERIFIED"
@@ -498,7 +518,8 @@ class ActivationHostAdapter:
         return RestartEvidenceV1(restarted_now=True, was_already_active=False)
 
     def observe_restart(
-        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1
+        self, candidate: CandidateRuntimeV1, prior: PriorRuntimeSnapshotV1,
+        pulse: Any = None,
     ) -> ProbeResult:
         view = self._candidate_view(candidate)
         runner = self._runner_factory()
@@ -515,14 +536,13 @@ class ActivationHostAdapter:
                 )
             return ProbeResult(RecoveryClass.REVERTIBLE, "SERVICE_INACTIVE")
         try:
-            health = self._server.health(view)
+            health = self._server.health(view, pulse=pulse)
         except Exception:  # noqa: BLE001 - bounded timeout is revertible
             return ProbeResult(RecoveryClass.REVERTIBLE, "HEALTH_TIMEOUT")
         identity_ok = (
             health.get("healthy")
             and health.get("model_id") == candidate.model_alias
-            and int(health.get("n_ctx") or 0)
-            == candidate.context_per_slot * candidate.parallel_slots
+            and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots
         )
@@ -549,14 +569,15 @@ class ActivationHostAdapter:
             RecoveryClass.UNCERTAIN_MANUAL, "SERVICE_IDENTITY_AMBIGUOUS"
         )
 
-    def check_health(self, candidate: CandidateRuntimeV1) -> HealthEvidenceV1:
+    def check_health(
+        self, candidate: CandidateRuntimeV1, pulse: Any = None,
+    ) -> HealthEvidenceV1:
         view = self._candidate_view(candidate)
-        health = self._server.health(view)
+        health = self._server.health(view, pulse=pulse)
         healthy = bool(
             health.get("healthy")
             and health.get("model_id") == candidate.model_alias
-            and int(health.get("n_ctx") or 0)
-            == candidate.context_per_slot * candidate.parallel_slots
+            and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots
         )
@@ -676,7 +697,8 @@ class ActivationHostAdapter:
         )
 
     def _service_matches_prior(
-        self, prior: PriorRuntimeSnapshotV1, view: dict[str, Any]
+        self, prior: PriorRuntimeSnapshotV1, view: dict[str, Any],
+        pulse: Any = None,
     ) -> tuple[bool, bool]:
         """``(verified, service_active)`` from read-only observation."""
         runner = self._runner_factory()
@@ -684,7 +706,7 @@ class ActivationHostAdapter:
         verified = False
         if active:
             try:
-                health = self._server.health(view)
+                health = self._server.health(view, pulse=pulse)
                 probe = self._server.inference(view, timeout=10.0)
                 verified = bool(health.get("healthy")) and (
                     probe.get("ok") is True
@@ -693,7 +715,9 @@ class ActivationHostAdapter:
                 verified = False
         return verified, active
 
-    def _restoration_state(self, prior: PriorRuntimeSnapshotV1) -> tuple[bool, bool]:
+    def _restoration_state(
+        self, prior: PriorRuntimeSnapshotV1, pulse: Any = None,
+    ) -> tuple[bool, bool]:
         """``(verified, service_active)`` against the durable prior target."""
         current = self._runtime.current()
         config_ok = self._config_matches_prior(current, prior)
@@ -729,7 +753,7 @@ class ActivationHostAdapter:
         else:
             handoff_ok = payload is None
         service_verified, service_active = self._service_matches_prior(
-            prior, self._view()
+            prior, self._view(), pulse=pulse
         )
         if prior.service_state == "ACTIVE_VERIFIED":
             service_ok = service_verified and self._config_matches_prior(
@@ -745,8 +769,9 @@ class ActivationHostAdapter:
         prior: PriorRuntimeSnapshotV1,
         candidate: CandidateRuntimeV1,
         restoration_id: str,
+        pulse: Any = None,
     ) -> RestorationEvidenceV1:
-        proven, _active = self._restoration_state(prior)
+        proven, _active = self._restoration_state(prior, pulse=pulse)
         if proven:
             return RestorationEvidenceV1(
                 restored=True,
@@ -792,7 +817,9 @@ class ActivationHostAdapter:
             ):
                 self._server.restart(restart_view, self._runner_factory())
                 stage_codes.append("SERVICE_RESTARTED")
-            verified, _ = self._service_matches_prior(prior, restart_view)
+            verified, _ = self._service_matches_prior(
+                prior, restart_view, pulse=pulse
+            )
             if not verified:
                 raise RuntimeError("restored runtime failed verification")
             stage_codes.append("SERVICE_ACTIVE_VERIFIED")
@@ -809,8 +836,9 @@ class ActivationHostAdapter:
         self,
         prior: PriorRuntimeSnapshotV1,
         candidate: CandidateRuntimeV1,
+        pulse: Any = None,
     ) -> ProbeResult:
-        verified, _active = self._restoration_state(prior)
+        verified, _active = self._restoration_state(prior, pulse=pulse)
         if verified:
             return ProbeResult(
                 RecoveryClass.COMPLETE,

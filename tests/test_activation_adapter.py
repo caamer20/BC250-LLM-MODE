@@ -87,7 +87,11 @@ class FakeServerPort:
         self.running_model = None
         return {"stopped": True}
 
-    def health(self, view, *, timeout=120, monotonic=None, sleep=None):
+    def health(
+        self, view, *, timeout=120, monotonic=None, sleep=None, pulse=None,
+    ):
+        if pulse is not None:
+            pulse()
         if self.health_override is not None:
             return self.health_override
         ctx = int(view.get("current_ctx") or 8192)
@@ -96,6 +100,8 @@ class FakeServerPort:
             "healthy": self.active,
             "model_id": self.running_model or view.get("current_model"),
             "n_ctx": ctx * slots,
+            "context_per_slot": ctx,
+            "context_total": ctx * slots,
             "parallel_slots": slots,
         }
 

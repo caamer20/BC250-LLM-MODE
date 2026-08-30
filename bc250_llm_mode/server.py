@@ -146,7 +146,9 @@ if not (isinstance(threads, int) and 1 <= threads <= 64):
     threads = detected
 if isinstance(threads, int) and threads >= 1:
     argv += ["--threads", str(threads), "--threads-batch", str(threads)]
-argv += ["--cache-reuse", "256", "--defrag-threshold", "0.1"]
+# Use llama.cpp's supported long spelling so the generated launcher remains
+# readable while matching both current and older supported builds.
+argv += ["--cache-reuse", "256", "--defrag-thold", "0.1"]
 for item in argv:
     print(item)
 PYH
@@ -475,14 +477,22 @@ def health_check(
     *,
     monotonic: Any = None,
     sleep: Any = None,
+    pulse: Any = None,
 ) -> dict[str, Any]:
-    """Bounded health polling with an injected clock (Session 5C §10.3)."""
+    """Bounded health polling with an injected clock (Session 5C §10.3).
+
+    ``pulse`` is the durable-operation heartbeat.  A normal model load can
+    legitimately take longer than the 60-second operation lease, so every
+    poll renews the caller's fence while the server is starting.
+    """
     monotonic = monotonic or time.monotonic
     sleep = sleep or time.sleep
     port = int(state.get("server_port", 8080))
     deadline = monotonic() + timeout
     last_error = "server did not respond"
     while monotonic() < deadline:
+        if pulse is not None:
+            pulse()
         try:
             health = _json_get(f"http://127.0.0.1:{port}/health")
             models = _json_get(f"http://127.0.0.1:{port}/v1/models")
@@ -506,6 +516,12 @@ def health_check(
                 if data and isinstance(data[0], dict):
                     observed_model = data[0].get("id")
             desired_model = state.get("current_model")
+            observed_slots = int(
+                props.get("total_slots")
+                if isinstance(props, dict) and props.get("total_slots") is not None
+                else normalized_settings(state.get("optimizations"))["parallel_slots"]
+            )
+            context_per_slot = int(actual_ctx or state.get("current_ctx", 8192))
             result = {
                 "healthy": True,
                 "model_id": observed_model,
@@ -514,13 +530,15 @@ def health_check(
                     observed_model is not None
                     and observed_model == desired_model
                 ),
-                "n_ctx": int(actual_ctx or state.get("current_ctx", 8192)),
+                # llama.cpp's /props ``n_ctx`` is the context available to
+                # each parallel slot.  Publish both units explicitly so
+                # activation never mistakes a healthy per-slot value for a
+                # deficient total allocation.
+                "n_ctx": context_per_slot,
+                "context_per_slot": context_per_slot,
+                "context_total": context_per_slot * observed_slots,
                 "requested_ctx": int(state.get("current_ctx", 8192)),
-                "parallel_slots": int(
-                    props.get("total_slots")
-                    if isinstance(props, dict) and props.get("total_slots") is not None
-                    else normalized_settings(state.get("optimizations"))["parallel_slots"]
-                ),
+                "parallel_slots": observed_slots,
                 "vram_used_mib": metrics.get("vram_used_mib"),
                 "vram_total_mib": metrics.get("vram_total_mib"),
                 "health": health,
@@ -531,8 +549,12 @@ def health_check(
                 runner.emit(
                     f"Server healthy on 127.0.0.1:{port}; model={result['model_id']} "
                     f"(desired={desired_model}) "
-                    f"n_ctx={result['n_ctx']} VRAM={result['vram_used_mib']}/{result['vram_total_mib']} MiB"
+                    f"context_per_slot={result['context_per_slot']} "
+                    f"context_total={result['context_total']} "
+                    f"VRAM={result['vram_used_mib']}/{result['vram_total_mib']} MiB"
                 )
+            if pulse is not None:
+                pulse()
             return result
         except (OSError, urllib.error.URLError, ValueError) as exc:
             last_error = str(exc)

@@ -92,6 +92,49 @@ def make_redirect_client(redirect_host: str) -> HubClient:
     )
 
 
+def make_cdn_redirect_client() -> HubClient:
+    """Model files redirect to a signed, cross-origin CDN URL."""
+
+    def redirect_handler(request: httpx.Request) -> httpx.Response:
+        headers = dict(request.headers)
+        STATE.received.append((request.method, str(request.url), headers))
+        if request.url.host == "hub.test":
+            return httpx.Response(
+                302,
+                headers={
+                    "Location": (
+                        "https://cdn.test/blob.gguf"
+                        "?sig=signed-redirect-CANARY"
+                    )
+                },
+            )
+        if request.url.host == "cdn.test":
+            range_header = headers.get("range", "")
+            start = 0
+            status = 200
+            if request.method == "GET" and range_header.startswith("bytes="):
+                start = int(range_header[6:].split("-")[0])
+                status = 206
+            body = b"" if request.method == "HEAD" else PAYLOAD[start:]
+            return httpx.Response(
+                status,
+                content=body,
+                headers={
+                    "Content-Length": str(len(PAYLOAD) - start),
+                    "ETag": '"cdn-etag-1"',
+                    "Accept-Ranges": "bytes",
+                },
+            )
+        return httpx.Response(404)
+
+    return HubClient(
+        api_base="https://hub.test/api",
+        file_base="https://hub.test",
+        token_provider=lambda: "SECRET-CANARY-TOKEN",
+        transport=httpx.MockTransport(redirect_handler),
+    )
+
+
 def test_fingerprint_is_stable_and_covers_policy():
     class Entry:
         id = "m"
@@ -116,6 +159,54 @@ def test_resolve_pins_immutable_revision_and_observes_blob():
     blob = client.observe_blob("org/repo", sha, "file.gguf")
     assert blob.expected_size == len(PAYLOAD)
     assert blob.validator
+
+
+def test_resolve_revision_follows_bounded_same_origin_repo_rename():
+    received: list[tuple[str, str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        received.append((request.method, str(request.url), dict(request.headers)))
+        if request.url.path == "/api/models/org/old-repo":
+            return httpx.Response(
+                307,
+                headers={"Location": "/api/models/org/canonical-repo"},
+            )
+        if request.url.path == "/api/models/org/canonical-repo":
+            return httpx.Response(200, json={"sha": REVISION})
+        return httpx.Response(404)
+
+    client = HubClient(
+        api_base="https://hub.test/api",
+        file_base="https://hub.test",
+        token_provider=lambda: "SECRET-CANARY-TOKEN",
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert client.resolve_revision("org/old-repo") == REVISION
+    assert len(received) == 2
+    assert all(item[2].get("authorization") for item in received)
+
+
+@pytest.mark.parametrize(
+    "location",
+    (
+        "http://cdn.test/blob.gguf",
+        "https://user:password@cdn.test/blob.gguf",
+    ),
+)
+def test_resolve_revision_refuses_unsafe_redirect_targets(location):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": location})
+
+    client = HubClient(
+        api_base="https://hub.test/api",
+        file_base="https://hub.test",
+        transport=httpx.MockTransport(handler),
+    )
+
+    with pytest.raises(SourceError) as err:
+        client.resolve_revision("org/repo")
+    assert err.value.code == "SOURCE_REDIRECT_REFUSED"
 
 
 def test_stream_range_downloads_full_body_and_resumes_partial(tmp_path):
@@ -150,6 +241,50 @@ def test_stream_range_resets_foreign_partial(tmp_path):
     dest.write_bytes(b"foreign-garbage")
     total = client.stream_range(blob, dest, expected_fingerprint="fp-y")
     assert total == len(PAYLOAD)
+
+
+def test_stream_range_follows_cdn_redirect_and_preserves_safe_resume(tmp_path):
+    STATE.received.clear()
+    client = make_cdn_redirect_client()
+    blob = client.observe_blob("org/repo", REVISION, "file.gguf")
+    dest = tmp_path / "redirected.gguf.partial"
+
+    assert client.stream_range(blob, dest, expected_fingerprint="fp-cdn") == len(
+        PAYLOAD
+    )
+    assert dest.read_bytes() == PAYLOAD
+
+    origin_requests = [item for item in STATE.received if "hub.test" in item[1]]
+    cdn_requests = [item for item in STATE.received if "cdn.test" in item[1]]
+    assert any(item[2].get("authorization") for item in origin_requests)
+    assert all(not item[2].get("authorization") for item in cdn_requests)
+    assert all("SECRET-CANARY-TOKEN" not in item[1] for item in STATE.received)
+
+    dest.write_bytes(PAYLOAD[:64])
+    dest.with_name(dest.name + "-receipt.json").write_text(
+        json.dumps(
+            {
+                "fingerprint": "fp-cdn",
+                "total": len(PAYLOAD),
+                "validator": blob.validator,
+            }
+        )
+    )
+    STATE.received.clear()
+
+    assert client.stream_range(blob, dest, expected_fingerprint="fp-cdn") == len(
+        PAYLOAD
+    )
+    resumed_cdn_gets = [
+        item
+        for item in STATE.received
+        if item[0] == "GET" and "cdn.test" in item[1]
+    ]
+    assert resumed_cdn_gets
+    assert resumed_cdn_gets[-1][2]["range"] == "bytes=64-"
+    assert resumed_cdn_gets[-1][2]["if-range"] == blob.validator
+    assert not resumed_cdn_gets[-1][2].get("authorization")
+    assert dest.read_bytes() == PAYLOAD
 
 
 def test_auth_token_never_leaks_into_urls():

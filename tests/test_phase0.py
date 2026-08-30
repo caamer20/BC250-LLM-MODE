@@ -21,7 +21,7 @@ from support_legacy_store import LegacyStateStore as StateStore  # noqa: E402
 
 LAUNCHER_STATE_FLAGS = (
     "--n-gpu-layers", "--ctx-size", "--parallel", "--threads",
-    "--threads-batch", "--cache-reuse", "--defrag-threshold",
+    "--threads-batch", "--cache-reuse", "--defrag-thold",
     "--flash-attn", "--temp", "--top-p", "--top-k", "--min-p",
     "--repeat-penalty", "--alias", "--port",
 )
@@ -103,7 +103,7 @@ def test_launcher_delivers_all_flags_in_a_single_exec(tmp_path):
     assert pairs["--threads"] == "8"
     assert pairs["--threads-batch"] == "8"
     assert pairs["--cache-reuse"] == "256"
-    assert pairs["--defrag-threshold"] == "0.1"
+    assert pairs["--defrag-thold"] == "0.1"
     assert pairs["--ctx-size"] == "32768"  # 8192 x 4 slots
     assert pairs["--parallel"] == "4"
     assert pairs["-m"] == "/models/lfm25.gguf"

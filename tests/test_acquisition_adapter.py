@@ -14,8 +14,14 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent / "operations"))
 
-from fakes import CrashInjector, FakeClock, SequenceIds, SimulatedProcessDeath  # noqa: E402
+from fakes import (  # noqa: E402
+    CrashInjector,
+    FakeClock,
+    SequenceIds,
+    SimulatedProcessDeath,
+)
 
+from bc250_llm_mode import artifact_storage as storage  # noqa: E402
 from bc250_llm_mode.acquisition_adapter import (  # noqa: E402
     AcquisitionHostAdapter,
     HostError,
@@ -138,6 +144,54 @@ def test_production_import_copies_valid_gguf_to_managed_digest_path(harness):
         ).fetchone()
         assert row is not None
         assert row["canonical_path"] == str(final)
+
+
+def test_production_import_accepts_qwen35_architecture(tmp_path):
+    harness = ProductionHarness(tmp_path, build_gguf("qwen35"))
+
+    outcome = harness.engine().execute_one(harness.operation_id)
+
+    assert outcome.kind == "COMPLETED"
+    assert outcome.reason_code == "MODEL_INSTALLED"
+    assert harness.state().state is OperationState.SUCCEEDED
+
+
+def test_production_publication_renews_lease_during_long_io(harness, monkeypatch):
+    real_publish = storage.publish_no_replace
+
+    def slow_publish(*args, on_chunk=None, **kwargs):
+        assert on_chunk is not None
+        for _ in range(3):
+            harness.clock.advance(45)
+            on_chunk(0)
+        return real_publish(*args, on_chunk=on_chunk, **kwargs)
+
+    monkeypatch.setattr(storage, "publish_no_replace", slow_publish)
+
+    outcome = harness.engine().execute_one(harness.operation_id)
+
+    assert outcome.kind == "COMPLETED"
+    assert outcome.reason_code == "MODEL_INSTALLED"
+
+
+def test_production_quarantine_renews_lease_during_long_io(tmp_path, monkeypatch):
+    harness = ProductionHarness(tmp_path, b"not-a-gguf-at-all")
+    real_quarantine = storage.quarantine_candidate
+
+    def slow_quarantine(*args, on_chunk=None, **kwargs):
+        assert on_chunk is not None
+        for _ in range(3):
+            harness.clock.advance(45)
+            on_chunk(0)
+        return real_quarantine(*args, on_chunk=on_chunk, **kwargs)
+
+    monkeypatch.setattr(storage, "quarantine_candidate", slow_quarantine)
+
+    outcome = harness.engine().execute_one(harness.operation_id)
+
+    assert outcome.kind == "COMPLETED"
+    assert outcome.reason_code == "ARTIFACT_QUARANTINED"
+    assert harness.state().state is OperationState.FAILED_SAFE
 
 
 def test_production_import_leaves_source_byte_and_metadata_identical(harness):
