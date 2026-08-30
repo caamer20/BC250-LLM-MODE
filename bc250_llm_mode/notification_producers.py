@@ -27,6 +27,7 @@ _LONG_OPERATIONS = frozenset({
     OperationType.BACKUP_CREATE,
     OperationType.BACKUP_RESTORE,
     OperationType.PROFILE_CALIBRATE,
+    OperationType.STORAGE_CLEANUP,
 })
 _FAILURE_STATES = frozenset({
     OperationState.FAILED_SAFE,

@@ -996,6 +996,36 @@ class ExecutionEngine:
             probe = ProbeResult(
                 RecoveryClass.UNCERTAIN_MANUAL, "PROBE_UNAVAILABLE"
             )
+        # Typed adapters may prove that a forward-only effect became
+        # ambiguous after mutation (for example, an interrupted permanent
+        # cleanup). Never mislabel that state FAILED_SAFE and never attempt a
+        # generic compensation. Retain the leases as explicit barriers.
+        if bool(getattr(error, "requires_recovery", False)):
+            stable_code = getattr(error, "code", None) or "RECOVERY_REQUIRED"
+            with self.units.begin() as conn:
+                ops, _s, leases, _events = self._repos(conn)
+                record = ops.require(operation_id)
+                self._fence(leases, operation_id, held)
+                ops.record_terminal_result(
+                    operation_id,
+                    terminal_state=OperationState.RECOVERY_REQUIRED,
+                    error_code=stable_code,
+                    error_detail={
+                        "step": step.step_key,
+                        "code": stable_code,
+                        "exception_class": type(error).__name__,
+                        "probe": getattr(probe, "reason_code", None),
+                    },
+                    event_summary=(
+                        f"forward-only state at {step.step_key} requires "
+                        f"recovery ({stable_code})"
+                    ),
+                )
+            return ExecutionOutcome(
+                "RECOVERY_REQUIRED_OUTCOME",
+                operation_id,
+                reason_code=stable_code,
+            )
         # Durable reconstruction (§3.3) EXCLUDING the failing step itself:
         # an intent that never mutated (probe ABSENT) is not evidence.
         durable_pairs = [

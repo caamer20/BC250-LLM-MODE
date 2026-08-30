@@ -96,6 +96,7 @@ class Application:
     support_bundle: Any = None
     model_library: Any = None
     storage_capacity: Any = None
+    storage_cleanup: Any = None
     platform: Any = None
     desktop_integration: Any = None
     optimizations: Any = None
@@ -534,6 +535,16 @@ class Application:
         )
         registry.register(build_calibration_workflow(calibration_adapter))
 
+        # EXP-5 / ADR 012: durable quarantine, exact restore, and expired
+        # purge share the ONE registry and the model-storage lease.
+        from .operations.storage_cleanup import build_storage_cleanup_workflow
+        from .storage_cleanup_adapter import StorageCleanupHostAdapter
+
+        cleanup_adapter = StorageCleanupHostAdapter(
+            units, application.paths, clock=utcnow
+        )
+        registry.register(build_storage_cleanup_workflow(cleanup_adapter))
+
         # ONE freeze point for ALL durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
@@ -595,6 +606,15 @@ class Application:
             enqueue=enqueue,
             engine_factory=engine_factory,
             adapter=backup_adapter,
+        )
+        from .storage_cleanup_command import StorageCleanupCommandService
+
+        application.storage_cleanup = StorageCleanupCommandService(
+            units=units,
+            enqueue=enqueue,
+            engine_factory=engine_factory,
+            adapter=cleanup_adapter,
+            clock=utcnow,
         )
         # P6 §12.4: model conversion — honestly unavailable in this build.
         from .model_convert_command import ModelConvertCommandService

@@ -26,6 +26,7 @@ class OperationType(str, Enum):
     BACKUP_CREATE = "BACKUP_CREATE"
     BACKUP_RESTORE = "BACKUP_RESTORE"
     PROFILE_CALIBRATE = "PROFILE_CALIBRATE"
+    STORAGE_CLEANUP = "STORAGE_CLEANUP"
 
 
 class OperationState(str, Enum):
@@ -311,4 +312,3 @@ class OperationConflict(OperationError):
 
 class OperationValidationError(OperationError):
     """Request/state/event content failed validation before persistence."""
-

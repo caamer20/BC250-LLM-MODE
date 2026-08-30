@@ -100,10 +100,21 @@ class ApplicationRepairAdapter:
                 }, reason_code=None if conditions else "BACKUP_NOT_VERIFIED",
             )
         if action_id == "reclaim-orphaned-content":
-            # Commit 23 replaces this fail-closed bridge with the durable
-            # cleanup preview owner. Existing dry-run suggestions are not
-            # positive abandoned-operation evidence.
-            return RepairObservation(reason_code="CLEANUP_OWNER_NOT_READY")
+            if target is None:
+                return RepairObservation(reason_code="TARGET_REQUIRED")
+            preview = self._app.storage_cleanup.preview(
+                mode="QUARANTINE", target_ids=(target,))
+            ready = preview.ready
+            selected = preview.selected[0] if ready else {}
+            return RepairObservation(
+                frozenset({"orphaned_content_evidenced"} if ready else ()),
+                (("cleanup-target", 1),) if ready else (),
+                {
+                    "eligible": ready,
+                    "bytes": int(selected.get("expected_bytes") or 0),
+                    "files": int(selected.get("expected_files") or 0),
+                }, None if ready else "NO_ELIGIBLE_TARGETS",
+            )
         if action_id == "release-expired-worker-locks":
             with self._units.read() as conn:
                 lock = WorkerLockRepository(conn, clock=self._clock).get()
@@ -400,9 +411,17 @@ class ApplicationRepairAdapter:
         self, action_id: str, target: str | None,
         prior: RepairObservation | None,
     ) -> RepairProbe:
-        if action_id in {"retry-legacy-import", "upgrade-newer-schema",
-                         "reclaim-orphaned-content"}:
+        if action_id in {"retry-legacy-import", "upgrade-newer-schema"}:
             return RepairProbe(False, "OWNER_UNAVAILABLE")
+        if action_id == "reclaim-orphaned-content":
+            candidates = self._app.storage_cleanup.preview(
+                mode="RESTORE", target_ids=(target,))
+            passed = candidates.ready
+            return RepairProbe(
+                passed,
+                "CLEANUP_QUARANTINE_VERIFIED" if passed
+                else "CLEANUP_QUARANTINE_NOT_VERIFIED",
+            )
         if action_id == "inspect-verified-backup":
             passed = bool(target and self._app.backup.verify_backup(target).get("valid"))
             return RepairProbe(passed, "BACKUP_VERIFIED" if passed else "BACKUP_INVALID")
