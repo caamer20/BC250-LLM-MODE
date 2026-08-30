@@ -80,6 +80,9 @@ class Application:
     connection_probes: Any = None
     workload_profiles: Any = None
     workload_profile_commands: Any = None
+    performance_coach: Any = None
+    calibration: Any = None
+    idle_policy: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -297,6 +300,11 @@ class Application:
         from .workload_profiles import WorkloadProfileQueryService
 
         application.workload_profiles = WorkloadProfileQueryService(units)
+        from .performance_coach import PerformanceCoachService
+
+        application.performance_coach = PerformanceCoachService(
+            units, profiles=application.workload_profiles
+        )
         # GUI-6: terminal and native chat share one bounded transport,
         # conversation store, and readiness observation policy.
         from .chat_service import ChatObservationService, ChatSessionService
@@ -468,7 +476,24 @@ class Application:
         registry.register(build_backup_create_workflow(backup_adapter))
         registry.register(build_backup_restore_workflow(backup_adapter))
 
-        # ONE freeze point for ALL eight durable workflows; exactly one
+        # EXP-3: durable, fixed-prompt calibration owns both runtime-active
+        # and runtime-benchmark. It checkpoints every candidate and restores
+        # the exact baseline before proposing (never applying) a winner.
+        from .calibration_adapter import CalibrationHostAdapter
+        from .operations.calibration import build_calibration_workflow
+
+        calibration_adapter = CalibrationHostAdapter(
+            units=units,
+            profiles=application.workload_profiles,
+            runtime=application.runtime_config,
+            app_dir=application.paths.app_dir,
+            state_supplier=lambda: application.read_model(),
+            runner_factory=lambda: application.runner(),
+            clock=utcnow,
+        )
+        registry.register(build_calibration_workflow(calibration_adapter))
+
+        # ONE freeze point for ALL durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
         enqueue = EnqueueService(
@@ -498,6 +523,11 @@ class Application:
             query=application.workload_profiles,
             activation=application.activation,
             id_provider=lambda: _uuid.uuid4().hex,
+        )
+        from .calibration_command import CalibrationCommandService
+
+        application.calibration = CalibrationCommandService(
+            units=units, enqueue=enqueue, engine_factory=engine_factory
         )
         application.model_acquisition = ModelAcquisitionCommandService(
             units=units,
@@ -581,6 +611,20 @@ class Application:
         application.model_server = ModelServerService(units)
         application.tailscale = TailscaleService(units)
         application.logs = LogTailService(application.paths)
+        from .idle_policy import IdlePolicyService
+
+        application.idle_policy = IdlePolicyService(
+            units,
+            server_active=lambda: bool(
+                application.model_server.status(
+                    application.read_model(), application.runner()
+                ).get("active")
+            ),
+            stop_server=lambda: application.model_server.stop(
+                application.read_model(), application.runner()
+            ),
+            now=utcnow,
+        )
         # EXP-2: one multi-client command boundary, one bounded probe service,
         # and one mutation-free connection snapshot shared by GUI and CLI.
         from .connection_setup import (

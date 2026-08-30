@@ -556,7 +556,15 @@ class RuntimeConfigurationService:
         runtime_row = RuntimeConfigRepository(conn).get()
 
         base_opts = settings.get("optimizations") or {}
-        merged_opts = {**base_opts, **(desired.get("optimizations_patch") or {})}
+        optimization_values = desired.get("optimizations_patch") or {}
+        # Restoration is content replacement, not a patch over the failed
+        # candidate. Without this private service-only flag, candidate-only
+        # KV/flash/batch values can survive a nominal "restore".
+        merged_opts = (
+            dict(optimization_values)
+            if desired.get("_replace_optimizations") is True
+            else {**base_opts, **optimization_values}
+        )
         try:
             resolved = validate_settings(normalized_settings(merged_opts))
         except (ValueError, TypeError, KeyError) as exc:
@@ -782,8 +790,10 @@ class RuntimeConfigurationService:
         configuration so probes compare content + lineage instead of
         assuming numeric rollback (Session 5C plan §9).
         """
-        content_of = prior_config.pop("restored_content_of_revision", None)
-        result = self.apply(prior_config, expected_revision=expected_revision)
+        desired = dict(prior_config)
+        content_of = desired.pop("restored_content_of_revision", None)
+        desired["_replace_optimizations"] = True
+        result = self.apply(desired, expected_revision=expected_revision)
         if content_of is not None:
             with self._units.begin() as conn:
                 SettingsRepository(conn).set_many(
@@ -827,6 +837,7 @@ class RuntimeConfigurationService:
                 "context": snapshot.get("context"),
                 "slots": snapshot.get("slots"),
                 "optimizations_patch": snapshot.get("optimizations") or {},
+                "_replace_optimizations": True,
                 "profile_id": snapshot.get("profile_id"),
                 "profile_revision": snapshot.get("profile_revision"),
                 "profile_fingerprint": snapshot.get("profile_fingerprint"),

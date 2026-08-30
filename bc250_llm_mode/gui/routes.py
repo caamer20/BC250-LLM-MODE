@@ -24,6 +24,7 @@ class Route(StrEnum):
 PRIMARY_ROUTES = (
     Route.HOME,
     Route.MODELS,
+    Route.PROFILES,
     Route.CHAT,
     Route.CONNECTIONS,
     Route.ACTIVITY,

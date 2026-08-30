@@ -45,7 +45,8 @@ class ApplicationWindow(SetupWindow):
         self._nav.pack(side="left", fill="y", padx=(0, 10))
         self._nav_buttons: dict[Route, object] = {}
         labels = {
-            Route.HOME: "Home", Route.MODELS: "Models", Route.CHAT: "Chat",
+            Route.HOME: "Home", Route.MODELS: "Models",
+            Route.PROFILES: "Profiles", Route.CHAT: "Chat",
             Route.CONNECTIONS: "Connections",
             Route.ACTIVITY: "Activity", Route.SYSTEM: "System",
             Route.SETTINGS: "Settings", Route.HELP: "Help",
@@ -173,6 +174,15 @@ class ApplicationWindow(SetupWindow):
                 self.content, self, self.application, context=context
             )
             self._page.mount()
+            self.heading.focus_set()
+            return
+        if target is Route.PROFILES:
+            self.heading.configure(text="Profiles")
+            from .profiles_page import ProfilesPage
+
+            self._page = ProfilesPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
             self.heading.focus_set()
             return
         if target is Route.CHAT:

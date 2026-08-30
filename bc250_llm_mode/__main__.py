@@ -207,6 +207,24 @@ def _parser() -> argparse.ArgumentParser:
     profile_apply.add_argument("--revision", type=int, required=True)
     profile_apply.add_argument("--fingerprint", required=True)
     profile_apply.add_argument("--accept-tight", action="store_true")
+    coach = sub.add_parser(
+        "coach", help="Show up to three evidence-bound profile suggestions"
+    )
+    coach.add_argument("--profile", default="builtin-interactive")
+    coach.add_argument("--model", dest="model_alias")
+    coach.add_argument("--ctx", dest="requested_context", type=int)
+    coach.add_argument("--users", dest="requested_users", type=int)
+    calibrate = sub.add_parser(
+        "calibrate", help="Run bounded fixed-prompt profile calibration"
+    )
+    calibrate.add_argument("--profile", required=True)
+    calibrate.add_argument("--model", dest="model_alias")
+    calibrate.add_argument(
+        "--candidate-policy",
+        choices=("balanced-v1", "conservative-v1"),
+        default="balanced-v1",
+    )
+    calibrate.add_argument("--accept-tight", action="store_true")
     sub.add_parser(
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
@@ -924,6 +942,30 @@ def main(argv: list[str] | None = None) -> int:
                 result = result.to_dict() if hasattr(result, "to_dict") else result
         print(json.dumps(result, indent=2))
         return 0
+    if args.command == "coach":
+        result = application.performance_coach.suggestions(
+            profile_id=args.profile,
+            model_alias=args.model_alias,
+            requested_context=args.requested_context,
+            requested_users=args.requested_users,
+        )
+        print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "calibrate":
+        require_acknowledgment(state)
+        preview = application.workload_profiles.preview(
+            args.profile, model_alias=args.model_alias
+        )
+        outcome = application.calibration.calibrate(
+            profile_id=args.profile,
+            expected_profile_revision=int(preview["profile_revision"]),
+            model_alias=str(preview["model_alias"]),
+            candidate_policy=args.candidate_policy,
+            accept_tight=args.accept_tight,
+            requested_by="cli",
+        )
+        print(json.dumps(outcome.to_dict(), indent=2))
+        return 0 if outcome.ok else 1
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
         print(json.dumps(application.home.snapshot().to_dict(), indent=2))

@@ -165,6 +165,32 @@ class ProfileResolutionIdentity:
         return hashlib.sha256(payload).hexdigest()
 
 
+def calibration_evidence_fingerprint(
+    profile_fingerprint: str, runtime_component_identity: str
+) -> str:
+    """Bind measured evidence to an exact profile resolution and runtime.
+
+    The component identity must be the immutable promoted build ID, never a
+    mutable branch/tag description.  No measurement can claim local evidence
+    when either identity is unknown.
+    """
+    if not _SHA256.fullmatch(str(profile_fingerprint)):
+        raise WorkloadProfileError("profile fingerprint must be sha256 hex")
+    component = str(runtime_component_identity)
+    if not component or len(component) > 256:
+        raise WorkloadProfileError("runtime component identity is unavailable")
+    payload = json.dumps(
+        {
+            "evidence_policy_version": 1,
+            "profile_fingerprint": profile_fingerprint,
+            "runtime_component_identity": component,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 @dataclass(frozen=True)
 class ProfileBinding:
     profile_id: str
@@ -494,11 +520,6 @@ class WorkloadProfileRepository:
             raise RepositoryConflict(
                 "PROFILE_NOT_FOUND", "active profile does not exist"
             )
-        if current.owner != "user":
-            raise RepositoryConflict(
-                "PROFILE_BUILTIN_IMMUTABLE",
-                "built-in profiles cannot store mutable evidence",
-            )
         if current.revision != expected_revision:
             raise RepositoryConflict(
                 "PROFILE_REVISION_CONFLICT", "stale profile revision"
@@ -506,7 +527,7 @@ class WorkloadProfileRepository:
         cursor = self.conn.execute(
             "UPDATE workload_profiles SET evidence_class = ?, "
             "evidence_fingerprint = ?, evidence_recorded_at = ?, "
-            "updated_at = ?, revision = revision + 1 "
+            "updated_at = ? "
             "WHERE profile_id = ? AND deleted_at IS NULL AND revision = ?",
             (
                 evidence_class,
@@ -643,6 +664,9 @@ class WorkloadProfileQueryService:
             models = ModelInstallationsRepository(conn).list()
             model = next((item for item in models if item.get("id") == selected_alias), None)
             known_good = KnownGoodRuntimeRepository(conn).get()
+            from .runtime_builds import RuntimeComponentRepository
+
+            component = RuntimeComponentRepository(conn).current()
             thermal = ThermalStateRepository(conn).get()
             runtime_revision = settings.revision()
             base_optimizations = settings.get("optimizations") or {}
@@ -672,6 +696,7 @@ class WorkloadProfileQueryService:
         artifact_digest = self._verified_digest(model)
         fingerprint = None
         binding = None
+        expected_evidence_fingerprint = None
         if artifact_digest is not None:
             identity = ProfileResolutionIdentity(
                 profile_id=profile.profile_id,
@@ -693,9 +718,23 @@ class WorkloadProfileQueryService:
             binding = ProfileBinding(
                 profile.profile_id, profile.revision, fingerprint
             ).encode()
+            runtime_component_identity = str(
+                (component or {}).get("promoted_build_id")
+                or (known_good or {}).get("runtime_component_identity")
+                or ""
+            )
+            if runtime_component_identity:
+                expected_evidence_fingerprint = calibration_evidence_fingerprint(
+                    fingerprint, runtime_component_identity
+                )
+        else:
+            runtime_component_identity = ""
 
         evidence_class = "ESTIMATED"
-        if fingerprint and profile.evidence_fingerprint == fingerprint:
+        if (
+            expected_evidence_fingerprint
+            and profile.evidence_fingerprint == expected_evidence_fingerprint
+        ):
             evidence_class = profile.evidence_class
         latch = str(thermal.get("latch_state") or "UNVERIFIED")
         thermal_readiness = "BLOCKED" if latch == "stopped" else (
@@ -734,6 +773,8 @@ class WorkloadProfileQueryService:
             "profile_revision": profile.revision,
             "profile_fingerprint": fingerprint,
             "profile_binding": binding,
+            "runtime_component_identity": runtime_component_identity or None,
+            "expected_evidence_fingerprint": expected_evidence_fingerprint,
             "model_alias": selected_alias,
             "model_quant": model.get("quant"),
             "model_content_digest": artifact_digest,
