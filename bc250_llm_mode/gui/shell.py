@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ..command_palette import palette_commands
 from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
 from .setup_page import SetupWindow, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
@@ -86,7 +87,8 @@ class ApplicationWindow(SetupWindow):
                 lambda _event, target=route: self._shortcut_route(target),
             )
         self.bind("<Control-l>", lambda _event: self._shortcut_logs())
-        self.bind("<Control-k>", lambda _event: self._shortcut_focus())
+        self.bind("<Control-k>", lambda _event: self._shortcut_palette())
+        self.bind("<Control-f>", lambda _event: self._shortcut_focus())
         self.bind("<Escape>", lambda _event: self._shortcut_escape())
         self.bind("<Map>", lambda _event: self._set_mapped(True))
         self.bind("<Unmap>", lambda _event: self._set_mapped(False))
@@ -287,6 +289,19 @@ class ApplicationWindow(SetupWindow):
             focus()
         return "break"
 
+    def _shortcut_palette(self):
+        commands = palette_commands(
+            setup_complete=bool(self.state_data.get("setup_complete")),
+            operational=bool(getattr(self.application, "operational", True)),
+        )
+        self.drawer.show_palette(commands, self._open_palette_command)
+        return "break"
+
+    def _open_palette_command(self, command) -> None:
+        # A palette command contains only a route and plain bounded context;
+        # mutation continues to belong to the destination page's preview.
+        self.navigate(command.route, command.route_context())
+
     def _shortcut_escape(self):
         self.drawer.clear()
         return "break"
@@ -302,7 +317,10 @@ class ApplicationWindow(SetupWindow):
 
         self.gui_preferences = dict(preferences)
         self.reduced_motion = bool(preferences.get("reduced_motion", False))
-        apply_theme(self, str(preferences.get("appearance") or "system"))
+        apply_theme(
+            self, str(preferences.get("appearance") or "system"),
+            scale_percent=int(preferences.get("ui_scale_percent") or 100),
+        )
 
     def _dispose_page(self) -> None:
         page = self._page

@@ -76,13 +76,19 @@ class GuiBase(tk.Tk):
             )
         except Exception:
             self.gui_preferences = {
-                "appearance": "system", "reduced_motion": False,
+                "appearance": "system", "ui_scale_percent": 100,
+                "reduced_motion": False,
                 "notifications_enabled": False,
             }
             self.reduced_motion = False
         from .theme import apply_theme
 
-        apply_theme(self, str(self.gui_preferences.get("appearance") or "system"))
+        apply_theme(
+            self, str(self.gui_preferences.get("appearance") or "system"),
+            scale_percent=int(
+                self.gui_preferences.get("ui_scale_percent") or 100
+            ),
+        )
         self._task_lanes = None
         self._build_shell()
         self._schedule_lifecycle()

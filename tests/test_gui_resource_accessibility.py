@@ -189,11 +189,13 @@ def test_preferences_are_typed_persistent_and_reduce_animation(tmp_path):
     application = _application(tmp_path)
     assert application.preferences.current() == {
         "appearance": "system",
+        "ui_scale_percent": 100,
         "reduced_motion": False,
         "notifications_enabled": False,
     }
     applied = application.preferences.apply({
         "appearance": "dark",
+        "ui_scale_percent": 150,
         "reduced_motion": True,
         "notifications_enabled": False,
     })

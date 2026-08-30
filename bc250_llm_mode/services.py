@@ -384,6 +384,7 @@ class UserPreferencesService:
 
     DEFAULTS = {
         "appearance": "system",
+        "ui_scale_percent": 100,
         "reduced_motion": False,
         # Absence is not consent. Migration 013 honors only an explicitly
         # persisted legacy true value when seeding category preferences.
@@ -403,6 +404,12 @@ class UserPreferencesService:
         merged = {**cls.DEFAULTS, **values}
         if merged["appearance"] not in {"system", "light", "dark"}:
             raise ValueError("appearance must be system, light, or dark")
+        if (
+            isinstance(merged["ui_scale_percent"], bool)
+            or not isinstance(merged["ui_scale_percent"], int)
+            or merged["ui_scale_percent"] not in {100, 125, 150, 175, 200}
+        ):
+            raise ValueError("ui_scale_percent must be 100, 125, 150, 175, or 200")
         for key in ("reduced_motion", "notifications_enabled"):
             if not isinstance(merged[key], bool):
                 raise ValueError(f"{key} must be boolean")

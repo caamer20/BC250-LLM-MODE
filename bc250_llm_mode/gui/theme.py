@@ -40,11 +40,22 @@ def tokens(name: str) -> ThemeTokens:
         raise ValueError(f"unknown theme {name!r}") from None
 
 
-def apply_theme(root, name: str) -> ThemeTokens:
+def apply_theme(root, name: str, *, scale_percent: int = 100) -> ThemeTokens:
     """Apply a small native ttk palette without loading image resources."""
     from tkinter import ttk
 
     palette = tokens(name)
+    if int(scale_percent) not in {100, 125, 150, 175, 200}:
+        raise ValueError("interface scale must be 100, 125, 150, 175, or 200")
+    try:
+        base = getattr(root, "_bc250_base_tk_scaling", None)
+        if base is None:
+            base = float(root.tk.call("tk", "scaling"))
+            root._bc250_base_tk_scaling = base
+        root.tk.call("tk", "scaling", base * int(scale_percent) / 100)
+    except (AttributeError, TypeError, ValueError):
+        # Headless contract tests and a few minimal Tk builds omit this call.
+        pass
     style = ttk.Style(root)
     style.configure(".", background=palette.background, foreground=palette.foreground)
     style.configure("TFrame", background=palette.background)

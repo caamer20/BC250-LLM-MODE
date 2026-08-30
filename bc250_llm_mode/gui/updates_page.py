@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ..application_update import UpdateOutcome
+from ..presentation import format_bytes
 from .view_state import Confirmation, Notice
 
 
@@ -170,7 +171,7 @@ class UpdatesPage(ttk.Frame):
         self._set_notes(check.release.notes)
         self._plan.set(
             f"Verified {check.release.source_ref} · "
-            f"{check.release.total_bytes / 1024**2:.1f} MiB signed release set. "
+            f"{format_bytes(check.release.total_bytes)} signed release set. "
             "Preview before applying."
         )
 
@@ -190,8 +191,8 @@ class UpdatesPage(ttk.Frame):
         if ready:
             self._set_notes(preview.release_notes_plain_text)
             self._plan.set(
-                f"Requires {preview.required_free_bytes / 1024**2:.1f} MiB; "
-                f"{preview.available_free_bytes / 1024**2:.1f} MiB available. "
+                f"Requires {format_bytes(preview.required_free_bytes)}; "
+                f"{format_bytes(preview.available_free_bytes)} available. "
                 f"Profile backup: yes. Restart into new slot: yes. "
                 f"Rollback slot: {preview.rollback_installation_id or 'not established'}."
             )

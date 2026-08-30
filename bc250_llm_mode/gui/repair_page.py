@@ -9,6 +9,7 @@ from typing import Any
 import tkinter as tk
 from tkinter import ttk
 
+from ..presentation import format_bytes
 from ..storage_cleanup_adapter import MAX_DISCOVERY_ENTRIES
 from ..undo import MAX_UNDO_CANDIDATES
 from .view_state import Confirmation, Notice
@@ -347,14 +348,14 @@ class RepairPage(ttk.Frame):
             target = str(item["target_id"])
             self._cleanup_tree.insert(
                 "", "end", iid=target, text=target,
-                values=(item["kind"], f"{int(item['expected_bytes']) / 1024**2:.1f} MiB",
+                values=(item["kind"], format_bytes(int(item["expected_bytes"])),
                         item["reason_code"]),
             )
             if target in selected_ids:
                 self._cleanup_tree.selection_add(target)
         self._cleanup_summary.set(
             f"{len(preview.selected)} selected · "
-            f"{preview.reclaimable_bytes / 1024**2:.1f} MiB estimated · "
+            f"{format_bytes(preview.reclaimable_bytes)} estimated · "
             f"expires {preview.expires_at}"
         )
         self._apply_cleanup_button.configure(
@@ -372,7 +373,7 @@ class RepairPage(ttk.Frame):
         purge = preview.mode == "PURGE"
         self.shell.drawer.show_confirmation(Confirmation(
             f"Apply {preview.mode.lower()} to {len(preview.selected)} target(s)?",
-            f"The exact preview covers {preview.reclaimable_bytes / 1024**2:.1f} MiB.",
+            f"The exact preview covers {format_bytes(preview.reclaimable_bytes)}.",
             "Quarantine and restore are reversible until retention expires. "
             "Expired purge has no inverse.",
             "Apply cleanup",

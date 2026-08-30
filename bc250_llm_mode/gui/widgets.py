@@ -5,6 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ..command_palette import PaletteCommand, match_palette
 from .view_state import Confirmation, Notice
 
 MAX_LOG_LINES = 2000
@@ -41,6 +42,7 @@ class BottomDrawer(ttk.Frame):
         self._confirm = None
         self._typed = tk.StringVar(value="")
         self._log_search = tk.StringVar(value="")
+        self._palette_query = tk.StringVar(value="")
 
     def clear(self) -> None:
         for child in self._content.winfo_children():
@@ -48,7 +50,87 @@ class BottomDrawer(ttk.Frame):
         self._confirm = None
         self._typed.set("")
         self._log_search.set("")
+        self._palette_query.set("")
         self.pack_forget()
+
+    def show_palette(
+        self, commands: tuple[PaletteCommand, ...], on_open,
+    ) -> None:
+        """Show a bounded local navigator; it never executes an action."""
+        self.clear()
+        ttk.Label(
+            self._content, text="Command palette", style="DrawerTitle.TLabel"
+        ).pack(anchor="w")
+        ttk.Label(
+            self._content,
+            text=(
+                "Search local pages and previews. Protected actions open their "
+                "normal preview; nothing runs from this palette."
+            ),
+            wraplength=760,
+        ).pack(anchor="w", fill="x")
+        search = ttk.Entry(self._content, textvariable=self._palette_query)
+        search.pack(fill="x", pady=(5, 4))
+        results = tk.Listbox(self._content, height=8, exportselection=False)
+        results.pack(fill="x")
+        detail = tk.StringVar(value="Type to search local commands.")
+        ttk.Label(
+            self._content, textvariable=detail, wraplength=760, justify="left",
+        ).pack(anchor="w", fill="x", pady=(4, 2))
+        visible: list[PaletteCommand] = []
+        row = ttk.Frame(self._content)
+        row.pack(fill="x", pady=(4, 0))
+        open_button = ttk.Button(row, text="Open", state="disabled")
+        open_button.pack(side="right", padx=5)
+        ttk.Button(row, text="Close", command=self.clear).pack(side="right")
+
+        def selected() -> PaletteCommand | None:
+            selection = results.curselection()
+            if not selection:
+                return None
+            index = int(selection[0])
+            return visible[index] if 0 <= index < len(visible) else None
+
+        def update_selection(_event=None) -> None:
+            command = selected()
+            if command is None:
+                detail.set("No local command selected.")
+                open_button.configure(state="disabled")
+                return
+            suffix = (
+                f" Blocked: {command.blocked_reason}"
+                if not command.enabled else
+                (" Opens the normal preview page." if command.protected else "")
+            )
+            detail.set(command.description + suffix)
+            open_button.configure(state="normal" if command.enabled else "disabled")
+
+        def render(*_args) -> None:
+            visible[:] = match_palette(commands, self._palette_query.get())
+            results.delete(0, "end")
+            for command in visible:
+                prefix = "Blocked · " if not command.enabled else ""
+                results.insert("end", prefix + command.label)
+            if visible:
+                results.selection_set(0)
+            update_selection()
+
+        def open_selected(_event=None):
+            command = selected()
+            if command is None or not command.enabled:
+                return "break"
+            self.clear()
+            on_open(command)
+            return "break"
+
+        open_button.configure(command=open_selected)
+        results.bind("<<ListboxSelect>>", update_selection)
+        results.bind("<Return>", open_selected)
+        search.bind("<Return>", open_selected)
+        self._palette_query.trace_add("write", render)
+        render()
+        self.pack(fill="x")
+        search.focus_set()
 
     def show_confirmation(self, confirmation: Confirmation, on_confirm) -> None:
         self.clear()

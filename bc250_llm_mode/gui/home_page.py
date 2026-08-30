@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import tkinter as tk
 from tkinter import ttk
 
+from ..presentation import format_bytes
 from .routes import Route
 from .view_state import Notice, PrimaryAction
 
@@ -139,7 +140,7 @@ def build_home_view(
 
     available = storage.get("available_bytes")
     storage_summary = (
-        f"{float(available) / 1024**3:.1f} GiB available"
+        f"{format_bytes(available)} available"
         if isinstance(available, (int, float)) else evidence(storage)
     )
     gateway = integrations.get("gateway")

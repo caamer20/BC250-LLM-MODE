@@ -112,6 +112,7 @@ class Application:
     conversations: Any = None
     chat_observation: Any = None
     preferences: Any = None
+    privacy: Any = None
     operational: bool = False
     repair_reason: str | None = None
 
@@ -396,6 +397,9 @@ class Application:
             platform=application.platform,
             notifications=application.notifications,
         )
+        from .privacy_center import PrivacyCenterQueryService
+
+        application.privacy = PrivacyCenterQueryService(application.paths)
         from .desktop_integration import DesktopIntegrationService
 
         application.desktop_integration = DesktopIntegrationService(

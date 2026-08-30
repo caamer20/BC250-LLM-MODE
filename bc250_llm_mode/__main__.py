@@ -288,6 +288,10 @@ def _parser() -> argparse.ArgumentParser:
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
     )
+    sub.add_parser(
+        "privacy",
+        help="Print the local data, retention, and network privacy inventory",
+    )
     platform = sub.add_parser(
         "platform",
         help="Detect host compatibility and show reviewed package/boot plans",
@@ -1208,6 +1212,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
         print(json.dumps(application.home.snapshot().to_dict(), indent=2))
+        return 0
+    if args.command == "privacy":
+        print(json.dumps(application.privacy.snapshot().to_dict(), indent=2))
         return 0
     if args.command == "maintenance":
         if args.action == "status":
