@@ -174,6 +174,7 @@ candidate-bound evidence. Run the separate Bazzite and CachyOS procedures in:
 - `docs/notification-physical-qualification.md`
 - `docs/repair-physical-qualification.md`
 - `docs/application-update-physical-qualification.md`
+- `docs/appliance-experience-physical-qualification.md`
 - `release/EVIDENCE_HANDOFF.md`
 
 Developer tests, old screenshots, plans, and pending worksheets never count as

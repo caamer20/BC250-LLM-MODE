@@ -15,7 +15,9 @@ remains available as an optional client with the same lifecycle semantics.
 
 Detailed guides: [end-user guide](docs/end-user-guide.md),
 [operator guide](docs/operator-guide.md), and
-[accessibility and privacy](docs/accessibility-privacy.md).
+[accessibility and privacy](docs/accessibility-privacy.md). Candidate-bound
+journey and resource qualification uses the deliberately pending
+[EXP-8 worksheet](docs/appliance-experience-physical-qualification.md).
 
 ## Release status
 
