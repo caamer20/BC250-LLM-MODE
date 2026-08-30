@@ -2,8 +2,8 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-4 ARE DEVELOPER-IMPLEMENTED;
-THEIR PHYSICAL EVIDENCE IS PENDING. EXP-5 THROUGH EXP-8 ARE NOT IMPLEMENTED —
+**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-5 ARE DEVELOPER-IMPLEMENTED;
+THEIR PHYSICAL EVIDENCE IS PENDING. EXP-6 THROUGH EXP-8 ARE NOT IMPLEMENTED —
 DO NOT CLAIM FULL
 EXPERIENCE OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
@@ -80,8 +80,20 @@ Implementation commits after the planning checkpoint:
 - `fa02ea7` — one-window Maintenance inbox, Home priority surfacing, explicit
   redacted checks/cleanup preview, CLI parity, post-commit operation/thermal/
   maintenance producers, and redacted support-bundle status.
+- `4d3bea1` — EXP-4 priorities, notification privacy/deduplication, producer,
+  GUI/CLI, resource-bound, clean-wheel, and physical-handoff qualification.
+- `8073cb1` — ADR 012 closed guided-repair, durable cleanup, exact Undo, and
+  local support-handoff contract.
+- `4f7047d` — exhaustive 15-action typed repair preview/run/probe mapping with
+  revision equality, disclaimer enforcement, ephemeral credential reveal, and
+  support-bundle self-verification.
+- `1a6d0c6` — durable `STORAGE_CLEANUP v1` quarantine/restore/expired-purge,
+  containment/streaming identity, crash probes, and recovery barriers without
+  a schema change.
+- `c99a34e` — evidence-gated cleanup Undo as a child operation, bounded local
+  support handoff, real one-window Repair/Cleanup/Undo page, and CLI parity.
 
-EXP-1 through EXP-4 are developer-implemented but not physically qualified on
+EXP-1 through EXP-5 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
 or a second-device tailnet journey; use
 `docs/connection-physical-qualification.md` on the exact candidate. The next
@@ -91,8 +103,26 @@ must be measured with both a small and a 9B standard-layout model on each host,
 without storing prompts/completions. EXP-4 physical KDE enabled/disabled,
 unavailable-session, dedupe, thermal-stop, delivery-failure, resource, and
 privacy evidence must follow `docs/notification-physical-qualification.md` on
-the exact candidate. The next safe boundary is EXP-5 commit 21: freeze the
-typed repair, cleanup, and undo contracts before migration 014 or repair UI.
+the exact candidate. EXP-5 interruption, recovery, rollback, credential,
+sharing, desktop-return, quarantine/restore/purge, and privacy evidence must
+follow `docs/repair-physical-qualification.md`. The next safe boundary is
+EXP-6 commit 26: freeze the signed two-slot application-update contract before
+migration 014 or any updater code.
+
+EXP-5 developer qualification at this checkpoint: authoritative default
+collection **1374** (**1372 passed + 2 expected platform skips**, exit 0);
+complete slow battery **52/52**; frozen EXP-5/cleanup/Undo/CLI/support battery
+**30/30**; focused docs/package/GUI/architecture/service battery **64/64**;
+forced compileall and `git diff --check` clean. The qualification proves the
+full cleanup death/reclaim matrix—including death after the external rename
+before its receipt—multi-target recovery, exclusions, cancellation, Undo
+expiry/supersession, post-effect verification, and secret-free support. A
+clean source → sdist → wheel build was installed outside the checkout: schema
+13 initialized, all 15 Repair actions composed, the installed CLI exposed
+Repair and durable cleanup, and the wheel contained Repair/Undo/support/
+cleanup modules without deleted legacy GUI modules. Physical Bazzite/CachyOS
+behavior remains evidence pending and was not fabricated. The nine
+owner-controlled untracked files remain untouched.
 
 EXP-4 developer qualification at this checkpoint: authoritative default
 collection **1336** (**1334 passed + 2 expected platform skips**, exit 0);

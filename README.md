@@ -35,6 +35,12 @@ unsatisfied), *published* (exact artifacts externally published and verified).
   and stop-only idle behavior are developer-qualified. Physical calibration on
   Bazzite and CachyOS with small and 9B standard-layout models remains pending;
   estimates and simulated metrics are never presented as hardware results.
+- EXP-4 Maintenance/notification and EXP-5 guided repair, durable cleanup, and
+  evidence-gated Undo are implemented with bounded deterministic tests. Their
+  KDE delivery and repair/cleanup/restore physical matrices remain evidence
+  pending on both advertised host profiles; see
+  `docs/notification-physical-qualification.md` and
+  `docs/repair-physical-qualification.md`.
 - Release qualification is decided ONLY by the evidence-driven evaluator
   (`python -m tools.release evaluate`); the release workflow builds once,
   verifies, attests, verifies the attestations, and gates approval/publish on
@@ -189,6 +195,12 @@ window. The experience provides:
 - a five-item, risk-ordered Maintenance inbox with explicit evidence freshness,
   an on-demand full check, cleanup preview, and optional fixed-copy local
   notifications that are disabled by default;
+- a native guided Repair page whose closed actions show exact preconditions,
+  mutation steps, reversibility, expected revisions, confirmation, verified
+  result, and a privacy-safe local support handoff;
+- durable storage quarantine for proven abandoned app staging, exact restore,
+  explicit expired purge, and Undo only while the retained receipt, identity,
+  deadline, lineage, and resource leases still prove the inverse is true;
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - native bounded streaming chat plus optional terminal-chat launch;
 - recent model-server and setup logs only when the in-window drawer is opened;
@@ -438,6 +450,19 @@ bc250-llm-mode maintenance check       Explicitly refresh doctor, storage, topol
                                        optional-service, and thermal evidence
 bc250-llm-mode maintenance cleanup --dry-run
                                        Preview ranked cleanup candidates; never deletes
+bc250-llm-mode repair list
+bc250-llm-mode repair preview ACTION [TARGET]
+bc250-llm-mode repair run ACTION [TARGET] --preview SHA256 --confirm TOKEN
+bc250-llm-mode repair verify ACTION [TARGET]
+                                       Inspect, run, and verify one closed typed repair
+bc250-llm-mode storage cleanup --dry-run [--mode QUARANTINE|RESTORE|PURGE]
+  [--target OPAQUE-ID]                 Preview exact app-owned durable cleanup
+bc250-llm-mode storage cleanup --apply --preview SHA256 --confirm TOKEN
+  [--mode MODE] [--target OPAQUE-ID]   Apply only that unexpired cleanup preview
+bc250-llm-mode undo list
+bc250-llm-mode undo preview UNDO-ID
+bc250-llm-mode undo run UNDO-ID --preview SHA256 --confirm TOKEN
+                                       Run an exact evidence-backed child inverse
 bc250-llm-mode notifications status|test
                                        Show redacted delivery state or send fixed test copy
 bc250-llm-mode notifications set CATEGORY on|off
@@ -483,11 +508,38 @@ The command does not delete models, containers, or setup records.
 
 ## Repair, update, and uninstall
 
-Rerun the idempotent setup flow:
+Open the native Maintenance · Repair page:
 
 ```bash
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode repair
 ```
+
+Opening Repair does not reset setup or mutate the host. Choose a repair,
+provide an opaque target only when requested, and preview it. The preview binds
+the exact action, mutation steps, observed revisions/lease generations,
+evidence digest, and expiry. **Run verified repair** is enabled only when every
+precondition passes; the service re-observes the same facts immediately before
+the effect and verifies the result afterward.
+
+Storage cleanup defaults to a dry run and only discovers app-owned staging
+associated with terminal durable operations. Quarantine is a same-filesystem,
+no-replace move with a retained receipt. Undo is offered only while that exact
+receipt and tree still verify, the seven-day deadline has not elapsed, no child
+operation superseded it, and both storage resources are available. Purge is a
+separate explicit irreversible mode after retention; it is never called Undo.
+External models, active/known-good/runtime/backup/application/profile/
+credential/conversation/log data, symlinks, special files, and mount crossings
+are excluded.
+
+Repair failure output contains stable IDs and bounded offline argv only. A
+support bundle is created solely by an explicit local action, self-checks its
+manifest, and is never uploaded by the application. One-time credential
+material is excluded from JSON/support output and shown only through the
+existing time-limited interactive reveal.
+
+The exact physical qualification checklist is
+[`docs/repair-physical-qualification.md`](docs/repair-physical-qualification.md).
+No physical PASS is inferred from developer tests.
 
 Update a source checkout:
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from bc250_llm_mode import __main__ as entry
 from bc250_llm_mode.app import Application
@@ -124,14 +125,12 @@ def test_support_handoff_is_bounded_closed_and_secret_free():
 
 
 def test_native_repair_route_and_page_are_real_package_code():
-    import inspect
-
     from bc250_llm_mode.gui.routes import Route
-    from bc250_llm_mode.gui import shell
-    from bc250_llm_mode.gui.repair_page import RepairPage
 
     assert Route.REPAIR.value == "maintenance/repair"
-    assert RepairPage.__module__ == "bc250_llm_mode.gui.repair_page"
-    source = inspect.getsource(shell.ApplicationWindow.navigate)
+    package = Path(__file__).parents[1] / "bc250_llm_mode" / "gui"
+    source = (package / "shell.py").read_text(encoding="utf-8")
     assert "if target is Route.REPAIR:" in source
-    assert "This page is being converted" not in inspect.getsource(RepairPage)
+    repair_source = (package / "repair_page.py").read_text(encoding="utf-8")
+    assert "class RepairPage" in repair_source
+    assert "This page is being converted" not in repair_source

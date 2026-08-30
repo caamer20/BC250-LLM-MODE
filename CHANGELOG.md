@@ -5,6 +5,36 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Appliance experience EXP-5
+
+- Added ADR 012 and a closed 15-action Repair contract. Every action now has a
+  typed owner, bounded preconditions/evidence, exact revision-bound preview,
+  confirmation token, success probe, closed result code, and explicit
+  reversibility/prior-state semantics; route strings and arbitrary commands
+  are never executable.
+- Added durable `STORAGE_CLEANUP v1` to the one operation registry without a
+  schema change. It holds `model-storage` and `storage-cleanup` in sorted order,
+  quarantines only verified terminal-operation staging by no-replace rename,
+  restores exact retained identities, and permits explicit purge only after a
+  seven-day receipt deadline. Partial permanent deletion becomes
+  `RECOVERY_REQUIRED` and retains the lease barrier.
+- Added evidence-derived Undo for cleanup quarantine only. Undo revalidates the
+  receipt/tree/deadline/source revision/child lineage/lease generations and
+  creates a child RESTORE operation; expiry, supersession, or stale preview
+  refuses before mutation. There is no generic inverse or history rewrite.
+- Added a real one-window Maintenance · Repair page with Repairs, Storage
+  cleanup, and Undo tabs, plus matching `repair`, `storage cleanup`, and `undo`
+  CLI groups. Opening Repair no longer resets setup.
+- Added privacy-safe support handoff records containing stable IDs,
+  prior-state survival, local-bundle availability, and bounded closed-table
+  argv. Credential bytes remain ephemeral and never enter JSON or support
+  output; the application never uploads a support bundle.
+- Added deterministic death/reclaim, partial-multi-target, cancellation,
+  exclusion, preview, expiry/supersession, CLI/GUI parity, and privacy tests.
+  Physical Bazzite/CachyOS interruption, rollback, credential, sharing,
+  desktop-return, quarantine/restore/purge, and local-support qualification is
+  explicitly evidence pending.
+
 ### Appliance experience EXP-3 and EXP-4
 
 - Added named built-in/custom workload profiles, exact preview fingerprints,
