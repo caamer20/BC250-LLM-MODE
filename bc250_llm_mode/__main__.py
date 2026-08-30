@@ -86,7 +86,31 @@ def _parser() -> argparse.ArgumentParser:
         "desktop-integration", help="Manage the user-local application-menu launcher"
     )
     desktop_integration.add_argument("action", choices=("status", "plan", "install", "remove"))
-    sub.add_parser("repair", help="Open the native wizard at hardware validation")
+    repair = sub.add_parser(
+        "repair", help="Open Repair or use typed preview/run/verify commands"
+    )
+    repair_sub = repair.add_subparsers(dest="repair_action")
+    repair_sub.add_parser("list", help="List typed repair actions")
+    for repair_verb in ("preview", "run", "verify"):
+        command = repair_sub.add_parser(
+            repair_verb, help=f"{repair_verb.title()} one typed repair action"
+        )
+        command.add_argument("action_id")
+        command.add_argument("target", nargs="?")
+        if repair_verb == "run":
+            command.add_argument("--preview", required=True)
+            command.add_argument("--confirm", required=True)
+    undo = sub.add_parser(
+        "undo", help="List or execute evidence-backed exact inverses"
+    )
+    undo_sub = undo.add_subparsers(dest="undo_action", required=True)
+    undo_sub.add_parser("list", help="List currently available exact inverses")
+    undo_preview = undo_sub.add_parser("preview", help="Preview one exact inverse")
+    undo_preview.add_argument("undo_id")
+    undo_run = undo_sub.add_parser("run", help="Run one exact inverse")
+    undo_run.add_argument("undo_id")
+    undo_run.add_argument("--preview", required=True)
+    undo_run.add_argument("--confirm", required=True)
     sub.add_parser(
         "repair-status",
         help="Report why the state migration requires repair (repair mode)",
@@ -304,6 +328,21 @@ def _parser() -> argparse.ArgumentParser:
         help="Capacity/dedup report and ranked cleanup suggestions (never deletes)",
     )
     storage.add_argument("action", choices=("report", "cleanup"))
+    storage.add_argument(
+        "--dry-run", action="store_true",
+        help="Preview durable app-owned cleanup; never mutates",
+    )
+    storage.add_argument(
+        "--apply", action="store_true",
+        help="Apply an exact durable cleanup preview",
+    )
+    storage.add_argument(
+        "--mode", choices=("QUARANTINE", "RESTORE", "PURGE"),
+        default="QUARANTINE",
+    )
+    storage.add_argument("--target", action="append", default=[])
+    storage.add_argument("--preview")
+    storage.add_argument("--confirm")
     maintenance = sub.add_parser(
         "maintenance", help="Show or refresh the prioritized maintenance inbox"
     )
@@ -464,6 +503,86 @@ def _retry_import_from(application, source: Path) -> int:
     return 0
 
 
+def _run_repair_cli(application, args, state: dict[str, Any]) -> int:
+    """Shared typed Repair boundary; stdout is always secret-free JSON."""
+    from .repair_commands import RepairCommandError
+
+    action = args.repair_action
+    try:
+        if action == "list":
+            payload: Any = application.repair_commands.list_actions()
+            ok = True
+            result = None
+        elif action == "preview":
+            result = application.repair_commands.preview(
+                args.action_id, args.target
+            )
+            payload = result.to_dict()
+            ok = result.ready
+        elif action == "verify":
+            result = application.repair_commands.verify(
+                args.action_id, args.target
+            )
+            payload = result.to_dict()
+            ok = result.ok
+        else:
+            # Never generate a one-time credential into a non-interactive
+            # sink where it would be irretrievably lost or mixed with JSON.
+            if (
+                args.action_id == "rotate-gateway-credentials"
+                and not sys.stderr.isatty()
+            ):
+                print(
+                    "error: credential rotation requires an interactive terminal",
+                    file=sys.stderr,
+                )
+                return 2
+            require_acknowledgment(state)
+            result = application.repair_commands.run(
+                args.action_id,
+                args.target,
+                preview_digest=args.preview,
+                confirmation_token=args.confirm,
+            )
+            payload = result.to_dict()
+            ok = result.ok
+            if result.one_time_secret is not None:
+                print(
+                    "API key (shown once): " + result.one_time_secret,
+                    file=sys.stderr,
+                )
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0 if ok else 1
+    except RepairCommandError as exc:
+        print(json.dumps({
+            "outcome": "REFUSED", "result_code": exc.code,
+        }, sort_keys=True))
+        return 1
+    except KeyError:
+        print(json.dumps({
+            "outcome": "REFUSED", "result_code": "UNKNOWN_REPAIR_ACTION",
+        }, sort_keys=True))
+        return 1
+
+
+def _run_undo_cli(application, args, state: dict[str, Any]) -> int:
+    if args.undo_action == "list":
+        print(json.dumps(application.undo.list(), indent=2, sort_keys=True))
+        return 0
+    if args.undo_action == "preview":
+        preview = application.undo.preview(args.undo_id)
+        print(json.dumps(preview.to_dict(), indent=2, sort_keys=True))
+        return 0 if preview.ready else 1
+    require_acknowledgment(state)
+    result = application.undo.run(
+        args.undo_id,
+        preview_digest=args.preview,
+        confirmation_token=args.confirm,
+    )
+    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    return 0 if result.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     # Composition root: one validated path profile drives every surface.
@@ -539,16 +658,20 @@ def main(argv: list[str] | None = None) -> int:
             route=getattr(args, "route", None),
         )
         return 0
+    if args.command == "repair" and args.repair_action is not None:
+        return _run_repair_cli(application, args, state)
+    if args.command == "undo":
+        return _run_undo_cli(application, args, state)
     if args.command == "repair":
         if not bootstrap_tkinter(application):
             return 0
         from .gui import run_gui
-        if application.setup is not None:
-            reset = application.setup.reset_for_repair("repair command")
-            state.update(setup_complete=False, setup_phase=reset["phase"])
-        else:
-            state.update(setup_complete=False, setup_phase=0)
-        run_gui(application, management=bool(state.get("setup_complete")))
+        management = bool(state.get("setup_complete"))
+        run_gui(
+            application,
+            management=management,
+            route="maintenance/repair" if management else None,
+        )
         return 0
     if args.command == "chat":
         require_acknowledgment(state)
@@ -1213,9 +1336,35 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(outcome.to_dict(), indent=2))
         return 0 if outcome.ok else 1
     if args.command == "storage":
-        # P6 §12.3: capacity/dedup report + ranked cleanup (never deletes).
+        # The legacy no-flag cleanup view remains a query-only compatibility
+        # report. Explicit --dry-run/--apply use durable EXP-5 cleanup.
         if args.action == "report":
+            if args.dry_run or args.apply:
+                raise ValueError("storage report does not accept cleanup flags")
             print(json.dumps(application.storage_capacity.report(), indent=2))
+            return 0
+        if args.apply:
+            if args.dry_run:
+                raise ValueError("choose either --dry-run or --apply")
+            if not args.preview or not args.confirm:
+                raise ValueError(
+                    "storage cleanup --apply requires --preview and --confirm"
+                )
+            require_acknowledgment(state)
+            outcome = application.storage_cleanup.apply(
+                mode=args.mode,
+                target_ids=args.target or None,
+                preview_digest=args.preview,
+                confirmation_token=args.confirm,
+                requested_by="cli",
+            )
+            print(json.dumps(outcome.to_dict(), indent=2, sort_keys=True))
+            return 0 if outcome.ok else 1
+        if args.dry_run:
+            preview = application.storage_cleanup.preview(
+                mode=args.mode, target_ids=args.target or None
+            )
+            print(json.dumps(preview.to_dict(), indent=2, sort_keys=True))
             return 0
         print(json.dumps(application.storage_capacity.dry_run_cleanup(), indent=2))
         return 0

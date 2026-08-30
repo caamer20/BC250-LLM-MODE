@@ -97,6 +97,7 @@ class Application:
     model_library: Any = None
     storage_capacity: Any = None
     storage_cleanup: Any = None
+    undo: Any = None
     platform: Any = None
     desktop_integration: Any = None
     optimizations: Any = None
@@ -613,6 +614,14 @@ class Application:
             units=units,
             enqueue=enqueue,
             engine_factory=engine_factory,
+            adapter=cleanup_adapter,
+            clock=utcnow,
+        )
+        from .undo import UndoService
+
+        application.undo = UndoService(
+            units=units,
+            cleanup=application.storage_cleanup,
             adapter=cleanup_adapter,
             clock=utcnow,
         )

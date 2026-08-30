@@ -281,9 +281,9 @@ class MaintenancePage(ttk.Frame):
         category = str(item.get("category"))
         routes = {
             "SAFETY": Route.SYSTEM,
-            "RECOVERY": Route.ACTIVITY,
+            "RECOVERY": Route.REPAIR,
             "SECURITY": Route.CONNECTIONS,
-            "INTEGRITY": Route.MODELS,
+            "INTEGRITY": Route.REPAIR,
             "OPERATION": Route.ACTIVITY,
         }
         if category in routes:
@@ -326,16 +326,7 @@ class MaintenancePage(ttk.Frame):
         self.shell._work(action, done)
 
     def _cleanup_preview(self) -> None:
-        def apply(report) -> None:
-            self.shell.drawer.show_details(
-                "Storage cleanup preview",
-                json.dumps(report, indent=2, sort_keys=True)[:8192],
-            )
-
-        self.shell.request_observation(
-            self.application.storage_capacity.dry_run_cleanup,
-            apply,
-        )
+        self.shell.navigate(Route.REPAIR, {"section": "cleanup"})
 
     def _apply_notifications(self) -> None:
         changes = {

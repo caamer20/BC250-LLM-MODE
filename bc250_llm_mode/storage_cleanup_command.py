@@ -139,6 +139,7 @@ class StorageCleanupCommandService:
         preview_digest: str,
         confirmation_token: str,
         requested_by: str = "cli",
+        parent_operation_id: str | None = None,
     ) -> CleanupOutcome:
         with self._units.read() as conn:
             from .repositories import SettingsRepository
@@ -168,6 +169,9 @@ class StorageCleanupCommandService:
                 "requested_by": requested_by,
             },
             surface=requested_by,
+            parent_operation_id=(
+                parent_operation_id or self._derived_parent(current)
+            ),
         )
         outcome = self._engine_factory().execute_one(record.id)
         with self._units.read() as conn:
@@ -206,7 +210,8 @@ class StorageCleanupCommandService:
         )
 
     def restore_target(
-        self, target_id: str, *, requested_by: str = "undo"
+        self, target_id: str, *, requested_by: str = "undo",
+        parent_operation_id: str | None = None,
     ) -> CleanupOutcome:
         preview = self.preview(mode="RESTORE", target_ids=(target_id,))
         return self.apply(
@@ -214,7 +219,19 @@ class StorageCleanupCommandService:
             preview_digest=preview.preview_digest,
             confirmation_token=preview.confirmation_token,
             requested_by=requested_by,
+            parent_operation_id=parent_operation_id,
         )
+
+    @staticmethod
+    def _derived_parent(preview: CleanupPreview) -> str | None:
+        if preview.mode not in {"RESTORE", "PURGE"}:
+            return None
+        parents = {
+            str(item.get("quarantine_operation_id") or "")
+            for item in preview.selected
+        }
+        parents.discard("")
+        return next(iter(parents)) if len(parents) == 1 else None
 
     @staticmethod
     def _request_target(item: dict[str, Any]) -> dict[str, Any]:

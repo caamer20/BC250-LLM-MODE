@@ -266,6 +266,88 @@ class StorageCleanupHostAdapter(StorageCleanupHost):
             item["kind"], item["target_id"]
         ))[:MAX_DISCOVERY_ENTRIES]
 
+    def inspect_receipt(
+        self, quarantine_operation_id: str, target_id: str
+    ) -> dict[str, Any]:
+        """Re-observe one retained cleanup effect without exposing paths."""
+        qop = self._safe_segment(quarantine_operation_id)
+        target = self._safe_segment(target_id)
+        receipt_path = self.cleanup_root / qop / f"{target}.cleanup.json"
+        receipt = read_receipt(receipt_path) or {}
+        if (
+            receipt.get("receipt_version") != RECEIPT_VERSION
+            or receipt.get("target_id") != target
+            or receipt.get("quarantine_operation_id") != qop
+        ):
+            return {
+                "status": "UNAVAILABLE",
+                "reason_code": "UNDO_SUPERSEDED",
+                "state": "MISSING_OR_INVALID",
+            }
+        state = str(receipt.get("state") or "UNKNOWN")
+        retention = str(receipt.get("retention_until") or "")
+        receipt_digest = hashlib.sha256(
+            json.dumps(
+                receipt, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        result: dict[str, Any] = {
+            "status": "UNAVAILABLE",
+            "reason_code": "UNDO_SUPERSEDED",
+            "state": state,
+            "receipt_digest": receipt_digest,
+            "retention_until": retention,
+            "target_id": target,
+            "quarantine_operation_id": qop,
+        }
+        if state != "QUARANTINED":
+            return result
+        try:
+            expired = _parse_time(retention) <= _parse_time(self._clock())
+        except CleanupRefusal:
+            return result
+        if expired:
+            result["reason_code"] = "UNDO_EXPIRED"
+            return result
+        retained = self.cleanup_root / qop / target
+        try:
+            identity = _tree_identity(retained)
+        except CleanupRefusal:
+            result["reason_code"] = "IDENTITY_MISMATCH"
+            return result
+        if (
+            identity["tree_digest"] != receipt.get("expected_tree_digest")
+            or identity["bytes"] != receipt.get("expected_bytes")
+            or identity["files"] != receipt.get("expected_files")
+        ):
+            result["reason_code"] = "IDENTITY_MISMATCH"
+            return result
+        result.update({
+            "status": "AVAILABLE",
+            "reason_code": None,
+            "kind": "CLEANUP_QUARANTINE",
+            "relative_name": str(receipt.get("relative_name") or ""),
+            "expected_tree_digest": identity["tree_digest"],
+            "expected_bytes": identity["bytes"],
+            "expected_files": identity["files"],
+            "owner_operation_id": str(receipt.get("owner_operation_id") or ""),
+        })
+        return result
+
+    @staticmethod
+    def _safe_segment(value: str) -> str:
+        candidate = str(value)
+        if (
+            not 1 <= len(candidate) <= 128
+            or candidate in {".", ".."}
+            or "/" in candidate
+            or "\\" in candidate
+            or "\x00" in candidate
+            or "\n" in candidate
+        ):
+            raise CleanupRefusal("CLEANUP_IDENTITY_INVALID")
+        return candidate
+
     def _bounded_children(self, root: Path) -> list[Path]:
         try:
             with os.scandir(root) as stream:

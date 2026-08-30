@@ -225,6 +225,32 @@ class OperationRepository:
         ).fetchall()
         return [_operation_from_row(row) for row in rows]
 
+    def list_children(
+        self,
+        parent_operation_id: str,
+        *,
+        operation_type: str | None = None,
+        limit: int = 50,
+    ) -> list[OperationRecord]:
+        """Return a bounded lineage view without exposing ad-hoc SQL.
+
+        Parent/child history is immutable. Undo uses this view to prove that
+        an effect has not already been superseded by a later inverse.
+        """
+        clauses = ["parent_operation_id = ?"]
+        params: list[Any] = [parent_operation_id]
+        if operation_type is not None:
+            clauses.append("operation_type = ?")
+            params.append(operation_type)
+        params.append(max(1, min(int(limit), 200)))
+        rows = self.conn.execute(
+            f"SELECT {_ROW_COLUMNS} FROM operations WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY created_at DESC, id DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [_operation_from_row(row) for row in rows]
+
     # -- U1.4 query window (one SELECT per page; never N+1) -----------------
 
     _TERMINAL_SQL = (

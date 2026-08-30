@@ -131,7 +131,14 @@ class ApplicationWindow(SetupWindow):
             setup_complete=bool(self.state_data.get("setup_complete")),
             operational=bool(getattr(self.application, "operational", True)),
         )
-        if target not in permitted and target is not Route.SETUP:
+        is_management_subroute = (
+            target in {Route.REPAIR, Route.UPDATES} and Route.HOME in permitted
+        )
+        if (
+            target not in permitted
+            and target is not Route.SETUP
+            and not is_management_subroute
+        ):
             return
         current_page = self._page
         if current_page is not None and target is not self._route:
@@ -209,6 +216,15 @@ class ApplicationWindow(SetupWindow):
             from .maintenance_page import MaintenancePage
 
             self._page = MaintenancePage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
+        if target is Route.REPAIR:
+            self.heading.configure(text="Maintenance · Repair")
+            from .repair_page import RepairPage
+
+            self._page = RepairPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
             self.heading.focus_set()
@@ -413,6 +429,7 @@ class ApplicationWindow(SetupWindow):
         if page is not None and self._route in {
             Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
             Route.ACTIVITY, Route.MAINTENANCE,
+            Route.REPAIR,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:

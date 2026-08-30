@@ -172,7 +172,9 @@ class RepairResult:
         return self.outcome == "SUCCEEDED" and self.probe.passed
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        from .support_handoff import repair_support_handoff
+
+        payload = {
             "schema_version": REPAIR_CENTER_SCHEMA_VERSION,
             "contract_version": REPAIR_CONTRACT_VERSION,
             "action_id": self.action_id,
@@ -186,6 +188,17 @@ class RepairResult:
             "probe": self.probe.to_dict(),
             "has_one_time_secret": self.one_time_secret is not None,
         }
+        payload["support_handoff"] = repair_support_handoff(
+            action_id=self.action_id,
+            target_id=self.target_id,
+            result_code=self.result_code,
+            probe_code=self.probe.code,
+            operation_id=self.operation_id,
+            prior_state_survives=self.probe.prior_state_survives,
+            support_relevance=self.support_relevance,
+            recovery_required=self.outcome == "RECOVERY_REQUIRED",
+        ).to_dict()
+        return payload
 
 
 class RepairCommandService:
