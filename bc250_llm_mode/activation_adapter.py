@@ -103,6 +103,7 @@ class ActivationHostAdapter:
         state_supplier: Callable[[], dict[str, Any]],
         runner_factory: Callable[[], Any],
         server_port: Any | None = None,
+        profile_query: Any | None = None,
         monotonic: Any = None,
         sleep: Any = None,
     ) -> None:
@@ -112,6 +113,7 @@ class ActivationHostAdapter:
         self._state_supplier = state_supplier
         self._runner_factory = runner_factory
         self._server = server_port or ActivationServerPort()
+        self._profile_query = profile_query
         self._monotonic = monotonic or time.monotonic
         self._sleep = sleep or time.sleep
 
@@ -123,7 +125,7 @@ class ActivationHostAdapter:
         view = self._view()
         view["current_model"] = candidate.model_alias
         view["current_ctx"] = candidate.context_per_slot
-        optimizations = dict(view.get("optimizations") or {})
+        optimizations = dict(candidate.settings or view.get("optimizations") or {})
         optimizations["parallel_slots"] = candidate.parallel_slots
         view["optimizations"] = optimizations
         return view
@@ -135,22 +137,20 @@ class ActivationHostAdapter:
     def _identity(self, path) -> tuple[str, int, str]:
         return streaming_identity(path)
 
-    def _matches_request(
-        self, request: ModelActivateRequestV1, current: dict[str, Any]
+    def _matches_candidate(
+        self, candidate: CandidateRuntimeV1, current: dict[str, Any]
     ) -> bool:
-        if current.get("model_alias") != request.model_alias:
+        if current.get("model_alias") != candidate.model_alias:
             return False
-        if (
-            request.context_per_slot is not None
-            and current.get("context") != request.context_per_slot
-        ):
+        if current.get("context") != candidate.context_per_slot:
             return False
-        if (
-            request.parallel_slots is not None
-            and current.get("slots") != request.parallel_slots
-        ):
+        if current.get("slots") != candidate.parallel_slots:
             return False
-        return True
+        return (
+            current.get("profile_id") == candidate.profile_id
+            and current.get("profile_revision") == candidate.profile_revision
+            and current.get("profile_fingerprint") == candidate.profile_fingerprint
+        )
 
     # -- port: resolve / observe candidate ---------------------------------------
     def resolve_candidate(
@@ -173,16 +173,73 @@ class ActivationHostAdapter:
         verdict = gguf_layout_verdict(path)
         if verdict != VERDICT_STANDARD:
             raise ArtifactRejected(f"MODEL_LAYOUT_{verdict.upper()}")
-        resolved = self._runtime.preview(
-            {
-                "model_alias": request.model_alias,
-                "context": request.context_per_slot,
-                "slots": request.parallel_slots,
-            }
-        )
+        desired: dict[str, Any] = {
+            "model_alias": request.model_alias,
+            "context": request.context_per_slot,
+            "slots": request.parallel_slots,
+            "profile_id": None,
+            "profile_revision": None,
+            "profile_fingerprint": None,
+        }
+        profile_id = None
+        profile_revision = None
+        profile_fingerprint = None
+        profile_preview = None
+        if request.profile_id is not None:
+            from .workload_profiles import (
+                WorkloadProfileCommandError,
+                WorkloadProfileError,
+                decode_profile_binding,
+            )
+
+            if self._profile_query is None:
+                raise ArtifactRejected("PROFILE_RESOLVER_UNAVAILABLE")
+            try:
+                binding = decode_profile_binding(request.profile_id)
+                profile_preview = self._profile_query.preview(
+                    binding.profile_id, model_alias=request.model_alias
+                )
+            except (WorkloadProfileError, WorkloadProfileCommandError) as exc:
+                raise ArtifactRejected(getattr(exc, "code", "PROFILE_BINDING_INVALID")) from exc
+            if (
+                profile_preview.get("profile_revision") != binding.revision
+                or profile_preview.get("profile_fingerprint") != binding.fingerprint
+            ):
+                raise ArtifactRejected("PROFILE_PREVIEW_STALE")
+            if profile_preview.get("refusal_code"):
+                raise ArtifactRejected(str(profile_preview["refusal_code"]))
+            if (
+                profile_preview.get("tight_confirmation_required")
+                and not binding.tight_confirmed
+            ):
+                raise ArtifactRejected("TIGHT_CONFIRMATION_REQUIRED")
+            if (
+                request.context_per_slot != profile_preview.get("context_per_slot")
+                or request.parallel_slots != profile_preview.get("slots")
+            ):
+                raise ArtifactRejected("PROFILE_REQUEST_MISMATCH")
+            profile_id = binding.profile_id
+            profile_revision = binding.revision
+            profile_fingerprint = binding.fingerprint
+            desired.update({
+                "context": int(profile_preview["context_per_slot"]),
+                "slots": int(profile_preview["slots"]),
+                "optimizations_patch": dict(
+                    profile_preview.get("resolved_optimizations") or {}
+                ),
+                "profile_id": profile_id,
+                "profile_revision": profile_revision,
+                "profile_fingerprint": profile_fingerprint,
+            })
+        resolved = self._runtime.preview(desired)
         context = int(resolved["context_per_slot"])
         slots = int(resolved["slots"])
         digest, size, identity = self._identity(path)
+        if (
+            profile_preview is not None
+            and digest != profile_preview.get("model_content_digest")
+        ):
+            raise ArtifactRejected("ARTIFACT_IDENTITY_CHANGED")
         partial = CandidateRuntimeV1(
             model_alias=request.model_alias,
             canonical_path=str(path),
@@ -196,6 +253,9 @@ class ActivationHostAdapter:
             layout_verdict=verdict,
             context_per_slot=context,
             parallel_slots=slots,
+            profile_id=profile_id,
+            profile_revision=profile_revision,
+            profile_fingerprint=profile_fingerprint,
         )
         view = self._candidate_view(partial)
         from .runtime_handoff import runtime_fingerprint
@@ -213,8 +273,8 @@ class ActivationHostAdapter:
         return dataclasses.replace(
             partial,
             settings=dict(resolved["resolved_optimizations"]),
-            fit_verdict="OK",
-            fit_detail=str(resolved.get("warnings") or ""),
+            fit_verdict=str((resolved.get("fit") or {}).get("verdict") or ""),
+            fit_detail=str((resolved.get("fit") or {}).get("detail") or ""),
             runtime_fingerprint=runtime_fingerprint(view),
             component_identity=str(identity),
         )
@@ -278,6 +338,9 @@ class ActivationHostAdapter:
                 "context_per_slot": int(current.get("context") or 0),
                 "parallel_slots": int(current.get("slots") or 1),
                 "optimizations": dict(current.get("optimizations") or {}),
+                "profile_id": current.get("profile_id"),
+                "profile_revision": current.get("profile_revision"),
+                "profile_fingerprint": current.get("profile_fingerprint"),
             },
             handoff_fingerprint=(
                 payload.get("runtime_fingerprint") if payload else None
@@ -297,14 +360,20 @@ class ActivationHostAdapter:
 
     # -- port: commit config ------------------------------------------------------
     def commit_candidate(
-        self, request: ModelActivateRequestV1, external_effect_id: str
+        self,
+        request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
+        external_effect_id: str,
     ) -> ConfigEvidenceV1:
         result = self._runtime.commit_candidate(
             {
-                "model_alias": request.model_alias,
-                "context": request.context_per_slot,
-                "slots": request.parallel_slots,
-                "profile_id": request.profile_id,
+                "model_alias": candidate.model_alias,
+                "context": candidate.context_per_slot,
+                "slots": candidate.parallel_slots,
+                "optimizations_patch": dict(candidate.settings),
+                "profile_id": candidate.profile_id,
+                "profile_revision": candidate.profile_revision,
+                "profile_fingerprint": candidate.profile_fingerprint,
             },
             expected_revision=request.expected_runtime_revision,
         )
@@ -313,20 +382,27 @@ class ActivationHostAdapter:
             model_alias=result.resolved["model_alias"],
             context_per_slot=int(result.resolved["context_per_slot"]),
             parallel_slots=int(result.resolved["slots"]),
+            profile_id=result.resolved.get("profile_id"),
+            profile_revision=result.resolved.get("profile_revision"),
+            profile_fingerprint=result.resolved.get("profile_fingerprint"),
         )
 
     def observe_config(
         self,
         request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1,
     ) -> ProbeResult:
         current = self._runtime.current()
-        if self._matches_request(request, current):
+        if self._matches_candidate(candidate, current):
             evidence = ConfigEvidenceV1(
                 revision=int(current["revision"]),
                 model_alias=current.get("model_alias"),
                 context_per_slot=int(current.get("context") or 0),
                 parallel_slots=int(current.get("slots") or 1),
+                profile_id=current.get("profile_id"),
+                profile_revision=current.get("profile_revision"),
+                profile_fingerprint=current.get("profile_fingerprint"),
             )
             return ProbeResult(
                 RecoveryClass.COMPLETE,
@@ -340,6 +416,10 @@ class ActivationHostAdapter:
             == int(config.get("context_per_slot") or -1)
             and int(current.get("slots") or 0)
             == int(config.get("parallel_slots") or -1)
+            and current.get("profile_id") == config.get("profile_id")
+            and current.get("profile_revision") == config.get("profile_revision")
+            and current.get("profile_fingerprint")
+            == config.get("profile_fingerprint")
         )
         if same_prior or not config:
             return ProbeResult(RecoveryClass.ABSENT, "EXACT_PRIOR_CONFIG")
@@ -515,6 +595,9 @@ class ActivationHostAdapter:
             runtime=dict(candidate.settings),
             fingerprint=candidate.runtime_fingerprint,
             component_identity=candidate.component_identity,
+            profile_id=candidate.profile_id,
+            profile_revision=candidate.profile_revision,
+            profile_fingerprint=candidate.profile_fingerprint,
         )
         return KnownGoodEvidenceV1(
             model_alias=candidate.model_alias,
@@ -522,6 +605,9 @@ class ActivationHostAdapter:
             slots=int(candidate.parallel_slots),
             fingerprint=candidate.runtime_fingerprint,
             component_identity=candidate.component_identity,
+            profile_id=candidate.profile_id,
+            profile_revision=candidate.profile_revision,
+            profile_fingerprint=candidate.profile_fingerprint,
         )
 
     def observe_known_good(
@@ -539,6 +625,9 @@ class ActivationHostAdapter:
             and row.get("runtime_fingerprint") == candidate.runtime_fingerprint
             and row.get("runtime_component_identity")
             == candidate.component_identity
+            and row.get("profile_id") == candidate.profile_id
+            and row.get("profile_revision") == candidate.profile_revision
+            and row.get("profile_fingerprint") == candidate.profile_fingerprint
         )
         if matches_candidate:
             evidence = KnownGoodEvidenceV1(
@@ -547,6 +636,9 @@ class ActivationHostAdapter:
                 slots=int(row["slots"]),
                 fingerprint=row.get("runtime_fingerprint"),
                 component_identity=row.get("runtime_component_identity"),
+                profile_id=row.get("profile_id"),
+                profile_revision=row.get("profile_revision"),
+                profile_fingerprint=row.get("profile_fingerprint"),
             )
             return ProbeResult(
                 RecoveryClass.COMPLETE,
@@ -577,6 +669,10 @@ class ActivationHostAdapter:
             == int(config.get("context_per_slot") or -1)
             and int(current.get("slots") or 0)
             == int(config.get("parallel_slots") or -1)
+            and current.get("profile_id") == config.get("profile_id")
+            and current.get("profile_revision") == config.get("profile_revision")
+            and current.get("profile_fingerprint")
+            == config.get("profile_fingerprint")
         )
 
     def _service_matches_prior(
@@ -614,6 +710,11 @@ class ActivationHostAdapter:
                 and int(row.get("slots") or 0) == int(prior_kg.get("slots") or 0)
                 and row.get("runtime_fingerprint")
                 == prior_kg.get("runtime_fingerprint")
+                and row.get("profile_id") == prior_kg.get("profile_id")
+                and row.get("profile_revision")
+                == prior_kg.get("profile_revision")
+                and row.get("profile_fingerprint")
+                == prior_kg.get("profile_fingerprint")
             )
         else:
             kg_ok = False
@@ -661,6 +762,9 @@ class ActivationHostAdapter:
                 "context": int(config.get("context_per_slot") or 8192),
                 "slots": int(config.get("parallel_slots") or 4),
                 "optimizations_patch": dict(config.get("optimizations") or {}),
+                "profile_id": config.get("profile_id"),
+                "profile_revision": config.get("profile_revision"),
+                "profile_fingerprint": config.get("profile_fingerprint"),
                 "restored_content_of_revision": prior.revision,
             }
         )
@@ -718,8 +822,3 @@ class ActivationHostAdapter:
         return ProbeResult(
             RecoveryClass.UNCERTAIN_MANUAL, "NO_DURABLE_PRIOR_EVIDENCE"
         )
-
-
-
-
-

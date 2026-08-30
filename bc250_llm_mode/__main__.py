@@ -162,6 +162,51 @@ def _parser() -> argparse.ArgumentParser:
     connection_test = connection_sub.add_parser(
         "test", help="Run bounded positive and required negative endpoint probes")
     connection_test.add_argument("client_id")
+    profiles = sub.add_parser(
+        "profiles", help="Preview and apply outcome-oriented workload profiles"
+    )
+    profile_sub = profiles.add_subparsers(dest="profile_action", required=True)
+    profile_list = profile_sub.add_parser("list", help="List workload profiles")
+    profile_list.add_argument("--include-deleted", action="store_true")
+    profile_show = profile_sub.add_parser("show", help="Show one workload profile")
+    profile_show.add_argument("profile_id")
+    profile_preview = profile_sub.add_parser(
+        "preview", help="Resolve fit, thermal readiness, and rollback without writes"
+    )
+    profile_preview.add_argument("profile_id", nargs="+")
+    profile_preview.add_argument("--model", dest="model_alias")
+
+    def add_profile_values(target, *, editing: bool = False) -> None:
+        target.add_argument("--name", required=True)
+        target.add_argument("--ctx", dest="context_per_slot", type=int, required=True)
+        target.add_argument("--slots", type=int, required=True)
+        target.add_argument("--kv", dest="kv_cache_type", choices=("q8_0", "q4_0"), default="q8_0")
+        target.add_argument("--batch", dest="batch_size", type=int, default=1024)
+        target.add_argument("--ubatch", dest="ubatch_size", type=int, default=256)
+        target.add_argument("--flash", dest="flash_attention", choices=("auto", "on", "off"), default="auto")
+        target.add_argument("--preset", dest="optimization_preset_id", choices=("custom", "cool-quiet", "balanced", "maximum"), default="balanced")
+        target.add_argument("--thermal", dest="thermal_policy", choices=("standard", "cool", "throughput-guarded"), default="standard")
+        target.add_argument("--idle", dest="idle_policy", choices=("KEEP_LOADED", "STOP_AFTER", "STOP_ON_DESKTOP"), default="KEEP_LOADED")
+        target.add_argument("--stop-after", dest="stop_after_minutes", type=int)
+        if editing:
+            target.add_argument("--revision", type=int, required=True)
+
+    profile_create = profile_sub.add_parser("create", help="Create a bounded custom profile")
+    add_profile_values(profile_create)
+    profile_edit = profile_sub.add_parser("edit", help="Revision-fenced custom profile edit")
+    profile_edit.add_argument("profile_id")
+    add_profile_values(profile_edit, editing=True)
+    profile_delete = profile_sub.add_parser("delete", help="Soft-delete a custom profile")
+    profile_delete.add_argument("profile_id")
+    profile_delete.add_argument("--revision", type=int, required=True)
+    profile_apply = profile_sub.add_parser(
+        "apply", help="Apply an exact preview through durable model activation"
+    )
+    profile_apply.add_argument("profile_id")
+    profile_apply.add_argument("--model", dest="model_alias")
+    profile_apply.add_argument("--revision", type=int, required=True)
+    profile_apply.add_argument("--fingerprint", required=True)
+    profile_apply.add_argument("--accept-tight", action="store_true")
     sub.add_parser(
         "home",
         help="Print the unified appliance home snapshot (query-only) as JSON",
@@ -826,6 +871,58 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result.to_dict(), indent=2))
         if result.secret is not None:
             print("API key (shown once):", result.secret, file=sys.stderr)
+        return 0
+    if args.command == "profiles":
+        action = args.profile_action
+        query = application.workload_profiles
+        commands = application.workload_profile_commands
+        if action == "list":
+            result = query.list(include_deleted=args.include_deleted)
+        elif action == "show":
+            result = query.show(args.profile_id)
+        elif action == "preview":
+            profile_ids = tuple(args.profile_id)
+            result = (
+                query.preview(profile_ids[0], model_alias=args.model_alias)
+                if len(profile_ids) == 1
+                else query.compare(profile_ids, model_alias=args.model_alias)
+            )
+        else:
+            require_acknowledgment(state)
+            if action in {"create", "edit"}:
+                values = {
+                    key: getattr(args, key)
+                    for key in (
+                        "name", "context_per_slot", "slots", "kv_cache_type",
+                        "batch_size", "ubatch_size", "flash_attention",
+                        "optimization_preset_id", "thermal_policy", "idle_policy",
+                        "stop_after_minutes",
+                    )
+                }
+                result = (
+                    commands.create(**values)
+                    if action == "create"
+                    else commands.edit(
+                        args.profile_id,
+                        expected_revision=args.revision,
+                        **values,
+                    )
+                )
+            elif action == "delete":
+                result = commands.delete(
+                    args.profile_id, expected_revision=args.revision
+                )
+            else:
+                result = commands.apply(
+                    args.profile_id,
+                    model_alias=args.model_alias,
+                    expected_profile_revision=args.revision,
+                    preview_fingerprint=args.fingerprint,
+                    accept_tight=args.accept_tight,
+                    requested_by="cli",
+                )
+                result = result.to_dict() if hasattr(result, "to_dict") else result
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.

@@ -7,6 +7,7 @@ host effects route through injected seams (never systemd/HTTP directly).
 
 from __future__ import annotations
 
+import hashlib
 import struct
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ from bc250_llm_mode.operations.model import OperationState
 from bc250_llm_mode.operations.repositories import OperationRepository
 from bc250_llm_mode.operations.workflow import EnqueueService, WorkflowRegistry
 from bc250_llm_mode.repositories import (
+    ModelArtifactRepository,
     ModelInstallationsRepository,
     SettingsRepository,
     ThermalStateRepository,
@@ -40,6 +42,7 @@ from bc250_llm_mode.repositories import (
 from bc250_llm_mode.runtime_handoff import RuntimeHandoffRenderer
 from bc250_llm_mode.services import RuntimeConfigurationService
 from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
+from bc250_llm_mode.workload_profiles import WorkloadProfileQueryService
 
 
 def gguf_bytes(arch: bytes = b"llama", tensors: int = 1) -> bytes:
@@ -122,22 +125,17 @@ def world(tmp_path):
     units = UnitOfWorkFactory(database)
 
     model_a, model_b = CATALOG[0], CATALOG[1]
-    quant = sorted(model_a.weights_gib_by_quant)[0]
+    model_c = next(model for model in CATALOG if model.id == "qwen35-9b")
+    quant = "Q8_0"
     artifacts = {}
     records = []
-    for model in (model_a, model_b):
+    for index, model in enumerate((model_a, model_b, model_c), start=1):
         path = root / f"{model.id}.gguf"
-        path.write_bytes(gguf_bytes())
+        content = gguf_bytes(tensors=index)
+        path.write_bytes(content)
         artifacts[model.id] = path
         records.append(
-            {
-                "id": model.id,
-                "path": str(path),
-                "quant": quant,
-                "display_name": model.display_name,
-                "provenance": "managed",
-                "validation_status": "validated",
-            }
+            (model, path, content)
         )
     with units.begin() as conn:
         SettingsRepository(conn).set_many(
@@ -153,11 +151,31 @@ def world(tmp_path):
                 "service_name": "bc250-llm.service",
             }
         )
-        ModelInstallationsRepository(conn).replace_all(records)
+        artifact_repository = ModelArtifactRepository(conn)
+        installations = ModelInstallationsRepository(conn)
+        for model, path, content in records:
+            artifact_id = f"artifact-{model.id}"
+            artifact_repository.record_verified(
+                artifact_id=artifact_id,
+                content_digest=hashlib.sha256(content).hexdigest(),
+                byte_size=len(content),
+                canonical_path=str(path),
+                architecture="llama",
+                quantization=quant,
+                tensor_count=1,
+                catalog_id=model.id,
+            )
+            installations.install_alias(
+                alias=model.id,
+                artifact_id=artifact_id,
+                quant=quant,
+                display_name=model.display_name,
+            )
         # A configured system carries at least one committed revision.
         SettingsRepository(conn).set_revision(1)
 
     runtime = RuntimeConfigurationService(units, app_dir=app_dir)
+    profile_query = WorkloadProfileQueryService(units)
     renderer = RuntimeHandoffRenderer(app_dir)
     server = FakeServerPort()
 
@@ -182,6 +200,7 @@ def world(tmp_path):
         state_supplier=state_supplier,
         runner_factory=QuietRunner,
         server_port=server,
+        profile_query=profile_query,
         monotonic=lambda: 0.0,
         sleep=lambda seconds: None,
     )
@@ -192,6 +211,7 @@ def world(tmp_path):
         units=units,
         database=database,
         runtime=runtime,
+        profile_query=profile_query,
         renderer=renderer,
         server=server,
         adapter=adapter,
@@ -199,6 +219,7 @@ def world(tmp_path):
         artifacts=artifacts,
         model_a=model_a,
         model_b=model_b,
+        model_c=model_c,
         quant=quant,
         state_supplier=state_supplier,
     )
@@ -330,4 +351,3 @@ def test_wrong_health_identity_rolls_back_to_prior(world):
     kg = world.runtime.known_good()
     if kg is not None and not world.server.active:
         pytest.fail("prior known-good should survive when service restored")
-

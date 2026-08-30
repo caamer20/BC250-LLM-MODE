@@ -315,7 +315,10 @@ class FakeActivationHost:
 
     # -- port: commit config -------------------------------------------------------
     def commit_candidate(
-        self, request: ModelActivateRequestV1, external_effect_id: str
+        self,
+        request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
+        external_effect_id: str,
     ) -> ConfigEvidenceV1:
         desired = self.desired()
         expected = request.expected_runtime_revision
@@ -325,11 +328,12 @@ class FakeActivationHost:
             )
         config = self.config()
         new_config = dict(config)
-        new_config["model_alias"] = request.model_alias
-        if request.context_per_slot is not None:
-            new_config["context_per_slot"] = request.context_per_slot
-        if request.parallel_slots is not None:
-            new_config["parallel_slots"] = request.parallel_slots
+        new_config["model_alias"] = candidate.model_alias
+        new_config["context_per_slot"] = candidate.context_per_slot
+        new_config["parallel_slots"] = candidate.parallel_slots
+        new_config["profile_id"] = candidate.profile_id
+        new_config["profile_revision"] = candidate.profile_revision
+        new_config["profile_fingerprint"] = candidate.profile_fingerprint
         if self._record_effect(external_effect_id, "config_commit"):
             self._write(
                 self.desired_path,
@@ -343,42 +347,45 @@ class FakeActivationHost:
             model_alias=new_config["model_alias"],
             context_per_slot=int(new_config.get("context_per_slot", 4096)),
             parallel_slots=int(new_config.get("parallel_slots", 2)),
+            profile_id=new_config.get("profile_id"),
+            profile_revision=new_config.get("profile_revision"),
+            profile_fingerprint=new_config.get("profile_fingerprint"),
         )
 
-    def _config_matches_request(
+    def _config_matches_candidate(
         self,
-        request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
         desired: dict[str, Any],
     ) -> bool:
         config = desired.get("config") or {}
-        if config.get("model_alias") != request.model_alias:
-            return False
-        if (
-            request.context_per_slot is not None
+        return (
+            config.get("model_alias") == candidate.model_alias
             and int(config.get("context_per_slot", -1))
-            != request.context_per_slot
-        ):
-            return False
-        if (
-            request.parallel_slots is not None
-            and int(config.get("parallel_slots", -1)) != request.parallel_slots
-        ):
-            return False
-        return True
+            == candidate.context_per_slot
+            and int(config.get("parallel_slots", -1))
+            == candidate.parallel_slots
+            and config.get("profile_id") == candidate.profile_id
+            and config.get("profile_revision") == candidate.profile_revision
+            and config.get("profile_fingerprint") == candidate.profile_fingerprint
+        )
 
     def observe_config(
         self,
         request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1 | None = None,
     ) -> ProbeResult:
         desired = self.desired()
-        if self._config_matches_request(request, desired):
+        if self._config_matches_candidate(candidate, desired):
             config = desired.get("config") or {}
             evidence = ConfigEvidenceV1(
                 revision=int(desired.get("revision", 0)),
                 model_alias=config["model_alias"],
                 context_per_slot=int(config.get("context_per_slot", 4096)),
                 parallel_slots=int(config.get("parallel_slots", 2)),
+                profile_id=config.get("profile_id"),
+                profile_revision=config.get("profile_revision"),
+                profile_fingerprint=config.get("profile_fingerprint"),
             )
             return ProbeResult(
                 RecoveryClass.COMPLETE,
@@ -571,6 +578,9 @@ class FakeActivationHost:
             "slots": int(candidate.parallel_slots),
             "fingerprint": f"kg-{candidate.model_alias}",
             "component_identity": candidate.component_identity,
+            "profile_id": candidate.profile_id,
+            "profile_revision": candidate.profile_revision,
+            "profile_fingerprint": candidate.profile_fingerprint,
         }
         if self._record_effect(external_effect_id, "promote"):
             self._write(self.known_good_path, row)

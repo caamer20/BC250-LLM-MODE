@@ -525,7 +525,9 @@ class RuntimeConfigurationService:
                 "context": runtime.get("context") or int(settings.get("current_ctx", 8192)),
                 "slots": runtime.get("slots")
                 or parallel_slots_for_settings(settings.get("optimizations") or {}),
-                "profile_id": None,
+                "profile_id": runtime.get("profile_id"),
+                "profile_revision": runtime.get("profile_revision"),
+                "profile_fingerprint": runtime.get("profile_fingerprint"),
                 "optimizations": settings.get("optimizations") or {},
                 "revision": settings.revision(),
             }
@@ -575,7 +577,41 @@ class RuntimeConfigurationService:
             or runtime_row.get("slots")
             or parallel_slots_for_settings(resolved)
         )
-        profile_id = desired.get("profile_id")
+        profile_fields_supplied = any(
+            key in desired
+            for key in ("profile_id", "profile_revision", "profile_fingerprint")
+        )
+        profile_id = (
+            desired.get("profile_id")
+            if profile_fields_supplied else runtime_row.get("profile_id")
+        )
+        profile_revision = (
+            desired.get("profile_revision")
+            if profile_fields_supplied else runtime_row.get("profile_revision")
+        )
+        profile_fingerprint = (
+            desired.get("profile_fingerprint")
+            if profile_fields_supplied else runtime_row.get("profile_fingerprint")
+        )
+        if any(value is not None for value in (
+            profile_id, profile_revision, profile_fingerprint
+        )) and not all(value is not None for value in (
+            profile_id, profile_revision, profile_fingerprint
+        )):
+            raise RuntimeValidationError(
+                "profile id, revision, and fingerprint must be set together"
+            )
+        if profile_id is not None:
+            if not isinstance(profile_id, str) or not 1 <= len(profile_id) <= 64:
+                raise RuntimeValidationError("profile id is invalid")
+            if not isinstance(profile_revision, int) or isinstance(profile_revision, bool) or profile_revision < 1:
+                raise RuntimeValidationError("profile revision is invalid")
+            if (
+                not isinstance(profile_fingerprint, str)
+                or len(profile_fingerprint) != 64
+                or any(char not in "0123456789abcdef" for char in profile_fingerprint)
+            ):
+                raise RuntimeValidationError("profile fingerprint is invalid")
 
         record = next((m for m in models if m.get("id") == model_alias), None)
         if record is None:
@@ -638,6 +674,9 @@ class RuntimeConfigurationService:
             "host_tuning_changes": host_tuning_changes,
             "tested": tested,
             "warnings": warnings,
+            "profile_id": profile_id,
+            "profile_revision": profile_revision,
+            "profile_fingerprint": profile_fingerprint,
         }
 
     def preview(self, desired: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -690,6 +729,9 @@ class RuntimeConfigurationService:
             model_alias=resolved["model_alias"],
             context=resolved["context_per_slot"],
             slots=resolved["slots"],
+            profile_id=resolved["profile_id"],
+            profile_revision=resolved["profile_revision"],
+            profile_fingerprint=resolved["profile_fingerprint"],
         )
         settings.set_revision(revision + 1)
         return resolved, revision + 1
@@ -718,6 +760,9 @@ class RuntimeConfigurationService:
                 "context_per_slot": resolved["context_per_slot"],
                 "slots": resolved["slots"],
                 "optimizations": resolved["resolved_optimizations"],
+                "profile_id": resolved["profile_id"],
+                "profile_revision": resolved["profile_revision"],
+                "profile_fingerprint": resolved["profile_fingerprint"],
             },
             restart_required=resolved["restart_required"],
             host_tuning_changes=resolved["host_tuning_changes"],
@@ -782,6 +827,9 @@ class RuntimeConfigurationService:
                 "context": snapshot.get("context"),
                 "slots": snapshot.get("slots"),
                 "optimizations_patch": snapshot.get("optimizations") or {},
+                "profile_id": snapshot.get("profile_id"),
+                "profile_revision": snapshot.get("profile_revision"),
+                "profile_fingerprint": snapshot.get("profile_fingerprint"),
             },
             expected_revision=expected_revision,
         )
@@ -815,7 +863,9 @@ class RuntimeConfigurationService:
                 model_alias=model_alias,
                 context=context,
                 slots=slots,
-                profile_id=None,
+                profile_id=runtime_row.get("profile_id"),
+                profile_revision=runtime_row.get("profile_revision"),
+                profile_fingerprint=runtime_row.get("profile_fingerprint"),
                 runtime=optimizations,
                 runtime_fingerprint=None,
                 runtime_component_identity=component_identity,
@@ -842,6 +892,8 @@ class RuntimeConfigurationService:
                 context=int(row["context"]),
                 slots=int(row["slots"]),
                 profile_id=row.get("profile_id"),
+                profile_revision=row.get("profile_revision"),
+                profile_fingerprint=row.get("profile_fingerprint"),
                 runtime=row.get("runtime") or {},
                 runtime_fingerprint=row.get("runtime_fingerprint"),
                 runtime_component_identity=row.get("runtime_component_identity"),
@@ -857,6 +909,9 @@ class RuntimeConfigurationService:
         runtime: dict[str, Any] | None = None,
         fingerprint: str | None = None,
         component_identity: str | None = None,
+        profile_id: str | None = None,
+        profile_revision: int | None = None,
+        profile_fingerprint: str | None = None,
     ) -> None:
         """Write the EXACT verified candidate row (Session 5C §7 step 8).
 
@@ -867,7 +922,9 @@ class RuntimeConfigurationService:
                 model_alias=model_alias,
                 context=int(context),
                 slots=int(slots),
-                profile_id=None,
+                profile_id=profile_id,
+                profile_revision=profile_revision,
+                profile_fingerprint=profile_fingerprint,
                 runtime=runtime or {},
                 runtime_fingerprint=fingerprint,
                 runtime_component_identity=component_identity,

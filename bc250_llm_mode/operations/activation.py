@@ -163,6 +163,9 @@ class CandidateRuntimeV1:
     fit_detail: str = ""
     runtime_fingerprint: str = ""
     component_identity: str = ""
+    profile_id: str | None = None
+    profile_revision: int | None = None
+    profile_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -188,6 +191,9 @@ class ConfigEvidenceV1:
     model_alias: str
     context_per_slot: int
     parallel_slots: int
+    profile_id: str | None = None
+    profile_revision: int | None = None
+    profile_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -226,6 +232,9 @@ class KnownGoodEvidenceV1:
     slots: int
     fingerprint: str | None
     component_identity: str | None
+    profile_id: str | None = None
+    profile_revision: int | None = None
+    profile_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -258,12 +267,16 @@ class ActivationHost(Protocol):
     ) -> PriorRuntimeSnapshotV1: ...
 
     def commit_candidate(
-        self, request: ModelActivateRequestV1, external_effect_id: str
+        self,
+        request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
+        external_effect_id: str,
     ) -> ConfigEvidenceV1: ...
 
     def observe_config(
         self,
         request: ModelActivateRequestV1,
+        candidate: CandidateRuntimeV1,
         prior: PriorRuntimeSnapshotV1,
     ) -> ProbeResult: ...
 
@@ -420,11 +433,13 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
     # Step 3 — commit_candidate_config (critical; no handoff side effect)
     def commit_execute(ctx: EffectContext) -> dict[str, Any]:
         return evidence_dict(
-            host.commit_candidate(ctx.request, ctx.external_effect_id)
+            host.commit_candidate(
+                ctx.request, _candidate(ctx), ctx.external_effect_id
+            )
         )
 
     def commit_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_config(ctx.request, _prior(ctx))
+        result = host.observe_config(ctx.request, _candidate(ctx), _prior(ctx))
         _require_complete(result, CODE_REVISION_CONFLICT)
         return {}
 
@@ -597,7 +612,9 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
             critical=True,
             cancel_safe_before=False,
             derive_input=_input(),
-            probe=lambda ctx: host.observe_config(ctx.request, _prior(ctx)),
+            probe=lambda ctx: host.observe_config(
+                ctx.request, _candidate(ctx), _prior(ctx)
+            ),
             execute=commit_execute,
             verify=commit_verify,
             compensate=compensate_via_restoration,

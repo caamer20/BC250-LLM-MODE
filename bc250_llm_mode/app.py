@@ -78,6 +78,8 @@ class Application:
     connections: Any = None
     connection_credentials: Any = None
     connection_probes: Any = None
+    workload_profiles: Any = None
+    workload_profile_commands: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -292,6 +294,9 @@ class Application:
             app_dir=application.paths.app_dir,
             state_supplier=lambda: application.read_model(),
         )
+        from .workload_profiles import WorkloadProfileQueryService
+
+        application.workload_profiles = WorkloadProfileQueryService(units)
         # GUI-6: terminal and native chat share one bounded transport,
         # conversation store, and readiness observation policy.
         from .chat_service import ChatObservationService, ChatSessionService
@@ -335,6 +340,7 @@ class Application:
             renderer=RuntimeHandoffRenderer(application.paths.app_dir),
             state_supplier=lambda: application.read_model(),
             runner_factory=lambda: application.runner(),
+            profile_query=application.workload_profiles,
         )
         registry = WorkflowRegistry()
         registry.register(build_activation_workflow(activation_adapter))
@@ -484,6 +490,14 @@ class Application:
 
         application.activation = ActivationCommandService(
             units=units, enqueue=enqueue, engine_factory=engine_factory
+        )
+        from .workload_profiles import WorkloadProfileCommandService
+
+        application.workload_profile_commands = WorkloadProfileCommandService(
+            units,
+            query=application.workload_profiles,
+            activation=application.activation,
+            id_provider=lambda: _uuid.uuid4().hex,
         )
         application.model_acquisition = ModelAcquisitionCommandService(
             units=units,
