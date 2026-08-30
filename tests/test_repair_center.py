@@ -60,7 +60,22 @@ def test_findings_from_conditions():
     assert len(findings) == 2  # 'unrelated' maps to nothing
     for f in findings:
         assert f.recommended_action_id
-        assert f.to_dict()["schema_version"] == 1
+        assert f.to_dict()["schema_version"] == 2
+
+
+def test_exp5_catalogue_has_complete_typed_metadata_and_no_executable_routes():
+    for action in REPAIR_ACTIONS:
+        rendered = action.to_dict(set(action.preconditions))
+        assert rendered["owner_kind"] in {"SERVICE", "OPERATION", "QUERY"}
+        assert 1 <= len(rendered["mutation_steps"]) <= 16
+        assert rendered["privilege"] in {"USER", "ELEVATED", "MIXED"}
+        assert rendered["cancellation_policy"] in {
+            "NOT_APPLICABLE", "BEFORE_EFFECT", "OWNER_SAFE_POINTS"}
+        assert rendered["reversibility"] in {
+            "EXACT_UNTIL", "COMPENSATED_BY_OWNER", "IRREVERSIBLE"}
+        assert rendered["success_probe_id"]
+        assert rendered["failure_codes"]
+        assert rendered["routes_to"] == rendered["owner_id"]
 
 
 def test_newer_schema_finding_is_fail_severity():

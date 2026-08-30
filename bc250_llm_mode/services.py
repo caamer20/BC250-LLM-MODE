@@ -729,6 +729,22 @@ class RuntimeConfigurationService:
             return False, str(exc)
         return True, None
 
+    def regenerate_handoff(self, *, expected_revision: int) -> dict[str, Any]:
+        """Publish the derived handoff only when the inspected revision holds."""
+        current = self.current()
+        revision = int(current["revision"])
+        if revision != int(expected_revision):
+            raise RevisionConflict(
+                f"Runtime revision conflict: expected {expected_revision}, "
+                f"current {revision}"
+            )
+        published, _error = self._publish_handoff(revision=revision)
+        return {
+            "published": published,
+            "revision": revision,
+            "code": "HANDOFF_PUBLISHED" if published else "HANDOFF_FAILED",
+        }
+
     def _commit_transaction(
         self,
         conn,

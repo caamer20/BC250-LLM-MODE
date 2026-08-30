@@ -90,6 +90,7 @@ class Application:
     operation_notifications: Any = None
     thermal_notifications: Any = None
     maintenance_notifications: Any = None
+    repair_commands: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -729,4 +730,10 @@ class Application:
             services_observer=_maintenance_services,
             thermal_reader=read_gpu_temperature,
             notification_observer=application.maintenance_notifications.after_check,
+        )
+        from .repair_adapter import build_application_repair_bindings
+        from .repair_commands import RepairCommandService
+
+        application.repair_commands = RepairCommandService(
+            build_application_repair_bindings(application), clock=utcnow
         )

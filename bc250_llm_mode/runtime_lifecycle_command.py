@@ -147,7 +147,13 @@ class RuntimeLifecycleCommandService:
         outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="UPDATE")
 
-    def rollback(self, *, requested_by: str = "cli") -> RuntimeLifecycleOutcome:
+    def rollback(
+        self,
+        *,
+        requested_by: str = "cli",
+        target_build_id: str | None = None,
+        expected_active_build_id: str | None = None,
+    ) -> RuntimeLifecycleOutcome:
         selection = self._select_rollback_target()
         if selection is None:
             return RuntimeLifecycleOutcome(
@@ -157,6 +163,17 @@ class RuntimeLifecycleCommandService:
                  "back to yet."},
             )
         target, expected = selection
+        if target_build_id is not None and target_build_id != target:
+            return RuntimeLifecycleOutcome(
+                None, "BUSY", "ROLLBACK",
+                {"reason": "The inspected rollback identity changed; preview again."},
+            )
+        if (expected_active_build_id is not None
+                and expected_active_build_id != expected):
+            return RuntimeLifecycleOutcome(
+                None, "BUSY", "ROLLBACK",
+                {"reason": "The inspected active runtime changed; preview again."},
+            )
         payload = {
             "requested_by": requested_by,
             "target_build_id": target,

@@ -293,6 +293,70 @@ class SupportBundleService:
             json.dumps(manifest.to_dict(), indent=2), encoding="utf-8")
         return manifest
 
+    def verify(self, bundle_dir: Path | str) -> dict[str, Any]:
+        """Self-check one local bundle without trusting manifest paths.
+
+        The verifier accepts only the bounded files emitted by ``build``;
+        traversal, duplicates, symlinks, special files, digest changes, and
+        extra files all fail closed.  It returns no file content.
+        """
+        root = Path(bundle_dir)
+        manifest_path = root / "manifest.json"
+        try:
+            raw = manifest_path.read_bytes()
+            if len(raw) > MAX_FILE_BYTES:
+                raise ValueError("manifest oversized")
+            document = json.loads(raw)
+            entries = document.get("files")
+            if not isinstance(entries, list) or len(entries) > MAX_LOG_FILES + 8:
+                raise ValueError("invalid file inventory")
+            expected: dict[str, dict[str, Any]] = {}
+            total = 0
+            for item in entries:
+                if not isinstance(item, dict):
+                    raise ValueError("invalid inventory entry")
+                relative = str(item.get("path") or "")
+                candidate = Path(relative)
+                if (not relative or candidate.is_absolute()
+                        or ".." in candidate.parts or relative in expected):
+                    raise ValueError("unsafe inventory path")
+                path = root / candidate
+                if path.is_symlink() or not path.is_file():
+                    raise ValueError("inventory target is not a regular file")
+                data = path.read_bytes()
+                if len(data) > MAX_FILE_BYTES:
+                    raise ValueError("inventory target oversized")
+                digest = hashlib.sha256(data).hexdigest()
+                if digest != item.get("sha256") or len(data) != item.get("bytes"):
+                    raise ValueError("inventory identity mismatch")
+                expected[relative] = item
+                total += len(data)
+                if total > MAX_TOTAL_BYTES:
+                    raise ValueError("bundle oversized")
+            actual = set()
+            for path in root.rglob("*"):
+                if path.is_symlink() or (path.exists() and not path.is_file()
+                                         and not path.is_dir()):
+                    raise ValueError("special bundle entry")
+                if path.is_file() and path != manifest_path:
+                    actual.add(path.relative_to(root).as_posix())
+            if actual != set(expected):
+                raise ValueError("bundle contains missing or extra files")
+            if total != document.get("total_bytes"):
+                raise ValueError("bundle size mismatch")
+            if self._bundle_digest(list(expected.values())) \
+                    != document.get("bundle_sha256"):
+                raise ValueError("bundle digest mismatch")
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {"valid": False, "code": "SUPPORT_BUNDLE_INVALID"}
+        return {
+            "valid": True,
+            "code": "SUPPORT_BUNDLE_VERIFIED",
+            "file_count": len(expected),
+            "total_bytes": total,
+            "bundle_sha256": document["bundle_sha256"],
+        }
+
     # --- internals -------------------------------------------------------------
 
     def _check(self, cancel: Callable[[], bool] | None) -> None:
