@@ -112,6 +112,25 @@ Implementation commits after the planning checkpoint:
 - `2237d3c` — EXP-8 14-journey/four-cell resource and participant worksheet
   plus fail-closed automated qualification gates; all external results remain
   explicitly PENDING.
+- `f24a48a` — EXP-8 final release handoff with C4/C5/C6/C8 gates still
+  explicit and no fabricated PASS evidence.
+- `c83e16a` / `3bd67d3` — remote acquisition fixes for bounded safe Hub
+  redirects, canonical Qwen3.8 repositories, qwen35 architecture acceptance,
+  and lease heartbeats during multi-gigabyte publication/hash work.
+- `489f67a` / `409d32d` — remote activation fixes for heartbeating slow model
+  starts and verifying explicit context-per-slot versus aggregate context.
+- `081c91f` — non-force merge preserving both the appliance-experience and
+  remote acquisition/activation histories; only the changelog required manual
+  combination, and both sets of notes were retained.
+
+Post-merge developer qualification: authoritative collected inventory
+**1474** across the default and slow gates (**1472 passed + 2 expected platform
+skips**); slow/security/clean-wheel battery **52/52**; focused merged
+acquisition/activation/server battery **96/96**; compileall and diff-check
+clean. The merge changes packaged code and therefore supersedes every earlier
+candidate identity. No physical evidence existed to inherit; future evidence
+must bind the final post-merge commit and artifact inventory. The nine
+owner-controlled untracked files remain untouched.
 
 EXP-1 through EXP-8 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,

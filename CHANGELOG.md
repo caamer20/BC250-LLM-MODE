@@ -20,6 +20,15 @@ versions are tagged in git.
   validation, and recovery hash pass so multi-gigabyte files cannot outlive
   the foreground worker's lease while they are still making progress.
 
+### Activation reliability fixes
+
+- Heartbeat operation leases during slow model start, health, and inference
+  verification so a valid long BC-250 load cannot be mistaken for an abandoned
+  activation and taken over by another worker.
+- Publish context per slot and aggregate context as distinct health fields, and
+  verify activation against context-per-slot semantics while retaining the
+  bounded legacy aggregate-health compatibility path.
+
 ### Appliance experience EXP-7 and EXP-8 documentation
 
 - Centralized stable user-facing result copy with safe unknown-code and
