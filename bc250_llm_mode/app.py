@@ -98,6 +98,7 @@ class Application:
     storage_capacity: Any = None
     storage_cleanup: Any = None
     undo: Any = None
+    application_update: Any = None
     platform: Any = None
     desktop_integration: Any = None
     optimizations: Any = None
@@ -284,6 +285,34 @@ class Application:
 
         application.storage_capacity = StorageCapacityService(
             units, application.paths
+        )
+        # EXP-6 begins fail-closed: status/check/preview share one typed query
+        # service, but production has no signing root or eligible channel yet.
+        # Merely composing the app never contacts a network endpoint.
+        import shutil as _shutil
+
+        from . import __version__ as _application_version
+        from .application_update import (
+            ApplicationReleaseVerifier,
+            ApplicationUpdateQueryService,
+            EXPECTED_RELEASE_REPOSITORY,
+            InstalledApplication,
+        )
+        from .db import SCHEMA_VERSION as _DATABASE_SCHEMA_VERSION
+
+        application.application_update = ApplicationUpdateQueryService(
+            installed=InstalledApplication(
+                version=_application_version,
+                source_commit=None,
+                release_set_digest=None,
+                slot_id=None,
+                database_schema=_DATABASE_SCHEMA_VERSION,
+            ),
+            verifier=ApplicationReleaseVerifier(
+                expected_repository=EXPECTED_RELEASE_REPOSITORY
+            ),
+            platform_profile=application.platform.profile.family.value,
+            free_bytes=_shutil.disk_usage(application.paths.app_dir).free,
         )
         from .maintenance_center import MaintenanceCenterQueryService
 
