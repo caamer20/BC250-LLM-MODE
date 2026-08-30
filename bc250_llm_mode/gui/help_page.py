@@ -7,6 +7,7 @@ from typing import Any
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from ..message_catalog import glossary_entries
 from .view_state import Notice
 
 
@@ -56,6 +57,54 @@ class HelpPage(ttk.Frame):
         ttk.Button(advanced, text="Start terminal chat", command=self.application.open_chat_terminal).pack(side="left")
         ttk.Button(advanced, text="Open setup log", command=lambda: self.shell.open_logs("setup")).pack(side="left", padx=5)
         ttk.Button(advanced, text="Open server log", command=lambda: self.shell.open_logs("server")).pack(side="left")
+
+        glossary = ttk.LabelFrame(self, text="Offline glossary", padding=7)
+        glossary.pack(fill="both", expand=True, pady=(0, 8))
+        controls = ttk.Frame(glossary)
+        controls.pack(fill="x")
+        ttk.Label(controls, text="Find a term").pack(side="left")
+        self.glossary_query = tk.StringVar(value="")
+        self.glossary_search = ttk.Entry(
+            controls, textvariable=self.glossary_query, width=28
+        )
+        self.glossary_search.pack(side="left", padx=6)
+        self.glossary_count = tk.StringVar(value="")
+        ttk.Label(controls, textvariable=self.glossary_count).pack(side="left")
+        self.glossary_terms = tk.Listbox(
+            glossary, height=6, exportselection=False
+        )
+        self.glossary_terms.pack(fill="x", pady=(5, 3))
+        self.glossary_detail = tk.StringVar(value="Select a term for its definition.")
+        ttk.Label(
+            glossary, textvariable=self.glossary_detail, wraplength=720,
+            justify="left",
+        ).pack(anchor="w", fill="x")
+        self._glossary_rows = ()
+        self.glossary_query.trace_add("write", self._render_glossary)
+        self.glossary_terms.bind("<<ListboxSelect>>", self._select_glossary)
+        self._render_glossary()
+
+    def _render_glossary(self, *_args) -> None:
+        rows = glossary_entries(self.glossary_query.get())
+        self._glossary_rows = rows
+        self.glossary_terms.delete(0, "end")
+        for entry in rows:
+            self.glossary_terms.insert("end", entry.term)
+        self.glossary_count.set(f"{len(rows)} local terms")
+        if rows:
+            self.glossary_terms.selection_set(0)
+            self.glossary_detail.set(f"{rows[0].term}: {rows[0].definition}")
+        else:
+            self.glossary_detail.set("No local glossary terms match that search.")
+
+    def _select_glossary(self, _event=None) -> None:
+        selection = self.glossary_terms.curselection()
+        if not selection:
+            return
+        index = int(selection[0])
+        if 0 <= index < len(self._glossary_rows):
+            entry = self._glossary_rows[index]
+            self.glossary_detail.set(f"{entry.term}: {entry.definition}")
 
     def _run_doctor(self) -> None:
         result_box: dict[str, Any] = {}

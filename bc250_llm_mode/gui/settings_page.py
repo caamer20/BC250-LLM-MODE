@@ -8,6 +8,7 @@ from typing import Any
 import tkinter as tk
 from tkinter import ttk
 
+from ..message_catalog import safe_exception_message
 from .view_state import Notice
 
 
@@ -152,7 +153,8 @@ class SettingsPage(ttk.Frame):
             host = " · host tuning changes" if projection.get("host_tuning_changes") else ""
             self.preview_var.set(f"{fit.get('verdict', 'UNKNOWN')} · {fit.get('detail', '')} · {restart}{host}")
         except Exception as exc:
-            self.preview_var.set(f"Draft rejected: {exc}")
+            message = safe_exception_message(exc, code="SETTINGS_INVALID")
+            self.preview_var.set(f"{message.title}. {message.body}")
 
     def apply(self) -> None:
         try:
@@ -161,7 +163,10 @@ class SettingsPage(ttk.Frame):
             values = self._values()
             preferences = self._preference_values()
         except (ValueError, tk.TclError) as exc:
-            self.shell.notice_bar.show_notice(Notice("error", "Settings are invalid", str(exc), dismissible=False))
+            message = safe_exception_message(exc, code="SETTINGS_INVALID")
+            self.shell.notice_bar.show_notice(Notice(
+                message.level, message.title, message.body, dismissible=False
+            ))
             return
         result_box: dict[str, Any] = {}
 

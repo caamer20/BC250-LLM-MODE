@@ -9,6 +9,8 @@ from typing import Any, Mapping
 import tkinter as tk
 from tkinter import ttk
 
+from ..message_catalog import safe_exception_message
+
 from ..chat_lifecycle import ChatCancellation, ChatResultClassification
 from ..chat_service import trim_messages
 from ..conversation_service import bounded_live_messages
@@ -213,8 +215,11 @@ class ChatPage(ttk.Frame):
                 self._conversation_id, self.title_var.get()
             )
         except ValueError as exc:
+            message = safe_exception_message(
+                exc, code="CONVERSATION_RENAME_INVALID"
+            )
             self.shell.notice_bar.show_notice(Notice(
-                "error", "Conversation was not renamed", str(exc), dismissible=False,
+                message.level, message.title, message.body, dismissible=False,
             ))
             return
         self._title = record.title
