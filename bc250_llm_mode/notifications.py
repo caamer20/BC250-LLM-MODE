@@ -615,7 +615,6 @@ class DesktopNotificationAdapter:
                 timeout=DELIVERY_TIMEOUT_SECONDS,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                shell=False,
             )
         except subprocess.TimeoutExpired:
             return DeliveryResult(False, "notify-send", "ADAPTER_TIMEOUT")

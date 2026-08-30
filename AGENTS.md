@@ -2,11 +2,9 @@
 
 ## Unified native GUI and appliance-experience planning checkpoint
 
-**GUI-1 THROUGH GUI-8 ARE DEVELOPER-COMPLETE; PHYSICAL EVIDENCE IS PENDING.
-EXP-1 THROUGH EXP-3 ARE DEVELOPER-IMPLEMENTED; THEIR PHYSICAL EVIDENCE IS
-PENDING. EXP-4'S QUERY SNAPSHOT AND NOTIFICATION CONTRACT ARE IMPLEMENTED;
-NOTIFICATION PERSISTENCE, DELIVERY, UI, AND QUALIFICATION ARE NOT. EXP-5
-THROUGH EXP-8 ARE NOT IMPLEMENTED — DO NOT CLAIM FULL
+**GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-4 ARE DEVELOPER-IMPLEMENTED;
+THEIR PHYSICAL EVIDENCE IS PENDING. EXP-5 THROUGH EXP-8 ARE NOT IMPLEMENTED —
+DO NOT CLAIM FULL
 EXPERIENCE OR RELEASE COMPLETION.**
 `UNIFIED_NATIVE_GUI_IMPLEMENTATION_PLAN.md` is the implementation-ready
 GUI-1 → GUI-8 sequence for replacing the current 11-step/long-dashboard/
@@ -75,18 +73,41 @@ Implementation commits after the planning checkpoint:
 - `b5ecdea` — EXP-4 bounded, query-only Maintenance snapshot with the closed
   nine-level priority policy, at-most-five items, evidence freshness, and no
   refresh-time doctor/hash/network/command work.
+- `dcd123f` — ADR 011 fixed privacy-safe notification copy, post-commit
+  authority boundaries, durable dedupe/rate limits, and no tray/watcher policy.
+- `17e475f` — migration 013 notification preferences/receipts, fixed-argv
+  desktop adapter, CAS preferences, disabled defaults, and bounded retention.
+- `fa02ea7` — one-window Maintenance inbox, Home priority surfacing, explicit
+  redacted checks/cleanup preview, CLI parity, post-commit operation/thermal/
+  maintenance producers, and redacted support-bundle status.
 
-EXP-1 through EXP-3 are developer-implemented but not physically qualified on
+EXP-1 through EXP-4 are developer-implemented but not physically qualified on
 Bazzite or CachyOS. EXP-2 protocol tests do not qualify PocketPal, Open WebUI,
 or a second-device tailnet journey; use
 `docs/connection-physical-qualification.md` on the exact candidate. The next
 EXP-3 hardware task is
 `docs/profile-physical-qualification.md`: Interactive/Long context/Shared/Cool
 must be measured with both a small and a 9B standard-layout model on each host,
-without storing prompts/completions. ADR 011 freezes the notification privacy,
-dedupe, retention, and failure-isolation policy. The next safe boundary is
-EXP-4 commit 18, atomic migration 013 plus the bounded adapter/preferences —
-not the Maintenance GUI or repair work.
+without storing prompts/completions. EXP-4 physical KDE enabled/disabled,
+unavailable-session, dedupe, thermal-stop, delivery-failure, resource, and
+privacy evidence must follow `docs/notification-physical-qualification.md` on
+the exact candidate. The next safe boundary is EXP-5 commit 21: freeze the
+typed repair, cleanup, and undo contracts before migration 014 or repair UI.
+
+EXP-4 developer qualification at this checkpoint: authoritative default
+collection **1336** (**1334 passed + 2 expected platform skips**, exit 0);
+complete slow battery **52/52**; focused Maintenance/notifications/GUI/
+producer/support/architecture battery **103/103** plus frozen qualification
+**4/4**; forced compileall and `git diff --check` clean. A clean source → sdist
+→ wheel build was installed outside the checkout: schema 13 initialized,
+Maintenance/check/producer services composed, notifications defaulted off,
+the installed CLI emitted the bounded inbox, and the accepted wheel contained
+the new Maintenance/notification modules but none of the deleted legacy GUI
+modules. One direct-checkout diagnostic wheel was rejected because the ignored
+historical `build/` tree reintroduced deleted modules; it is not evidence or a
+candidate artifact. Physical Bazzite/CachyOS behavior is still evidence
+pending and was not fabricated. The nine owner-controlled untracked files
+remain untouched.
 
 EXP-3 developer qualification at this checkpoint: authoritative default
 collection **1307** (exit 0; two expected platform skips), slow battery

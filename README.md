@@ -175,7 +175,8 @@ After a reboot, the desktop starts normally and no LLM model is loaded. Starting
 ## Daily use after setup
 
 Running `bc250-llm-mode` after setup opens Home in the same native window.
-Home, Models, Profiles, Chat, Connections, Activity, System, Settings, and Help all stay in that
+Home, Models, Profiles, Chat, Connections, Activity, Maintenance, System,
+Settings, and Help all stay in that
 window. The experience provides:
 
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
@@ -185,6 +186,9 @@ window. The experience provides:
 - named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;
 - a query-only Performance Coach that shows at most three evidence-labelled suggestions and never applies a change automatically;
 - durable fixed-prompt calibration with thermal/fit preflight, cancellation only between candidates, exact prior-runtime restoration, and a separately applied winner proposal;
+- a five-item, risk-ordered Maintenance inbox with explicit evidence freshness,
+  an on-demand full check, cleanup preview, and optional fixed-copy local
+  notifications that are disabled by default;
 - a bounded context-size control with a fresh VRAM fit check before restart;
 - native bounded streaming chat plus optional terminal-chat launch;
 - recent model-server and setup logs only when the in-window drawer is opened;
@@ -429,6 +433,15 @@ bc250-llm-mode calibrate --profile ID [--model ID] [--accept-tight]
 bc250-llm-mode bench [--max-tokens N] [--repeat 1-10] [--prompt "..."]
                                        Measure generation speed; repeats report min/median/max
 bc250-llm-mode doctor                  Run local diagnostics and print a JSON report
+bc250-llm-mode maintenance status      Show the bounded cached/live Maintenance inbox
+bc250-llm-mode maintenance check       Explicitly refresh doctor, storage, topology,
+                                       optional-service, and thermal evidence
+bc250-llm-mode maintenance cleanup --dry-run
+                                       Preview ranked cleanup candidates; never deletes
+bc250-llm-mode notifications status|test
+                                       Show redacted delivery state or send fixed test copy
+bc250-llm-mode notifications set CATEGORY on|off
+                                       Change master/all or one closed category preference
 bc250-llm-mode autotune [--repeat 1-3] [--max-tokens N]
                                        Benchmark runtime combos and apply the fastest safe one
 bc250-llm-mode thermals status|once|watch [--interval SEC]

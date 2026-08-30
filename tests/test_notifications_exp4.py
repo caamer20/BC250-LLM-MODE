@@ -311,7 +311,7 @@ def test_desktop_adapter_uses_only_fixed_argv_no_shell_or_output(tmp_path):
     assert adapter.capability().available is True
     result = adapter.deliver("THERMAL_STOP")
     assert result.delivered is True
-    assert seen["kwargs"]["shell"] is False
+    assert "shell" not in seen["kwargs"]
     assert seen["kwargs"]["timeout"] == 3.0
     assert seen["kwargs"]["stdout"] is subprocess.DEVNULL
     assert seen["kwargs"]["stderr"] is subprocess.DEVNULL

@@ -5,6 +5,24 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Appliance experience EXP-3 and EXP-4
+
+- Added named built-in/custom workload profiles, exact preview fingerprints,
+  durable apply/rollback, a query-only evidence coach, fixed-prompt bounded
+  calibration, and stop-only idle policy.
+- Added migration 013 notification preferences and bounded redacted receipts,
+  disabled by default with atomic master/category CAS updates.
+- Added the one-window Maintenance inbox with at most five items in the closed
+  safety → recovery → security → integrity → storage → backup → operation →
+  update → information order. Normal refresh is query-only and labels live,
+  cached, stale, and not-checked evidence.
+- Added explicit full checks, cleanup preview, Home surfacing, and CLI parity.
+  Fixed-copy `notify-send` delivery is connected only after durable operation,
+  thermal-latch, or explicit maintenance-check commits; there is no tray,
+  notification thread, duplicate sensor loop, or automatic repair/cleanup.
+- Physical Bazzite/CachyOS workload and KDE-notification qualification remains
+  candidate-bound evidence pending and is not inferred from developer tests.
+
 ### Appliance experience EXP-1 and EXP-2
 
 - Added an atomic user-local application-menu launcher and bounded same-user
