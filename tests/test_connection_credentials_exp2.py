@@ -43,6 +43,7 @@ def _v10(path, *, fingerprint=FP1, revoked=False):
           "context INTEGER NOT NULL, slots INTEGER NOT NULL, profile_id TEXT, "
           "runtime_json TEXT NOT NULL DEFAULT '{}', runtime_fingerprint TEXT, "
           "runtime_component_identity TEXT, verified_at TEXT NOT NULL);"
+          "CREATE TABLE operations (id TEXT PRIMARY KEY);"
           "CREATE TABLE preserved_marker (value TEXT);"
           "INSERT INTO preserved_marker VALUES ('keep-me');"
     )

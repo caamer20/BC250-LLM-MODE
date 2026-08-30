@@ -47,7 +47,9 @@ def _fresh(tmp_path):
 def _create_v12(path, monkeypatch, *, legacy_enabled=None):
     migrations = db.MIGRATIONS
     version = db.SCHEMA_VERSION
-    monkeypatch.setattr(db, "MIGRATIONS", migrations[:-1])
+    monkeypatch.setattr(
+        db, "MIGRATIONS", tuple(item for item in migrations if item[0] <= 12)
+    )
     monkeypatch.setattr(db, "SCHEMA_VERSION", 12)
     conn = open_database(path, mode="migration")
     try:
@@ -111,7 +113,7 @@ def test_migration_013_preserves_v12_and_requires_explicit_legacy_opt_in(
     _create_v12(off_path, monkeypatch)
     conn = open_database(off_path, mode="migration")
     try:
-        assert initialize(conn) == 13 == db.SCHEMA_VERSION
+        assert initialize(conn) == db.SCHEMA_VERSION
         assert conn.execute(
             "SELECT value FROM preserved_exp4_marker"
         ).fetchone()[0] == "keep-me"
@@ -137,13 +139,17 @@ def test_migration_013_preserves_v12_and_requires_explicit_legacy_opt_in(
 def test_migration_013_is_atomic_on_mid_migration_failure(tmp_path, monkeypatch):
     path = tmp_path / "atomic.db"
     _create_v12(path, monkeypatch)
-    migration = db.MIGRATIONS[-1]
+    migration = next(item for item in db.MIGRATIONS if item[0] == 13)
     broken = (
         13,
         migration[1],
         migration[2][:-1] + ("INSERT INTO absent_table VALUES (1)",),
     )
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:-1] + (broken,))
+    monkeypatch.setattr(
+        db, "MIGRATIONS",
+        tuple(item for item in db.MIGRATIONS if item[0] < 13) + (broken,),
+    )
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 13)
     conn = open_database(path, mode="migration")
     try:
         with pytest.raises(sqlite3.OperationalError):

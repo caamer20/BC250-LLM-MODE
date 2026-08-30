@@ -74,6 +74,24 @@ class AppPaths:
         """Content-addressed managed artifact namespace (ADR 003)."""
         return self.models_dir / ".bc250-artifacts" / "sha256"
 
+    @property
+    def application_releases_dir(self) -> Path:
+        """Content-addressed application slots (ADR 013)."""
+        return self.app_dir / "releases"
+
+    @property
+    def application_release_staging_dir(self) -> Path:
+        """Operation-owned staging below the release filesystem."""
+        return self.application_releases_dir / ".staging"
+
+    @property
+    def application_current_link(self) -> Path:
+        return self.app_dir / "current"
+
+    @property
+    def application_previous_link(self) -> Path:
+        return self.app_dir / "previous"
+
     @classmethod
     def temporary(cls, tmp_path: str | Path) -> "AppPaths":
         """Isolated layout for tests — nothing touches the developer's home."""
@@ -89,7 +107,8 @@ class AppPaths:
         for directory in (
             self.app_dir, self.logs_dir,
             self.conversations_dir, self.backups_dir, self.staging_dir,
-            self.migration_receipts_dir,
+            self.migration_receipts_dir, self.application_releases_dir,
+            self.application_release_staging_dir,
         ):
             ensure_private_dir(directory)
 

@@ -69,11 +69,16 @@ def _member(name: str, role: str, payload: bytes, media="application/json"):
     return ReleaseMember(name, role, _digest(payload), len(payload), media)
 
 
-def _release_material(notes: str = "Security and reliability fixes."):
+def _release_material(
+    notes: str = "Security and reliability fixes.",
+    *,
+    wheel_digest: str = "1" * 64,
+    wheel_size: int = 1000,
+):
     version = "1.0.0"
     wheel = ReleaseMember(
         "bc250_llm_mode-1.0.0-py3-none-any.whl", "python-wheel",
-        "1" * 64, 1000, "application/vnd.pypi.wheel.v1",
+        wheel_digest, wheel_size, "application/vnd.pypi.wheel.v1",
     )
     sdist = ReleaseMember(
         "bc250_llm_mode-1.0.0.tar.gz", "python-sdist",
@@ -300,6 +305,11 @@ def test_verified_release_cannot_be_forged_by_a_caller():
             "4" * 64, "2026-08-30T12:00:00Z", "notes",
             13, 13, 14, 14, PLATFORM, 10, 12, "root",
         )
+    genuine = _verifier().verify(
+        _release_material(), installed_schema=13, platform_profile=PLATFORM
+    ).release
+    with pytest.raises(ValueError):
+        replace(genuine, repository="attacker/project")
 
 
 def test_preview_is_revision_bound_literal_and_space_checked():
@@ -327,3 +337,254 @@ def test_preview_is_revision_bound_literal_and_space_checked():
     ).preview("1.0.0")
     assert too_small.reason_code is UpdateCode.INSUFFICIENT_SPACE
     assert too_small.confirmation_token is None
+
+
+def _create_v13_database(path, monkeypatch):
+    from bc250_llm_mode import db
+
+    migrations = db.MIGRATIONS
+    version = db.SCHEMA_VERSION
+    monkeypatch.setattr(db, "MIGRATIONS", tuple(
+        item for item in migrations if item[0] <= 13
+    ))
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 13)
+    conn = db.open_database(path, mode="migration")
+    try:
+        assert db.initialize(conn) == 13
+        conn.execute("CREATE TABLE preserved_exp6_marker(value TEXT)")
+        conn.execute("INSERT INTO preserved_exp6_marker VALUES ('keep-me')")
+        conn.commit()
+    finally:
+        conn.close()
+    monkeypatch.setattr(db, "MIGRATIONS", migrations)
+    monkeypatch.setattr(db, "SCHEMA_VERSION", version)
+
+
+def test_migration_014_is_atomic_preserves_v13_and_seeds_no_fake_install(tmp_path, monkeypatch):
+    import sqlite3
+
+    from bc250_llm_mode import db
+
+    path = tmp_path / "v13.db"
+    _create_v13_database(path, monkeypatch)
+    conn = db.open_database(path, mode="migration")
+    try:
+        assert db.initialize(conn) == db.SCHEMA_VERSION == 14
+        assert conn.execute(
+            "SELECT value FROM preserved_exp6_marker"
+        ).fetchone()[0] == "keep-me"
+        assert conn.execute(
+            "SELECT COUNT(*) FROM application_installations"
+        ).fetchone()[0] == 0
+        state = conn.execute(
+            "SELECT current_installation_id, previous_installation_id, "
+            "pointer_generation FROM application_installation_state WHERE id=1"
+        ).fetchone()
+        assert tuple(state) == (None, None, 0)
+    finally:
+        conn.close()
+
+    atomic = tmp_path / "atomic.db"
+    _create_v13_database(atomic, monkeypatch)
+    migration = next(item for item in db.MIGRATIONS if item[0] == 14)
+    broken = (14, migration[1], migration[2][:-1] + (
+        "INSERT INTO absent_table VALUES (1)",
+    ))
+    monkeypatch.setattr(
+        db, "MIGRATIONS",
+        tuple(item for item in db.MIGRATIONS if item[0] < 14) + (broken,),
+    )
+    conn = db.open_database(atomic, mode="migration")
+    try:
+        with pytest.raises(sqlite3.OperationalError):
+            db.initialize(conn)
+        tables = {row["name"] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )}
+        assert "application_installations" not in tables
+        assert "application_installation_state" not in tables
+        assert "application_update_imports" not in tables
+        assert conn.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone()[0] == 13
+    finally:
+        conn.close()
+
+
+def test_installation_and_import_repositories_are_typed_and_revision_fenced(tmp_path):
+    from bc250_llm_mode.application_installation import (
+        ApplicationInstallationError,
+        ApplicationInstallationRepository,
+        ApplicationUpdateImportRepository,
+        ImportSource,
+        ImportState,
+        InstallationState,
+        SmokeState,
+    )
+    from bc250_llm_mode.db import initialize_and_close, open_database
+
+    database = tmp_path / "state.db"
+    initialize_and_close(database)
+    release = _verifier().verify(
+        _release_material(), installed_schema=13, platform_profile=PLATFORM
+    ).release
+    conn = open_database(database, mode="write")
+    try:
+        installations = ApplicationInstallationRepository(
+            conn, clock=lambda: "2026-08-30T12:00:00Z"
+        )
+        row = installations.insert_staged(
+            release, created_by_operation_id=None
+        )
+        assert row.installation_id == release.release_set_digest
+        assert row.state is InstallationState.STAGED
+        assert row.smoke_state is SmokeState.PENDING
+        smoked = installations.mark_smoke(
+            row.installation_id, state=SmokeState.PASSED,
+            expected_revision=row.revision,
+        )
+        assert smoked.smoke_state is SmokeState.PASSED
+        with pytest.raises(ApplicationInstallationError, match="CAS fence"):
+            installations.mark_smoke(
+                row.installation_id, state=SmokeState.FAILED,
+                expected_revision=row.revision,
+            )
+        current = installations.transition(
+            row.installation_id, target=InstallationState.CURRENT,
+            expected_state=InstallationState.STAGED,
+            expected_revision=smoked.revision,
+        )
+        assert current.state is InstallationState.CURRENT
+        with pytest.raises(ApplicationInstallationError, match="invalid"):
+            installations.transition(
+                row.installation_id, target=InstallationState.QUARANTINED,
+                expected_state=InstallationState.CURRENT,
+                expected_revision=current.revision,
+            )
+
+        imports = ApplicationUpdateImportRepository(
+            conn, clock=lambda: "2026-08-30T12:00:00Z"
+        )
+        imported = imports.record_verified(
+            release, source_class=ImportSource.OFFLINE
+        )
+        assert imported.state is ImportState.VERIFIED
+        consumed = imports.transition(
+            release.release_set_digest,
+            target=ImportState.CONSUMED,
+            expected_revision=imported.revision,
+        )
+        assert consumed.state is ImportState.CONSUMED
+        with pytest.raises(ApplicationInstallationError, match="CAS fence"):
+            imports.transition(
+                release.release_set_digest,
+                target=ImportState.QUARANTINED,
+                expected_revision=imported.revision,
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class _FakeInstaller:
+    def __init__(self):
+        self.install_calls = 0
+        self.probe_calls = 0
+
+    def install(self, *, venv_dir, wheel_path, release):
+        self.install_calls += 1
+        venv_dir.mkdir(parents=True)
+        (venv_dir / "installed.marker").write_text(
+            release.release_set_digest, encoding="utf-8"
+        )
+        return ("EXACT_WHEEL_INSTALLED", "PIP_CHECK_PASSED")
+
+    def probe(self, *, venv_dir, release):
+        self.probe_calls += 1
+        marker = venv_dir / "installed.marker"
+        ok = marker.is_file() and marker.read_text(
+            encoding="utf-8"
+        ) == release.release_set_digest
+        return ok, (("PACKAGE_IMPORT_SMOKE_PASSED",) if ok else ("SMOKE_FAILED",))
+
+
+def test_isolated_staging_is_idempotent_and_never_switches_pointer(tmp_path):
+    from bc250_llm_mode.application_staging import (
+        ApplicationInstallationStager,
+        ApplicationStageRequest,
+    )
+    from bc250_llm_mode.paths import AppPaths
+
+    wheel_bytes = b"exact signed wheel bytes"
+    wheel_digest = hashlib.sha256(wheel_bytes).hexdigest()
+    material = _release_material(
+        wheel_digest=wheel_digest, wheel_size=len(wheel_bytes)
+    )
+    release = _verifier().verify(
+        material, installed_schema=13, platform_profile=PLATFORM
+    ).release
+    bundle = tmp_path / "held-bundle"
+    bundle.mkdir()
+    wheel_name = material.members[0].name
+    (bundle / wheel_name).write_bytes(wheel_bytes)
+    paths = AppPaths.temporary(tmp_path / "profile")
+    paths.ensure_directories()
+    installer = _FakeInstaller()
+    stager = ApplicationInstallationStager(paths, installer=installer)
+    request = ApplicationStageRequest(
+        operation_id="update-op-1", release=release,
+        bundle_root=bundle.resolve(), wheel_name=wheel_name,
+        wheel_size=len(wheel_bytes),
+    )
+    first = stager.stage(request)
+    second = stager.stage(request)
+    assert first.stage_identity == second.stage_identity
+    assert first.receipt_digest == second.receipt_digest
+    assert second.already_complete is True
+    assert installer.install_calls == 1
+    assert not paths.application_current_link.exists()
+    assert not paths.application_previous_link.exists()
+    receipt = (
+        paths.application_release_staging_dir / first.stage_identity /
+        ".bc250-release.json"
+    ).read_text(encoding="utf-8")
+    assert str(bundle) not in receipt
+
+
+def test_staging_rejects_mutated_or_linked_wheel_and_keeps_running_tree_untouched(tmp_path):
+    from bc250_llm_mode.application_staging import (
+        ApplicationInstallationStager,
+        ApplicationStageRequest,
+        ApplicationStagingError,
+    )
+    from bc250_llm_mode.paths import AppPaths
+
+    wheel_bytes = b"wheel"
+    digest = hashlib.sha256(wheel_bytes).hexdigest()
+    material = _release_material(wheel_digest=digest, wheel_size=len(wheel_bytes))
+    release = _verifier().verify(
+        material, installed_schema=13, platform_profile=PLATFORM
+    ).release
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    name = material.members[0].name
+    wheel = bundle / name
+    wheel.write_bytes(b"tampered")
+    paths = AppPaths.temporary(tmp_path / "profile")
+    paths.ensure_directories()
+    stager = ApplicationInstallationStager(paths, installer=_FakeInstaller())
+    request = ApplicationStageRequest(
+        "update-op-2", release, bundle.resolve(), name, len(wheel_bytes)
+    )
+    with pytest.raises(ApplicationStagingError) as failure:
+        stager.stage(request)
+    assert failure.value.code == "BUNDLE_MEMBER_REFUSED"
+    assert list(paths.application_release_staging_dir.iterdir()) == []
+
+    wheel.unlink()
+    target = bundle / "real.whl"
+    target.write_bytes(wheel_bytes)
+    wheel.symlink_to(target.name)
+    with pytest.raises(ApplicationStagingError) as failure:
+        stager.stage(request)
+    assert failure.value.code == "BUNDLE_MEMBER_REFUSED"

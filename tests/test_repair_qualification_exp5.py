@@ -14,8 +14,8 @@ from bc250_llm_mode.repair_center import REPAIR_ACTIONS, REPAIR_ACTION_IDS
 ROOT = Path(__file__).parents[1]
 
 
-def test_exp5_closed_catalogue_and_cleanup_version_do_not_claim_migration_014():
-    assert SCHEMA_VERSION == 13
+def test_exp5_closed_catalogue_and_cleanup_contract_survives_migration_014():
+    assert SCHEMA_VERSION >= 14
     assert OperationType.STORAGE_CLEANUP.value == "STORAGE_CLEANUP"
     assert len(REPAIR_ACTIONS) == len(REPAIR_ACTION_IDS) == 15
     assert len(set(REPAIR_ACTION_IDS)) == 15

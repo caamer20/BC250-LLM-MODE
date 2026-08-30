@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -999,6 +999,128 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """
             CREATE INDEX idx_notification_receipts_retention
                 ON notification_receipts(last_attempt_at, receipt_key)
+            """,
+        ),
+    ),
+    (
+        14,
+        "application-installations",
+        (
+            # ADR 013 / EXP-6: content-addressed application slots. Trust is
+            # established before insertion; these rows record durable
+            # identities and lifecycle state, never caller assertions.
+            """
+            CREATE TABLE application_installations (
+                installation_id TEXT PRIMARY KEY
+                    CHECK (length(installation_id) = 64
+                           AND installation_id NOT GLOB '*[^0-9a-f]*'),
+                version TEXT NOT NULL
+                    CHECK (length(version) BETWEEN 1 AND 64),
+                source_commit TEXT NOT NULL
+                    CHECK (length(source_commit) = 40
+                           AND source_commit NOT GLOB '*[^0-9a-f]*'),
+                source_ref TEXT NOT NULL
+                    CHECK (length(source_ref) BETWEEN 6 AND 256),
+                repository TEXT NOT NULL
+                    CHECK (length(repository) BETWEEN 1 AND 256),
+                release_set_digest TEXT NOT NULL UNIQUE
+                    CHECK (length(release_set_digest) = 64
+                           AND release_set_digest NOT GLOB '*[^0-9a-f]*'),
+                manifest_digest TEXT NOT NULL
+                    CHECK (length(manifest_digest) = 64
+                           AND manifest_digest NOT GLOB '*[^0-9a-f]*'),
+                inventory_digest TEXT NOT NULL
+                    CHECK (length(inventory_digest) = 64
+                           AND inventory_digest NOT GLOB '*[^0-9a-f]*'),
+                wheel_digest TEXT NOT NULL
+                    CHECK (length(wheel_digest) = 64
+                           AND wheel_digest NOT GLOB '*[^0-9a-f]*'),
+                source_schema INTEGER NOT NULL CHECK (source_schema >= 1),
+                minimum_readable_schema INTEGER NOT NULL
+                    CHECK (minimum_readable_schema >= 1),
+                maximum_readable_schema INTEGER NOT NULL
+                    CHECK (maximum_readable_schema >= minimum_readable_schema),
+                target_schema INTEGER NOT NULL CHECK (target_schema >= 1),
+                platform_qualification_id TEXT NOT NULL
+                    CHECK (length(platform_qualification_id) BETWEEN 1 AND 128),
+                release_directory_identity TEXT NOT NULL UNIQUE
+                    CHECK (length(release_directory_identity) = 64
+                           AND release_directory_identity NOT GLOB '*[^0-9a-f]*'),
+                state TEXT NOT NULL
+                    CHECK (state IN
+                           ('STAGED', 'CURRENT', 'PREVIOUS', 'QUARANTINED')),
+                smoke_state TEXT NOT NULL DEFAULT 'PENDING'
+                    CHECK (smoke_state IN ('PENDING', 'PASSED', 'FAILED')),
+                created_by_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                created_at TEXT NOT NULL,
+                published_at TEXT,
+                last_verified_at TEXT,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+                CHECK (minimum_readable_schema <= maximum_readable_schema)
+            )
+            """,
+            """
+            CREATE INDEX idx_application_installations_state
+                ON application_installations(state, created_at DESC,
+                                             installation_id)
+            """,
+            """
+            CREATE TABLE application_installation_state (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                current_installation_id TEXT
+                    REFERENCES application_installations(installation_id)
+                    ON DELETE RESTRICT,
+                previous_installation_id TEXT
+                    REFERENCES application_installations(installation_id)
+                    ON DELETE RESTRICT,
+                pointer_generation INTEGER NOT NULL DEFAULT 0
+                    CHECK (pointer_generation >= 0),
+                pending_update_operation_id TEXT REFERENCES operations(id)
+                    ON DELETE SET NULL,
+                recovery_barrier TEXT
+                    CHECK (recovery_barrier IS NULL OR
+                           length(recovery_barrier) BETWEEN 1 AND 80),
+                last_ack_installation_id TEXT
+                    REFERENCES application_installations(installation_id)
+                    ON DELETE RESTRICT,
+                last_ack_process_nonce_digest TEXT
+                    CHECK (last_ack_process_nonce_digest IS NULL OR
+                           (length(last_ack_process_nonce_digest) = 64 AND
+                            last_ack_process_nonce_digest
+                                NOT GLOB '*[^0-9a-f]*')),
+                updated_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+                CHECK (current_installation_id IS NULL OR
+                       current_installation_id != previous_installation_id)
+            )
+            """,
+            """
+            INSERT INTO application_installation_state (
+                id, pointer_generation, updated_at, revision)
+            VALUES (1, 0, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 1)
+            """,
+            """
+            CREATE TABLE application_update_imports (
+                release_set_digest TEXT PRIMARY KEY
+                    CHECK (length(release_set_digest) = 64
+                           AND release_set_digest NOT GLOB '*[^0-9a-f]*'),
+                source_class TEXT NOT NULL
+                    CHECK (source_class IN ('CHANNEL', 'OFFLINE')),
+                verifier_policy_version INTEGER NOT NULL
+                    CHECK (verifier_policy_version >= 1),
+                trust_root_id TEXT NOT NULL
+                    CHECK (length(trust_root_id) BETWEEN 1 AND 128),
+                state TEXT NOT NULL
+                    CHECK (state IN ('VERIFIED', 'CONSUMED', 'QUARANTINED')),
+                verified_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)
+            )
+            """,
+            """
+            CREATE INDEX idx_application_update_imports_state
+                ON application_update_imports(state, verified_at DESC,
+                                              release_set_digest)
             """,
         ),
     ),

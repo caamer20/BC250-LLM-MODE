@@ -15,7 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Mapping, Protocol, Sequence
@@ -297,10 +297,10 @@ class VerifiedApplicationRelease:
     total_bytes: int
     member_count: int
     trust_root_id: str
-    _key: object = field(default=None, repr=False, compare=False)
+    _verifier_key: InitVar[object] = None
 
-    def __post_init__(self) -> None:
-        if self._key is not _VERIFIED_RELEASE_KEY:
+    def __post_init__(self, _verifier_key: object) -> None:
+        if _verifier_key is not _VERIFIED_RELEASE_KEY:
             raise ValueError(
                 "VerifiedApplicationRelease can only be produced by "
                 "ApplicationReleaseVerifier"
@@ -626,7 +626,7 @@ class ApplicationReleaseVerifier:
             total_bytes=total_bytes,
             member_count=len(members),
             trust_root_id=self.trust.trust_root_id,
-            _key=_VERIFIED_RELEASE_KEY,
+            _verifier_key=_VERIFIED_RELEASE_KEY,
         )
         return ReleaseVerification(UpdateOutcome.AVAILABLE, UpdateCode.OK, release)
 

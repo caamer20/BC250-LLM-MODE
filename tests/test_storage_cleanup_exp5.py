@@ -63,9 +63,9 @@ def _stage(app, operation_id, content=b"model-part"):
     return root
 
 
-def test_cleanup_uses_schema_13_and_one_registered_operation(tmp_path):
+def test_cleanup_contract_survives_application_installation_schema(tmp_path):
     app = _app(tmp_path)
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     definition = app.registry.definition_for_type(OperationType.STORAGE_CLEANUP)
     assert definition.request_version == 1
     assert definition.recovery_policy_version == 1
