@@ -16,7 +16,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 BUSY_TIMEOUT_MS = 5000
 
 # (version, name, statements). Declared in ASCENDING version order; the
@@ -919,6 +919,89 @@ MIGRATIONS: tuple[tuple[int, str, tuple[str, ...]], ...] = (
             """,
         ),
     ),
+    (
+        13,
+        "notification-preferences-receipts",
+        (
+            # ADR 011 / EXP-4: preferences and redacted receipt identities.
+            # Rendered title/body and raw source identities are never durable.
+            """
+            CREATE TABLE notification_preferences (
+                category TEXT PRIMARY KEY
+                    CHECK (category IN
+                           ('MASTER', 'OPERATION_SUCCESS', 'OPERATION_FAILURE',
+                            'THERMAL_WARNING', 'THERMAL_STOP',
+                            'STORAGE_CRITICAL', 'BACKUP_FAILURE',
+                            'BACKUP_STALE', 'REMOTE_SAFETY_DISABLE',
+                            'APPLICATION_UPDATE')),
+                enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)
+            )
+            """,
+            """
+            INSERT INTO notification_preferences (
+                category, enabled, created_at, updated_at, revision)
+            WITH categories(category) AS (VALUES
+                ('MASTER'), ('OPERATION_SUCCESS'), ('OPERATION_FAILURE'),
+                ('THERMAL_WARNING'), ('THERMAL_STOP'), ('STORAGE_CRITICAL'),
+                ('BACKUP_FAILURE'), ('BACKUP_STALE'),
+                ('REMOTE_SAFETY_DISABLE'), ('APPLICATION_UPDATE'))
+            SELECT category, 0,
+                   strftime('%Y-%m-%dT%H:%M:%SZ', 'now'),
+                   strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), 1
+              FROM categories
+            """,
+            """
+            CREATE TABLE notification_receipts (
+                receipt_key TEXT PRIMARY KEY
+                    CHECK (length(receipt_key) = 64
+                           AND receipt_key NOT GLOB '*[^0-9a-f]*'),
+                category TEXT NOT NULL
+                    CHECK (category IN
+                           ('OPERATION_SUCCESS', 'OPERATION_FAILURE',
+                            'THERMAL_WARNING', 'THERMAL_STOP',
+                            'STORAGE_CRITICAL', 'BACKUP_FAILURE',
+                            'BACKUP_STALE', 'REMOTE_SAFETY_DISABLE',
+                            'APPLICATION_UPDATE')),
+                source_class TEXT NOT NULL
+                    CHECK (source_class IN
+                           ('OPERATION', 'THERMAL', 'STORAGE', 'BACKUP',
+                            'REMOTE_ACCESS', 'APPLICATION_UPDATE')),
+                delivery_state TEXT NOT NULL
+                    CHECK (delivery_state IN
+                           ('DELIVERED', 'SUPPRESSED', 'FAILED')),
+                reason_code TEXT NOT NULL
+                    CHECK (reason_code IN
+                           ('DELIVERED', 'PREFERENCE_DISABLED',
+                            'CAPABILITY_UNAVAILABLE', 'DUPLICATE',
+                            'RATE_GLOBAL', 'RATE_CATEGORY',
+                            'DELIVERY_RESERVED', 'ADAPTER_FAILED',
+                            'ADAPTER_TIMEOUT')),
+                adapter_class TEXT NOT NULL
+                    CHECK (adapter_class IN ('notify-send', 'unavailable')),
+                first_attempt_at TEXT NOT NULL,
+                last_attempt_at TEXT NOT NULL,
+                delivered_at TEXT,
+                occurrence_count INTEGER NOT NULL DEFAULT 1
+                    CHECK (occurrence_count BETWEEN 1 AND 1000000),
+                attempt_count INTEGER NOT NULL DEFAULT 0
+                    CHECK (attempt_count BETWEEN 0 AND 2),
+                revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1)
+            )
+            """,
+            """
+            CREATE INDEX idx_notification_receipts_rate
+                ON notification_receipts(delivery_state, last_attempt_at,
+                                         category)
+            """,
+            """
+            CREATE INDEX idx_notification_receipts_retention
+                ON notification_receipts(last_attempt_at, receipt_key)
+            """,
+        ),
+    ),
 )
 
 
@@ -1011,6 +1094,30 @@ class MigrationRegistryError(RuntimeError):
     """The declared migration registry violates the ordering contract."""
 
 
+def _apply_versioned_data_migration(
+    conn: sqlite3.Connection, version: int
+) -> None:
+    """Run guarded data-only work inside the migration transaction.
+
+    Old qualification fixtures may truthfully record an early migration as
+    applied while omitting an optional historical table.  Migration 013 must
+    therefore inspect sqlite_master before honoring an explicit legacy
+    notification opt-in; absence or malformed/non-true content remains off.
+    """
+    if version != 13:
+        return
+    has_settings = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings'"
+    ).fetchone()
+    if has_settings is None:
+        return
+    legacy = conn.execute(
+        "SELECT value_json FROM settings WHERE key = 'notifications_enabled'"
+    ).fetchone()
+    if legacy is not None and legacy["value_json"] == "true":
+        conn.execute("UPDATE notification_preferences SET enabled = 1")
+
+
 def validate_registry(
     migrations: tuple[tuple[int, str, tuple[str, ...]], ...],
     schema_version: int,
@@ -1070,6 +1177,7 @@ def initialize(conn: sqlite3.Connection) -> int:
         try:
             for statement in statements:
                 conn.execute(statement)
+            _apply_versioned_data_migration(conn, version)
             conn.execute(
                 "INSERT INTO schema_migrations(version, name, applied_at) "
                 "VALUES (?, ?, datetime('now'))",

@@ -385,7 +385,9 @@ class UserPreferencesService:
     DEFAULTS = {
         "appearance": "system",
         "reduced_motion": False,
-        "notifications_enabled": True,
+        # Absence is not consent. Migration 013 honors only an explicitly
+        # persisted legacy true value when seeding category preferences.
+        "notifications_enabled": False,
     }
 
     def __init__(self, units) -> None:

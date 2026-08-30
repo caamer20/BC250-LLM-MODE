@@ -31,7 +31,9 @@ def _fresh(tmp_path):
 def _create_v11(path, monkeypatch):
     current_migrations = db.MIGRATIONS
     current_version = db.SCHEMA_VERSION
-    monkeypatch.setattr(db, "MIGRATIONS", current_migrations[:-1])
+    monkeypatch.setattr(
+        db, "MIGRATIONS", tuple(item for item in current_migrations if item[0] <= 11)
+    )
     monkeypatch.setattr(db, "SCHEMA_VERSION", 11)
     conn = open_database(path, mode="migration")
     try:
@@ -62,7 +64,10 @@ def test_migration_012_preserves_v11_rows_and_seeds_exact_builtins(tmp_path, mon
     _create_v11(path, monkeypatch)
     conn = open_database(path, mode="migration")
     try:
-        assert initialize(conn) == 12 == db.SCHEMA_VERSION
+        assert initialize(conn) == db.SCHEMA_VERSION
+        assert conn.execute(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = 12"
+        ).fetchone()[0] == 1
         assert conn.execute("SELECT value FROM preserved_exp3_marker").fetchone()[0] == "keep-me"
         runtime = conn.execute("SELECT * FROM runtime_config WHERE id = 1").fetchone()
         assert (runtime["model_alias"], runtime["context"], runtime["slots"], runtime["profile_id"]) == (
@@ -96,12 +101,18 @@ def test_migration_012_preserves_v11_rows_and_seeds_exact_builtins(tmp_path, mon
 def test_migration_012_is_atomic_on_mid_migration_failure(tmp_path, monkeypatch):
     path = tmp_path / "atomic.db"
     _create_v11(path, monkeypatch)
+    migration_012 = next(item for item in db.MIGRATIONS if item[0] == 12)
     broken = (
         12,
         "workload-profiles",
-        db.MIGRATIONS[-1][2][:-1] + ("INSERT INTO absent_table VALUES (1)",),
+        migration_012[2][:-1] + ("INSERT INTO absent_table VALUES (1)",),
     )
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:-1] + (broken,))
+    monkeypatch.setattr(
+        db,
+        "MIGRATIONS",
+        tuple(item for item in db.MIGRATIONS if item[0] < 12) + (broken,),
+    )
+    monkeypatch.setattr(db, "SCHEMA_VERSION", 12)
     conn = open_database(path, mode="migration")
     try:
         with pytest.raises(sqlite3.OperationalError):

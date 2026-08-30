@@ -84,6 +84,8 @@ class Application:
     performance_coach: Any = None
     calibration: Any = None
     idle_policy: Any = None
+    notification_preferences: Any = None
+    notifications: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -292,6 +294,17 @@ class Application:
             units,
             application.paths.models_dir,
             platform=application.platform,
+        )
+        from .notifications import (
+            DesktopNotificationAdapter,
+            NotificationCoordinator,
+            NotificationPreferenceService,
+        )
+
+        notification_adapter = DesktopNotificationAdapter()
+        application.notification_preferences = NotificationPreferenceService(units)
+        application.notifications = NotificationCoordinator(
+            units, adapter=notification_adapter
         )
         from .desktop_integration import DesktopIntegrationService
 

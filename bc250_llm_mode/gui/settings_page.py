@@ -56,7 +56,7 @@ class SettingsPage(ttk.Frame):
         )
         self.appearance_var = tk.StringVar(value="system")
         self.reduced_motion_var = tk.BooleanVar(value=False)
-        self.notifications_var = tk.BooleanVar(value=True)
+        self.notifications_var = tk.BooleanVar(value=False)
         ttk.Label(basic, text="Appearance").grid(
             row=preference_row + 1, column=0, sticky="w", pady=4
         )

@@ -77,7 +77,7 @@ class GuiBase(tk.Tk):
         except Exception:
             self.gui_preferences = {
                 "appearance": "system", "reduced_motion": False,
-                "notifications_enabled": True,
+                "notifications_enabled": False,
             }
             self.reduced_motion = False
         from .theme import apply_theme
