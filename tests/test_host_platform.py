@@ -356,6 +356,7 @@ def test_frontends_have_no_distribution_specific_host_bypass():
     root = Path(__file__).parent.parent / "bc250_llm_mode"
     for rel in (
         "__main__.py", "chat.py", "gui/setup_page.py", "gui/system_page.py",
+        "gui/maintenance_page.py",
     ):
         text = (root / rel).read_text(encoding="utf-8")
         assert "from .llmmode import" not in text

@@ -526,6 +526,27 @@ class ObservationRepository:
             for r in rows
         }
 
+    def set(
+        self, key: str, value: dict, *, observed_at: str, stale: bool = False
+    ) -> None:
+        """Persist one bounded, caller-normalized observation.
+
+        This repository is intentionally generic; owning services must reduce
+        live output to a closed privacy-safe payload before calling it.
+        """
+        from .operations.validation import sanitize_payload
+
+        if not isinstance(key, str) or not (1 <= len(key) <= 80):
+            raise ValueError("observation key is out of bounds")
+        payload = sanitize_payload(value)
+        self.conn.execute(
+            "INSERT INTO runtime_observations(key, payload_json, observed_at, "
+            "stale) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+            "payload_json = excluded.payload_json, "
+            "observed_at = excluded.observed_at, stale = excluded.stale",
+            (key, payload, observed_at, int(bool(stale))),
+        )
+
 
 class MaintenanceSnapshotRepository:
     """Bounded read model for the maintenance inbox (EXP-4).

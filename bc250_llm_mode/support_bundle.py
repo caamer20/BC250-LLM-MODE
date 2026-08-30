@@ -208,6 +208,7 @@ class SupportBundleService:
         home: Any = None,
         doctor: Any = None,
         platform: Any = None,
+        notifications: Any = None,
         clock: Callable[[], str] | None = None,
         redact_model_filenames: bool = True,
     ) -> None:
@@ -216,6 +217,7 @@ class SupportBundleService:
         self._home = home
         self._doctor = doctor
         self._platform = platform
+        self._notifications = notifications
         self._clock = clock or _utcnow
         self._redact_model_filenames = redact_model_filenames
 
@@ -263,11 +265,17 @@ class SupportBundleService:
         # 3) disposable host-platform observations (never durable truth).
         if self._platform is not None:
             emit("platform.json", self._dump(self._platform.status(), redactor))
-        # 4) redacted settings.
+        # 4) notification capability/preferences/closed receipt summaries.
+        if self._notifications is not None:
+            emit(
+                "notifications.json",
+                self._dump(self._notifications.status(), redactor),
+            )
+        # 5) redacted settings.
         emit("settings.json", self._dump(self._settings(redactor), redactor))
-        # 5) bounded operations summary.
+        # 6) bounded operations summary.
         emit("operations.json", self._dump(self._operations(), redactor))
-        # 6) bounded, redacted log tails.
+        # 7) bounded, redacted log tails.
         for rel, text in self._log_tails(redactor, cancel):
             emit(rel, text)
 

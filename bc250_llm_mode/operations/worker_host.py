@@ -89,6 +89,7 @@ class WorkerHost:
         monotonic: Callable[[], float],
         waiter: Callable[[float], bool],
         worker_id: str | None = None,
+        terminal_observer: Callable[[str], Any] | None = None,
     ) -> None:
         self.units = units
         self.registry = registry
@@ -101,6 +102,7 @@ class WorkerHost:
         self.monotonic = monotonic
         self.waiter = waiter
         self.worker_id = worker_id or f"worker-host-{_uuid.uuid4().hex[:12]}"
+        self.terminal_observer = terminal_observer
         self._shutdown = threading.Event()
         self._lock_revision: int | None = None
         self.stats = {"claims": 0, "resumes": 0, "failures": 0,
@@ -223,6 +225,7 @@ class WorkerHost:
             worker_id=self.worker_id,
             lease_ttl_seconds=self.policy.lease_ttl_seconds,
             shutdown_requested=lambda: self.shutdown_requested,
+            terminal_observer=self.terminal_observer,
         )
 
     def run_once(self) -> ExecutionOutcome | None:

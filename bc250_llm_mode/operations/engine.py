@@ -97,6 +97,7 @@ class ExecutionEngine:
         shutdown_requested: Callable[[], bool] | None = None,
         on_lease_acquired: Callable[[str], None] | None = None,
         crash_hook: Callable[[str, str], None] | None = None,
+        terminal_observer: Callable[[str], Any] | None = None,
     ) -> None:
         self.units = units
         self.registry = registry
@@ -107,6 +108,7 @@ class ExecutionEngine:
         self.shutdown_requested = shutdown_requested or (lambda: False)
         self.on_lease_acquired = on_lease_acquired
         self.crash_hook = crash_hook
+        self.terminal_observer = terminal_observer
         self._crash = self.crash_hook or (lambda step_key, point: None)
 
     # -- infrastructure --------------------------------------------------------
@@ -138,14 +140,20 @@ class ExecutionEngine:
 
     def execute_one(self, operation_id: str) -> ExecutionOutcome:
         try:
-            return self._execute(operation_id)
+            outcome = self._execute(operation_id)
         except LostLease as lost:
-            return ExecutionOutcome(
+            outcome = ExecutionOutcome(
                 "LOST_LEASE",
                 operation_id,
                 reason_code="LOST_LEASE",
                 detail={"reason": str(lost)[:256]},
             )
+        if self.terminal_observer is not None:
+            try:
+                self.terminal_observer(operation_id)
+            except Exception:  # noqa: BLE001 - post-commit presentation only
+                pass
+        return outcome
 
     # -- claim -----------------------------------------------------------------
 

@@ -37,7 +37,7 @@ def test_management_window_constructs_with_persistent_regions(tmp_path):
     assert "notice_bar" in assigned
     assert "drawer" in assigned
     assert "_refresh_coordinator" in assigned
-    assert len(assigned["_nav_buttons"]) == 9
+    assert len(assigned["_nav_buttons"]) == 10
 
 
 def test_activity_navigation_is_in_window(tmp_path):

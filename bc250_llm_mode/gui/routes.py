@@ -28,6 +28,7 @@ PRIMARY_ROUTES = (
     Route.CHAT,
     Route.CONNECTIONS,
     Route.ACTIVITY,
+    Route.MAINTENANCE,
     Route.SYSTEM,
     Route.SETTINGS,
     Route.HELP,

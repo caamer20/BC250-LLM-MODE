@@ -160,8 +160,8 @@ def test_pages_route_in_one_window_and_dispose_inactive_widgets(tmp_path):
     window = ApplicationWindow(application, management=True)
     try:
         for route in (
-            Route.MODELS, Route.CHAT, Route.CONNECTIONS, Route.ACTIVITY, Route.SYSTEM,
-            Route.SETTINGS, Route.HELP, Route.HOME,
+            Route.MODELS, Route.CHAT, Route.CONNECTIONS, Route.ACTIVITY,
+            Route.MAINTENANCE, Route.SYSTEM, Route.SETTINGS, Route.HELP, Route.HOME,
         ):
             prior = window._page
             window.navigate(route)
@@ -205,7 +205,7 @@ def test_preferences_are_typed_persistent_and_reduce_animation(tmp_path):
 def test_page_probes_use_the_coalescing_observation_lane():
     for name in (
         "home_page.py", "models_page.py", "activity.py", "system_page.py",
-        "chat_page.py", "connections_page.py",
+        "chat_page.py", "connections_page.py", "maintenance_page.py",
     ):
         source = (ROOT / "gui" / name).read_text(encoding="utf-8")
         assert "request_observation(" in source, name

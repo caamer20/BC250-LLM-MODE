@@ -48,7 +48,8 @@ class ApplicationWindow(SetupWindow):
             Route.HOME: "Home", Route.MODELS: "Models",
             Route.PROFILES: "Profiles", Route.CHAT: "Chat",
             Route.CONNECTIONS: "Connections",
-            Route.ACTIVITY: "Activity", Route.SYSTEM: "System",
+            Route.ACTIVITY: "Activity", Route.MAINTENANCE: "Maintenance",
+            Route.SYSTEM: "System",
             Route.SETTINGS: "Settings", Route.HELP: "Help",
         }
         for route in PRIMARY_ROUTES:
@@ -79,7 +80,7 @@ class ApplicationWindow(SetupWindow):
         self.drawer = BottomDrawer(self._outer)
         self._update_navigation()
         self.protocol("WM_DELETE_WINDOW", self.request_close)
-        for index, route in enumerate(PRIMARY_ROUTES, 1):
+        for index, route in enumerate(PRIMARY_ROUTES[:9], 1):
             self.bind(
                 f"<Control-Key-{index}>",
                 lambda _event, target=route: self._shortcut_route(target),
@@ -199,6 +200,15 @@ class ApplicationWindow(SetupWindow):
             from .connections_page import ConnectionsPage
 
             self._page = ConnectionsPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
+        if target is Route.MAINTENANCE:
+            self.heading.configure(text="Maintenance")
+            from .maintenance_page import MaintenancePage
+
+            self._page = MaintenancePage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
             self.heading.focus_set()
@@ -402,7 +412,7 @@ class ApplicationWindow(SetupWindow):
         page = self._page
         if page is not None and self._route in {
             Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
-            Route.ACTIVITY,
+            Route.ACTIVITY, Route.MAINTENANCE,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:

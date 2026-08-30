@@ -48,7 +48,29 @@ def _health(card: Mapping[str, Any]) -> str:
     return str(health.get("effective_state") or health.get("state") or "UNVERIFIED")
 
 
-def build_home_view(snapshot: Mapping[str, Any]) -> HomeView:
+def _maintenance_item(snapshot: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    if not isinstance(snapshot, Mapping):
+        return None
+    items = snapshot.get("items")
+    if not isinstance(items, (list, tuple)):
+        return None
+    candidates = [
+        item for item in items
+        if isinstance(item, Mapping)
+        and str(item.get("category")) != "INFORMATION"
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda item: (int(item.get("priority") or 99), str(item.get("code") or "")),
+    )
+
+
+def build_home_view(
+    snapshot: Mapping[str, Any],
+    maintenance: Mapping[str, Any] | None = None,
+) -> HomeView:
     """Choose one safety-first next action and five bounded health cards."""
     identity = _card(snapshot, "identity")
     runtime = _card(snapshot, "runtime")
@@ -80,6 +102,18 @@ def build_home_view(snapshot: Mapping[str, Any]) -> HomeView:
         headline = "Work is in progress"
         explanation = "One durable operation owns the appliance resources it needs."
         primary = PrimaryAction("activity", "View activity", Route.ACTIVITY.value, explanation)
+    elif (maintenance_item := _maintenance_item(maintenance)) is not None:
+        headline = str(maintenance_item.get("title") or "Maintenance needs attention")
+        explanation = str(
+            maintenance_item.get("impact")
+            or "Review the prioritized maintenance evidence before starting more model work."
+        )
+        primary = PrimaryAction(
+            "maintenance",
+            "Open Maintenance",
+            Route.MAINTENANCE.value,
+            explanation,
+        )
     elif _health(model) == "READY" and _health(inference) == "READY":
         headline = f"Ready to chat with {model_name}"
         explanation = "The selected artifact and a current inference probe are verified."
@@ -142,7 +176,7 @@ def build_home_view(snapshot: Mapping[str, Any]) -> HomeView:
     shortcuts = (
         ("Browse models", Route.MODELS.value),
         ("Connect another device", Route.CONNECTIONS.value),
-        ("View activity", Route.ACTIVITY.value),
+        ("Maintenance", Route.MAINTENANCE.value),
         ("System details", Route.SYSTEM.value),
     )
     return HomeView(headline, explanation, primary, cards, shortcuts)
@@ -192,22 +226,34 @@ class HomePage(ttk.Frame):
         del route_context
         self.refresh()
 
-    def refresh(self, snapshot: Mapping[str, Any] | None = None) -> None:
+    def refresh(self, snapshot: Mapping[str, Any] | tuple[Any, Any] | None = None) -> None:
         if self._disposed:
             return
         if snapshot is None:
             self.shell.request_observation(
-                lambda: self.application.home.snapshot().to_dict(),
+                lambda: (
+                    self.application.home.snapshot().to_dict(),
+                    self.application.maintenance_snapshot.snapshot().to_dict(),
+                ),
                 self._apply_snapshot,
             )
             return
         self._apply_snapshot(snapshot)
 
-    def _apply_snapshot(self, snapshot: Mapping[str, Any]) -> None:
+    def _apply_snapshot(self, snapshot: Mapping[str, Any] | tuple[Any, Any]) -> None:
         if self._disposed:
             return
-        source = dict(snapshot)
-        view = build_home_view(source)
+        if isinstance(snapshot, tuple):
+            home_source, maintenance_source = snapshot
+        else:
+            home_source, maintenance_source = snapshot, None
+        source = dict(home_source)
+        maintenance = (
+            dict(maintenance_source)
+            if isinstance(maintenance_source, Mapping)
+            else None
+        )
+        view = build_home_view(source, maintenance)
         self._view = view
         self._headline.set(view.headline)
         self._explanation.set(view.explanation)

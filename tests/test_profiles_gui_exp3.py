@@ -57,7 +57,7 @@ def test_profiles_is_a_primary_route_in_the_same_window(tmp_path):
         window.navigate(Route.PROFILES)
         assert window._route is Route.PROFILES
         assert isinstance(window._page, ProfilesPage)
-        assert len(window._nav_buttons) == 9
+        assert len(window._nav_buttons) == 10
     finally:
         window.destroy()
 

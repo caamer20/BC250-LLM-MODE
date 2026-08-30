@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 from pathlib import Path
@@ -25,6 +26,12 @@ from bc250_llm_mode.notifications import (
     NotificationPreferenceService,
     NotificationReceiptRepository,
 )
+from bc250_llm_mode.notification_producers import (
+    MaintenanceNotificationProducer,
+    OperationNotificationProducer,
+    ThermalNotificationProducer,
+)
+from bc250_llm_mode.operations.repositories import OperationRepository
 from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
 
 
@@ -325,3 +332,93 @@ def test_notification_module_has_no_thread_tray_or_caller_copy_api():
     assert "title:" not in source and "body:" not in source
     assert "shell=True" not in source
 
+
+def test_operation_producer_observes_only_committed_long_terminals(tmp_path):
+    _path, units = _fresh(tmp_path)
+    _enable(units, "OPERATION_SUCCESS")
+    adapter = _Adapter()
+    coordinator = NotificationCoordinator(units, adapter=adapter, clock=lambda: NOW)
+    producer = OperationNotificationProducer(units, coordinator)
+    with units.begin() as conn:
+        operation = OperationRepository(
+            conn, clock=lambda: NOW, uuid_factory=lambda: "long-operation"
+        ).create(operation_type="MODEL_ACQUIRE", request={})
+
+    assert producer.after_execution(operation.id) is None
+    assert adapter.calls == []
+    with units.begin() as conn:
+        conn.execute(
+            "UPDATE operations SET state='SUCCEEDED', state_revision=2, "
+            "result_code='MODEL_ACQUIRED', finished_at=?, updated_at=? WHERE id=?",
+            (NOW, NOW, operation.id),
+        )
+        conn.execute(
+            "INSERT INTO operation_events(operation_id, ts, level, code, summary) "
+            "VALUES (?, ?, 'info', 'OPERATION_SUCCEEDED', 'terminal committed')",
+            (operation.id, NOW),
+        )
+    outcome = producer.after_execution(operation.id)
+    assert outcome["delivery_state"] == "DELIVERED"
+    assert adapter.calls == [("OPERATION_SUCCESS", False)]
+    assert producer.after_execution(operation.id)["reason_code"] == "DUPLICATE"
+    assert len(adapter.calls) == 1
+
+
+def test_producer_failure_isolated_and_normal_activation_is_silent(tmp_path):
+    _path, units = _fresh(tmp_path)
+    with units.begin() as conn:
+        operation = OperationRepository(
+            conn, clock=lambda: NOW, uuid_factory=lambda: "normal-activation"
+        ).create(operation_type="MODEL_ACTIVATE", request={})
+        conn.execute(
+            "UPDATE operations SET state='SUCCEEDED', state_revision=2, "
+            "result_code='ACTIVATED', finished_at=?, updated_at=? WHERE id=?",
+            (NOW, NOW, operation.id),
+        )
+
+    exploding = SimpleNamespace(notify=lambda _event: (_ for _ in ()).throw(
+        RuntimeError("private exception canary")
+    ))
+    producer = OperationNotificationProducer(units, exploding)
+    assert producer.after_execution(operation.id) is None
+    with units.read() as conn:
+        assert OperationRepository(conn).require(operation.id).state.value == "SUCCEEDED"
+
+
+def test_thermal_and_maintenance_producers_use_only_closed_events():
+    events = []
+
+    class Coordinator:
+        def notify(self, event):
+            events.append(event)
+            return SimpleNamespace(to_dict=lambda: {
+                "category": event.category,
+                "delivery_state": "DELIVERED",
+                "reason_code": "DELIVERED",
+                "adapter_class": "notify-send",
+            })
+
+    coordinator = Coordinator()
+    thermal = ThermalNotificationProducer(coordinator, clock=lambda: NOW)
+    assert thermal.after_transition("nominal") is None
+    assert thermal.after_transition("throttled")["category"] == "THERMAL_WARNING"
+    assert thermal.after_transition("stopped")["category"] == "THERMAL_STOP"
+
+    maintenance = MaintenanceNotificationProducer(coordinator)
+    outcomes = maintenance.after_check({"items": [
+        {
+            "category": "STORAGE", "code": "STORAGE_CRITICALLY_LOW",
+            "evidence_freshness": "live", "evidence_age_seconds": 0,
+            "title": "/root/models/private.gguf",
+        },
+        {
+            "category": "BACKUP", "code": "BACKUP_STALE",
+            "evidence_freshness": "cached", "evidence_age_seconds": 999999,
+            "impact": "hf_secret-canary",
+        },
+    ]}, NOW)
+    assert [row["category"] for row in outcomes] == [
+        "STORAGE_CRITICAL", "BACKUP_STALE"
+    ]
+    serialized = json.dumps([event.__dict__ for event in events], sort_keys=True)
+    assert "/root/models" not in serialized and "hf_secret" not in serialized

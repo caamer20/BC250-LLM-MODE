@@ -37,6 +37,7 @@ class Worker:
         uuid_factory: Callable[[], str] | None = None,
         lease_ttl_seconds: int = 60,
         wake: Any | None = None,
+        terminal_observer: Callable[[str], Any] | None = None,
     ) -> None:
         self.units = units
         self.registry = registry
@@ -48,6 +49,7 @@ class Worker:
         self.lease_ttl_seconds = lease_ttl_seconds
         # Injected wake primitive (threading.Event-like). No sleeps anywhere.
         self._wake = wake
+        self._terminal_observer = terminal_observer
         self._shutdown = threading.Event()
 
     # -- shutdown ------------------------------------------------------------
@@ -95,6 +97,7 @@ class Worker:
             worker_id=self.worker_id,
             lease_ttl_seconds=self.lease_ttl_seconds,
             shutdown_requested=lambda: self.shutdown_requested,
+            terminal_observer=self._terminal_observer,
         )
 
     def run_once(self) -> ExecutionOutcome | None:

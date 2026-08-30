@@ -100,6 +100,17 @@ def _persist_stopped(store: Any, state: dict[str, Any]) -> None:
     state["thermal_watchdog_state"] = STOPPED
 
 
+def _notify_transition(store: Any, latch_state: str) -> None:
+    """Best-effort post-commit presentation through the composed producer."""
+    producer = getattr(store, "thermal_notifications", None)
+    if producer is None:
+        return
+    try:
+        producer.after_transition(latch_state)
+    except Exception:  # noqa: BLE001 - never alter thermal safety behavior
+        return
+
+
 def run_watchdog_once(
     store: Any,
     state: dict[str, Any],
@@ -149,6 +160,8 @@ def run_watchdog_once(
             if service is not None:
                 service.mark_hold()
             state["thermal_watchdog_state"] = THROTTLED
+            if current != THROTTLED:
+                _notify_transition(store, THROTTLED)
             return {
                 "state": THROTTLED,
                 "temperature": round(temp, 1),
@@ -216,13 +229,18 @@ def run_watchdog_once(
         # Persist the latch BEFORE stopping the service: a crash between the
         # two must never forget that the stop was required.
         _persist_stopped(store, state)
-        stop_service(state, runner)
+        try:
+            stop_service(state, runner)
+        finally:
+            _notify_transition(store, STOPPED)
         new_state = STOPPED
     else:
         new_state = THROTTLED if action == "hold" else current
         if service is not None and action == "hold":
             service.mark_hold()
     state["thermal_watchdog_state"] = new_state
+    if action == "throttle" and current != THROTTLED:
+        _notify_transition(store, THROTTLED)
     result: dict[str, Any] = {"state": new_state, "temperature": round(temp, 1), "action": action}
     if state.get("thermal_watchdog_baseline"):
         result["baseline_preserved"] = True

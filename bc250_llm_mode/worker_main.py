@@ -237,6 +237,10 @@ def main(argv: list[str] | None = None) -> int:
             policy=policy,
             monotonic=time.monotonic,
             waiter=waiter,
+            terminal_observer=(
+                application.operation_notifications.after_execution
+                if application.operation_notifications is not None else None
+            ),
         )
     except Exception as exc:  # noqa: BLE001 - entry point maps, never traces
         logger.debug("worker host construction failed", exc_info=exc)

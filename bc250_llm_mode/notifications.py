@@ -654,6 +654,38 @@ class NotificationPreferenceService:
             ).set(category, enabled, expected_revision=expected_revision)
         return row.to_dict()
 
+    def apply(
+        self,
+        changes: dict[str, bool],
+        *,
+        expected_revisions: dict[str, int],
+    ) -> dict[str, Any]:
+        if not isinstance(changes, dict) or not changes:
+            raise NotificationError("notification preference changes are required")
+        normalized = {
+            _require_category(category, master=True): enabled
+            for category, enabled in changes.items()
+        }
+        if len(normalized) != len(changes) or any(
+            not isinstance(enabled, bool) for enabled in normalized.values()
+        ):
+            raise NotificationError("notification preference changes are invalid")
+        if set(normalized) != set(expected_revisions):
+            raise NotificationError("every preference change requires its revision")
+        with self._units.begin() as conn:
+            repository = NotificationPreferenceRepository(conn, clock=self._clock)
+            changed = {
+                category: repository.set(
+                    category, enabled,
+                    expected_revision=int(expected_revisions[category]),
+                ).to_dict()
+                for category, enabled in sorted(normalized.items())
+            }
+        return {
+            "schema_version": NOTIFICATION_SCHEMA_VERSION,
+            "changed": changed,
+        }
+
 
 @dataclass(frozen=True)
 class NotificationOutcome:

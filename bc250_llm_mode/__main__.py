@@ -64,6 +64,7 @@ from .uninstall import uninstall
 
 def _parser() -> argparse.ArgumentParser:
     from . import __version__
+    from .notifications import CATEGORIES, MASTER
 
     parser = argparse.ArgumentParser(
         prog="bc250-llm-mode", description="BC250 local LLM setup and chat"
@@ -303,6 +304,29 @@ def _parser() -> argparse.ArgumentParser:
         help="Capacity/dedup report and ranked cleanup suggestions (never deletes)",
     )
     storage.add_argument("action", choices=("report", "cleanup"))
+    maintenance = sub.add_parser(
+        "maintenance", help="Show or refresh the prioritized maintenance inbox"
+    )
+    maintenance.add_argument("action", choices=("status", "check", "cleanup"))
+    maintenance.add_argument(
+        "--dry-run", action="store_true",
+        help="Required for cleanup; reports exact suggestions and deletes nothing",
+    )
+    notifications = sub.add_parser(
+        "notifications", help="Manage optional privacy-safe desktop notices"
+    )
+    notification_sub = notifications.add_subparsers(
+        dest="notification_action", required=True
+    )
+    notification_sub.add_parser("status", help="Show capability and redacted receipts")
+    notification_sub.add_parser("test", help="Send fixed local test copy")
+    notification_set = notification_sub.add_parser(
+        "set", help="Enable or disable one category or all categories"
+    )
+    notification_set.add_argument(
+        "category", type=str.upper, choices=("ALL", MASTER, *CATEGORIES),
+    )
+    notification_set.add_argument("value", choices=("on", "off"))
     convert = sub.add_parser(
         "convert-model",
         help="Convert a model to another quantization (unavailable until a verified converter is provisioned)",
@@ -969,6 +993,48 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
         print(json.dumps(application.home.snapshot().to_dict(), indent=2))
+        return 0
+    if args.command == "maintenance":
+        if args.action == "status":
+            result = application.maintenance_snapshot.snapshot().to_dict()
+        elif args.action == "check":
+            if args.dry_run:
+                raise ValueError("--dry-run applies only to maintenance cleanup")
+            result = application.maintenance_checks.run()
+        else:
+            if not args.dry_run:
+                raise ValueError(
+                    "maintenance cleanup is preview-only; pass --dry-run explicitly"
+                )
+            result = application.storage_capacity.dry_run_cleanup()
+        print(json.dumps(result, indent=2))
+        return 0
+    if args.command == "notifications":
+        action = args.notification_action
+        if action == "status":
+            result = application.notifications.status()
+        elif action == "test":
+            result = application.notifications.test().to_dict()
+        else:
+            status = application.notification_preferences.status()
+            if args.category == "ALL":
+                changes = {"MASTER": args.value == "on"}
+                revisions = {"MASTER": int(status["master_revision"])}
+                for category, row in status["categories"].items():
+                    changes[category] = args.value == "on"
+                    revisions[category] = int(row["revision"])
+            else:
+                row = (
+                    {"revision": status["master_revision"]}
+                    if args.category == "MASTER"
+                    else status["categories"][args.category]
+                )
+                changes = {args.category: args.value == "on"}
+                revisions = {args.category: int(row["revision"])}
+            result = application.notification_preferences.apply(
+                changes, expected_revisions=revisions
+            )
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "support-bundle":
         # P5 §11.3: redacted-by-construction export. Reuses the composed

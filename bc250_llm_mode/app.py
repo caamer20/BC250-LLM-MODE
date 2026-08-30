@@ -73,6 +73,7 @@ class Application:
     model_convert: Any = None
     maintenance: Any = None
     maintenance_snapshot: Any = None
+    maintenance_checks: Any = None
     operation_query: Any = None
     operation_commands: Any = None
     gateway: Any = None
@@ -86,6 +87,9 @@ class Application:
     idle_policy: Any = None
     notification_preferences: Any = None
     notifications: Any = None
+    operation_notifications: Any = None
+    thermal_notifications: Any = None
+    maintenance_notifications: Any = None
     home: Any = None
     doctor: Any = None
     support_bundle: Any = None
@@ -266,16 +270,6 @@ class Application:
         from .doctor import DoctorService
 
         application.doctor = DoctorService(units, application.paths)
-        # P5 §11.3: the redacted-by-construction support bundle. Reuses the
-        # SAME composed home/doctor services the CLI/GUI consume so the
-        # bundle is consistent with every other surface.
-        from .support_bundle import SupportBundleService
-
-        application.support_bundle = SupportBundleService(
-            units, application.paths,
-            home=application.home, doctor=application.doctor,
-            platform=application.platform,
-        )
         # P6 §12.1: the Model Library read model (query-only).
         from .model_library import ModelLibraryQueryService
 
@@ -305,6 +299,31 @@ class Application:
         application.notification_preferences = NotificationPreferenceService(units)
         application.notifications = NotificationCoordinator(
             units, adapter=notification_adapter
+        )
+        from .notification_producers import (
+            MaintenanceNotificationProducer,
+            OperationNotificationProducer,
+            ThermalNotificationProducer,
+        )
+
+        application.operation_notifications = OperationNotificationProducer(
+            units, application.notifications
+        )
+        application.thermal_notifications = ThermalNotificationProducer(
+            application.notifications
+        )
+        application.maintenance_notifications = MaintenanceNotificationProducer(
+            application.notifications
+        )
+        # P5 §11.3 + EXP-4: the redacted-by-construction support bundle
+        # consumes the same home/doctor/notification status as every UI.
+        from .support_bundle import SupportBundleService
+
+        application.support_bundle = SupportBundleService(
+            units, application.paths,
+            home=application.home, doctor=application.doctor,
+            platform=application.platform,
+            notifications=application.notifications,
         )
         from .desktop_integration import DesktopIntegrationService
 
@@ -532,6 +551,7 @@ class Application:
                 uuid_factory=lambda: str(_uuid.uuid4()),
                 worker_id=f"foreground-{_uuid.uuid4().hex[:12]}",
                 lease_ttl_seconds=60,
+                terminal_observer=application.operation_notifications.after_execution,
             )
 
         application.activation = ActivationCommandService(
@@ -665,4 +685,48 @@ class Application:
             openwebui=application.openwebui,
             tailscale=application.tailscale,
             sharing=application.sharing,
+        )
+        from .maintenance_checks import MaintenanceCheckService
+        from .thermals import read_gpu_temperature
+
+        def _maintenance_services() -> dict[str, bool]:
+            state = application.read_model()
+            runner = application.runner()
+
+            def active(call) -> bool:
+                try:
+                    value = call()
+                except Exception:
+                    return False
+                if not isinstance(value, dict):
+                    return False
+                return bool(
+                    value.get("active")
+                    or value.get("running")
+                    or value.get("connected")
+                    or value.get("enabled")
+                )
+
+            return {
+                "model_server": active(
+                    lambda: application.model_server.status(state, runner)
+                ),
+                "openwebui": active(
+                    lambda: application.openwebui.status(state, runner)
+                ),
+                "tailscale": active(lambda: application.tailscale.status(runner)),
+                "sharing": active(
+                    lambda: application.sharing.status(state, runner)
+                ),
+            }
+
+        application.maintenance_checks = MaintenanceCheckService(
+            units,
+            snapshot=application.maintenance_snapshot,
+            doctor=application.doctor,
+            storage=application.storage_capacity,
+            connection_observer=application.connections.snapshot,
+            services_observer=_maintenance_services,
+            thermal_reader=read_gpu_temperature,
+            notification_observer=application.maintenance_notifications.after_check,
         )

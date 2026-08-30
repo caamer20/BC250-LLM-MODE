@@ -409,16 +409,24 @@ class UserPreferencesService:
         return merged
 
     def current(self) -> dict[str, Any]:
+        from .notifications import MASTER, NotificationPreferenceRepository
         from .repositories import SettingsRepository
 
         with self._units.read() as conn:
             settings = SettingsRepository(conn)
-            return self.validate({
+            values = {
                 key: settings.get(key, default)
                 for key, default in self.DEFAULTS.items()
-            })
+            }
+            # Migration 013 is authoritative. The settings key remains only a
+            # compatibility projection for older GUI code and exports.
+            values["notifications_enabled"] = NotificationPreferenceRepository(
+                conn
+            ).get(MASTER).enabled
+            return self.validate(values)
 
     def apply(self, values) -> dict[str, Any]:
+        from .notifications import MASTER, NotificationPreferenceRepository
         from .repositories import SettingsRepository
 
         checked = self.validate(values)
@@ -426,6 +434,14 @@ class UserPreferencesService:
             settings = SettingsRepository(conn)
             settings.set_many(checked)
             settings.set_revision(settings.revision() + 1)
+            notifications = NotificationPreferenceRepository(conn)
+            master = notifications.get(MASTER)
+            if master.enabled != checked["notifications_enabled"]:
+                notifications.set(
+                    MASTER,
+                    checked["notifications_enabled"],
+                    expected_revision=master.revision,
+                )
         return checked
 
 
