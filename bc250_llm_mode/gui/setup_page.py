@@ -508,7 +508,10 @@ class SetupWindow(GuiBase):
         self.continue_button.configure(text="Install selected model")
 
     def _prepare(self) -> None:
-        self._body_label("Verifies GGUF metadata and tensor blocks, then applies only guarded, known-safe repairs. Conversion never reads a full model into host RAM.")
+        self._body_label(
+            "Verifies GGUF metadata, tensor layout, and architecture before "
+            "the model can be started. Unsupported artifacts stop safely."
+        )
         self.continue_button.configure(text="Validate model")
 
     def _server(self) -> None:

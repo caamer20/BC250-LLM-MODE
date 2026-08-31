@@ -1,11 +1,15 @@
 import pytest
 
 from bc250_llm_mode.catalog import (
+    ADVERTISED_CATALOG,
     CATALOG,
+    advertised_model_by_id,
     best_quant,
     calculate_fit,
+    catalog_rows,
     is_forbidden_artifact,
     model_by_id,
+    recommend_models,
     search_catalog,
     validate_artifact,
 )
@@ -56,6 +60,25 @@ def test_direct_catalog_downloads_use_literal_safe_remote_filenames():
             continue
         assert all("*" not in filename for filename in model.allow_globs.values()), model.id
         assert all(filename.lower().endswith(".gguf") for filename in model.allow_globs.values())
+
+
+def test_conversion_only_sources_are_not_advertised_as_runnable_models():
+    hidden = {"qwen38-9b-distill", "defiant-fable-9b"}
+
+    assert len(ADVERTISED_CATALOG) == 38
+    assert hidden == {model.id for model in CATALOG if model.conversion}
+    assert hidden.isdisjoint(model.id for model in ADVERTISED_CATALOG)
+    assert hidden.isdisjoint(model.id for model in search_catalog(""))
+    assert hidden.isdisjoint(row["id"] for row in catalog_rows(""))
+    assert hidden.isdisjoint(
+        model.id for model, _quant, _fit in recommend_models(8192)
+    )
+    for model_id in hidden:
+        with pytest.raises(KeyError, match="requires local conversion"):
+            advertised_model_by_id(model_id)
+        # The private identity remains available only to recognize an already
+        # converted local GGUF without misclassifying it as another model.
+        assert model_by_id(model_id).conversion is True
 
 
 @pytest.mark.parametrize(
@@ -142,7 +165,7 @@ def test_new_models_reject_context_above_trained_limits():
 
 
 def test_search_catalog_matches_tags_names_and_ids():
-    assert len(search_catalog("")) == len(CATALOG)
+    assert search_catalog("") == ADVERTISED_CATALOG
     reasoning_ids = {model.id for model in search_catalog("reasoning")}
     assert {"phi4-14b", "deepseek-r1-llama-8b", "deepseek-r1-qwen-7b"} <= reasoning_ids
     assert {model.id for model in search_catalog("gemma")} == {

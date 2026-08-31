@@ -8,7 +8,7 @@ from typing import Any, Iterable, Mapping
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ..catalog import CATALOG, calculate_fit, validation_tier
+from ..catalog import ADVERTISED_CATALOG, calculate_fit, validation_tier
 from ..presentation import format_number
 from .routes import Route
 from .view_state import Confirmation, Notice
@@ -28,6 +28,78 @@ class ModelActionView:
     label: str
     secondary_code: str | None = None
     secondary_label: str | None = None
+
+
+@dataclass(frozen=True)
+class ModelInstallProgressView:
+    message: str
+    mode: str
+    value: float
+
+
+_INSTALL_STEP_LABELS = {
+    "resolve_source": "Resolving source",
+    "reserve_storage": "Checking storage",
+    "transfer_source": "Downloading",
+    "materialize_candidate": "Preparing model",
+    "validate_candidate": "Verifying model",
+    "publish_artifact": "Installing model",
+    "register_installation": "Registering model",
+    "finalize_staging": "Finishing installation",
+    "resolve_candidate": "Resolving installed model",
+    "capture_prior": "Capturing rollback state",
+    "commit_candidate_config": "Applying model configuration",
+    "publish_candidate_handoff": "Publishing runtime configuration",
+    "restart_candidate": "Starting model service",
+    "verify_candidate_health": "Checking model health",
+    "verify_candidate_inference": "Verifying model response",
+    "promote_known_good": "Saving known-good model",
+}
+
+
+def _format_progress_bytes(value: int) -> str:
+    if value >= 1024**3:
+        return f"{value / 1024**3:.2f} GiB"
+    if value >= 1024**2:
+        return f"{value / 1024**2:.1f} MiB"
+    return f"{value / 1024:.1f} KiB"
+
+
+def build_install_progress_view(
+    summary: Any,
+    *,
+    model_name: str,
+    current_step: str | None = None,
+) -> ModelInstallProgressView:
+    """Render durable acquisition truth without exposing source paths."""
+    state = str(getattr(summary, "state", "") or "")
+    step = _INSTALL_STEP_LABELS.get(
+        str(current_step or ""),
+        "Waiting" if state == "QUEUED" else "Preparing installation",
+    )
+    current = max(0, int(getattr(summary, "progress_current", 0) or 0))
+    total = int(getattr(summary, "progress_total", 0) or 0)
+    unit = str(getattr(summary, "progress_unit", "") or "")
+    if total > 0:
+        bounded = min(current, total)
+        percent = bounded * 100.0 / total
+        if unit == "bytes":
+            amount = (
+                f"{_format_progress_bytes(bounded)} of "
+                f"{_format_progress_bytes(total)}"
+            )
+        else:
+            amount = f"{bounded} of {total} {unit}".strip()
+        return ModelInstallProgressView(
+            f"{step}: {model_name} — {amount} ({percent:.0f}%).",
+            "determinate",
+            percent,
+        )
+    return ModelInstallProgressView(
+        f"{step}: {model_name}. Activity has the durable step details.",
+        "indeterminate",
+        0.0,
+    )
 
 
 @dataclass(frozen=True)
@@ -123,7 +195,7 @@ def build_model_items(
             remote=False,
             busy=operations_active,
         ))
-    for entry in CATALOG:
+    for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
             continue
         quants = tuple(entry.allow_globs)
@@ -198,6 +270,10 @@ class ModelsPage(ttk.Frame):
         self._rendered_detail: ModelItemView | None = None
         self._detail_was_rendered = False
         self._selected_key: str | None = None
+        self._install_progress_mode: str | None = None
+        self._install_starting_name: str | None = None
+        self._install_terminal_message: str | None = None
+        self._install_terminal_ok = False
         self._route_context = dict(context or {})
         runtime = application.runtime_config.current()
         self.context_var = tk.IntVar(value=int(runtime.get("context") or 8192))
@@ -282,6 +358,28 @@ class ModelsPage(ttk.Frame):
         self._remove_button = ttk.Button(
             self.action_bar, text="Remove…", command=self._confirm_remove,
         )
+        progress_frame = ttk.LabelFrame(
+            right, text="Install / start progress", padding=6
+        )
+        progress_frame.pack(fill="x", pady=(10, 0))
+        self.install_progress_text = tk.StringVar(
+            value="No model installation is currently running."
+        )
+        ttk.Label(
+            progress_frame,
+            textvariable=self.install_progress_text,
+            wraplength=340,
+            justify="left",
+        ).pack(anchor="w", fill="x")
+        self.install_progress = ttk.Progressbar(
+            progress_frame, maximum=100, mode="determinate"
+        )
+        self.install_progress.pack(fill="x", pady=(5, 4))
+        ttk.Button(
+            progress_frame,
+            text="View installation details",
+            command=lambda: self.shell.navigate(Route.ACTIVITY),
+        ).pack(anchor="e")
 
     def mount(self, parent=None):
         del parent
@@ -303,10 +401,13 @@ class ModelsPage(ttk.Frame):
         except (ValueError, tk.TclError):
             return
         def observe():
+            install_summary, install_detail = self._observe_install_operation()
             return (
                 self.application.model_library.entries(context=context, slots=slots),
                 self.application.operation_query.active_summary(),
                 self.application.home.snapshot().to_dict(),
+                install_summary,
+                install_detail,
             )
 
         self.shell.request_observation(
@@ -319,7 +420,8 @@ class ModelsPage(ttk.Frame):
     def _apply_observation(self, result, *, context: int, slots: int) -> None:
         if self._disposed:
             return
-        installed, active, home = result
+        installed, active, home, install_summary, install_detail = result
+        self._render_observed_install_progress(install_summary, install_detail)
         inference = home.get("cards", {}).get("inference", {})
         inference_health = inference.get("health", {}) if isinstance(inference, Mapping) else {}
         self._all_items = build_model_items(
@@ -341,6 +443,143 @@ class ModelsPage(ttk.Frame):
                     break
             self._route_context.pop("model_id", None)
         self._render_list()
+
+    def _install_model_name(self, summary: Any, detail: Any) -> str:
+        if str(getattr(summary, "kind", "")) == "MODEL_IMPORT":
+            return "local GGUF"
+        request = getattr(detail, "request", {}) if detail is not None else {}
+        model_id = str(
+            request.get("model_id") or request.get("model_alias") or "model"
+        )
+        installed = next(
+            (
+                item.display_name for item in self._all_items
+                if item.alias == model_id
+            ),
+            None,
+        )
+        if installed:
+            return installed
+        return next(
+            (
+                entry.display_name for entry in ADVERTISED_CATALOG
+                if entry.id == model_id
+            ),
+            model_id,
+        )
+
+    def _observe_install_operation(self):
+        operation_page = self.application.operation_query.list(
+            scope="active", page_size=20
+        )
+        install_summary = next(
+            (
+                item for item in operation_page.items
+                if item.kind in {
+                    "MODEL_ACQUIRE", "MODEL_IMPORT", "MODEL_ACTIVATE"
+                }
+            ),
+            None,
+        )
+        install_detail = (
+            self.application.operation_query.show(install_summary.operation_id)
+            if install_summary is not None
+            else None
+        )
+        return install_summary, install_detail
+
+    def refresh_progress(self) -> None:
+        """Poll only durable install/start progress while the action lane is busy."""
+        if self._disposed:
+            return
+        self.shell.request_observation(
+            self._observe_install_operation,
+            lambda result: self._render_observed_install_progress(*result),
+        )
+
+    def _render_observed_install_progress(self, summary: Any, detail: Any) -> None:
+        if summary is None:
+            if self._install_starting_name:
+                self._show_install_progress(ModelInstallProgressView(
+                    f"Starting installation: {self._install_starting_name}.",
+                    "indeterminate",
+                    0.0,
+                ))
+            elif self._install_terminal_message:
+                self._show_install_progress(ModelInstallProgressView(
+                    self._install_terminal_message,
+                    "determinate",
+                    100.0 if self._install_terminal_ok else 0.0,
+                ))
+            else:
+                self._show_install_progress(ModelInstallProgressView(
+                    "No model installation is currently running.",
+                    "determinate",
+                    0.0,
+                ))
+            return
+        self._install_terminal_message = None
+        self._show_install_progress(build_install_progress_view(
+            summary,
+            model_name=self._install_model_name(summary, detail),
+            current_step=getattr(detail, "current_step", None),
+        ))
+
+    def _show_install_progress(self, view: ModelInstallProgressView) -> None:
+        if self._disposed:
+            return
+        self.install_progress_text.set(view.message)
+        if view.mode != self._install_progress_mode:
+            self.install_progress.stop()
+            self.install_progress.configure(mode=view.mode)
+            self._install_progress_mode = view.mode
+            if (
+                view.mode == "indeterminate"
+                and not bool(getattr(self.shell, "reduced_motion", False))
+            ):
+                self.install_progress.start(12)
+        if view.mode == "determinate":
+            self.install_progress.configure(value=view.value)
+
+    def _begin_install_progress(self, model_name: str) -> None:
+        self._install_starting_name = model_name
+        self._install_terminal_message = None
+        self._install_terminal_ok = False
+        self._show_install_progress(ModelInstallProgressView(
+            f"Starting installation: {model_name}.", "indeterminate", 0.0
+        ))
+
+    def _finish_install_progress(
+        self,
+        *,
+        model_name: str,
+        acquisition: Any,
+        activation: Any = None,
+        activation_expected: bool = False,
+    ) -> None:
+        self._install_starting_name = None
+        installed = bool(acquisition and acquisition.ok)
+        started = bool(activation and activation.ok)
+        if installed and not activation_expected:
+            message = f"Installed {model_name}. It is ready to start."
+        elif installed and started:
+            message = f"Installed and started {model_name}."
+        elif installed:
+            message = (
+                f"Installed {model_name}, but starting it needs attention. "
+                "Open Activity for details."
+            )
+        else:
+            message = (
+                f"Installation of {model_name} stopped safely in "
+                f"{getattr(acquisition, 'status', 'UNKNOWN')}. "
+                "Open Activity for details."
+            )
+        self._install_terminal_message = message
+        self._install_terminal_ok = installed and (
+            not activation_expected or started
+        )
+        self._render_observed_install_progress(None, None)
 
     def focus_primary(self) -> None:
         self.search_entry.focus_set()
@@ -510,6 +749,8 @@ class ModelsPage(ttk.Frame):
             ))
             return
         result_box: dict[str, Any] = {}
+        if code in {"install", "install-start"}:
+            self._begin_install_progress(item.display_name)
 
         def action_fn() -> None:
             alias = item.alias
@@ -535,6 +776,16 @@ class ModelsPage(ttk.Frame):
 
         def done() -> None:
             outcome = result_box.get("activation") or result_box.get("acquisition")
+            acquisition = result_box.get("acquisition")
+            if acquisition is not None:
+                self._finish_install_progress(
+                    model_name=item.display_name,
+                    acquisition=acquisition,
+                    activation=result_box.get("activation")
+                    if code == "install-start"
+                    else None,
+                    activation_expected=code == "install-start",
+                )
             ok = bool(outcome and outcome.ok)
             self.shell.notice_bar.show_notice(Notice(
                 "success" if ok else "error",
@@ -557,6 +808,7 @@ class ModelsPage(ttk.Frame):
         if not path:
             return
         result_box: dict[str, Any] = {}
+        self._begin_install_progress("local GGUF")
 
         def action_fn() -> None:
             outcome = self.application.model_acquisition.import_local(path, requested_by="gui")
@@ -565,6 +817,9 @@ class ModelsPage(ttk.Frame):
 
         def done() -> None:
             outcome = result_box.get("outcome")
+            self._finish_install_progress(
+                model_name="local GGUF", acquisition=outcome
+            )
             self.shell.notice_bar.show_notice(Notice(
                 "success" if outcome and outcome.ok else "error",
                 "Model imported" if outcome and outcome.ok else "Import needs attention",
@@ -629,12 +884,14 @@ class ModelsPage(ttk.Frame):
 
     def dispose(self) -> None:
         self._disposed = True
+        self.install_progress.stop()
         self._all_items = ()
         self._visible = {}
 
 
 __all__ = [
     "MAX_MODEL_ROWS", "MODEL_FILTERS", "MODEL_PRESENTATION_STATES", "ModelActionView",
-    "ModelItemView", "ModelsPage", "build_model_items", "filter_model_items",
+    "ModelInstallProgressView", "ModelItemView", "ModelsPage",
+    "build_install_progress_view", "build_model_items", "filter_model_items",
     "model_action",
 ]

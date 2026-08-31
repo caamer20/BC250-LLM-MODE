@@ -7,6 +7,13 @@ versions are tagged in git.
 
 ### Catalog, WebUI, and desktop lifecycle
 
+- Hid the two conversion-only source entries from Models, first-run setup,
+  search, recommendations, and direct CLI installation while the build has no
+  pinned verified converter. Existing already-converted local GGUFs remain
+  discoverable and usable.
+- Added a durable Models-page installation panel with the current model and
+  phase, byte totals, percentage, progress bar, terminal result, and a direct
+  link to Activity for full operation details.
 - Expanded the curated model catalog from 24 to 40 entries across 360M–16B,
   including ultra-small, mature, current, multilingual, reasoning, coding,
   Gemma 3, and MoE options. New entries remain Preview pending physical

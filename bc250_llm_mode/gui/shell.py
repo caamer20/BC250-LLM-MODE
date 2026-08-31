@@ -512,6 +512,13 @@ class ApplicationWindow(SetupWindow):
                     refresh()
                 except Exception:
                     pass
+            elif self.busy:
+                progress_refresh = getattr(page, "refresh_progress", None)
+                if callable(progress_refresh):
+                    try:
+                        progress_refresh()
+                    except Exception:
+                        pass
         super()._refresh_cycle()
 
     def destroy(self) -> None:

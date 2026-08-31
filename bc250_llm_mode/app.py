@@ -482,7 +482,10 @@ class Application:
                 @staticmethod
                 def find(model_id: str):
                     return next(
-                        (e for e in catalog_module.CATALOG if e.id == model_id),
+                        (
+                            e for e in catalog_module.ADVERTISED_CATALOG
+                            if e.id == model_id
+                        ),
                         None,
                     )
 

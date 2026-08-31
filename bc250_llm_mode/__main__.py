@@ -10,10 +10,10 @@ from typing import Any
 
 from .bootstrap import bootstrap_tkinter
 from .catalog import (
+    advertised_model_by_id,
     best_quant,
     calculate_fit,
     catalog_rows,
-    model_by_id,
     recommend_models,
     validation_tier,
 )
@@ -1392,7 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
         require_acknowledgment(state)
         if not state.get("env_ready"):
             raise RuntimeError("Inference environment is not ready; complete that wizard step first.")
-        model = model_by_id(args.model_id)
+        model = advertised_model_by_id(args.model_id)
         kv_scale = kv_scale_for_settings(state.get("optimizations"))
         slots = parallel_slots_for_settings(state.get("optimizations"))
         if args.quant:

@@ -895,6 +895,14 @@ CATALOG: tuple[ModelEntry, ...] = (
     ),
 )
 
+# Conversion remains a deliberately unavailable capability until a pinned,
+# verified converter is bundled.  Keep conversion identities in ``CATALOG``
+# so already-converted local GGUFs can still be recognized, but never expose
+# those source-only entries as something the app can download or start.
+ADVERTISED_CATALOG: tuple[ModelEntry, ...] = tuple(
+    model for model in CATALOG if not model.conversion
+)
+
 
 @dataclass(frozen=True)
 class FitResult:
@@ -929,6 +937,22 @@ def model_by_id(model_id: str) -> ModelEntry:
     raise KeyError(f"Unknown catalog model: {model_id}")
 
 
+def advertised_model_by_id(model_id: str) -> ModelEntry:
+    for model in ADVERTISED_CATALOG:
+        if model.id == model_id:
+            return model
+    hidden = next(
+        (model for model in CATALOG if model.id == model_id and model.conversion),
+        None,
+    )
+    if hidden is not None:
+        raise KeyError(
+            f"Catalog model {model_id!r} requires local conversion, which is "
+            "unavailable in this build; choose a ready-made GGUF instead"
+        )
+    raise KeyError(f"Unknown catalog model: {model_id}")
+
+
 QUANT_RANK = ("Q8_0", "Q6_K", "Q5_K_M", "Q4_K_M", "Q3_K_M")
 
 
@@ -940,10 +964,10 @@ def search_catalog(query: str = "") -> tuple[ModelEntry, ...]:
     """Case-insensitive substring match over id, name, family, and task tags."""
     lowered = query.strip().lower()
     if not lowered:
-        return CATALOG
+        return ADVERTISED_CATALOG
     return tuple(
         model
-        for model in CATALOG
+        for model in ADVERTISED_CATALOG
         if lowered in model.id.lower()
         or lowered in model.display_name.lower()
         or lowered in model.family.lower()
@@ -1042,7 +1066,7 @@ def recommend_models(
     capable model that fits the requested context × slots budget.
     """
     ranked: list[tuple[ModelEntry, str, FitResult]] = []
-    for model in CATALOG:
+    for model in ADVERTISED_CATALOG:
         if tag and not any(tag.lower() in candidate.lower() for candidate in model.task_tags):
             continue
         try:

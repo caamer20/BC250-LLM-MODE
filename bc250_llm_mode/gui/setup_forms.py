@@ -8,7 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 from typing import Any
 
-from ..catalog import CATALOG, calculate_fit
+from ..catalog import ADVERTISED_CATALOG, calculate_fit
 from ..local_models import (
     discover_local_models,
     fit_entry_for_local,
@@ -96,7 +96,7 @@ class SetupForms:
         ):
             self.model_tree.heading(key, text=title)
             self.model_tree.column(key, width=width, stretch=key == "notes")
-        for model in CATALOG:
+        for model in ADVERTISED_CATALOG:
             iid = f"catalog::{model.id}"
             self.model_choices[iid] = ("catalog", model)
             self.model_tree.insert(
@@ -116,9 +116,9 @@ class SetupForms:
         if self.state_data.get("selected_source") == "local":
             selected = f"local::{self.state_data.get('selected_model')}"
         else:
-            selected = f"catalog::{self.state_data.get('selected_model') or CATALOG[0].id}"
+            selected = f"catalog::{self.state_data.get('selected_model') or ADVERTISED_CATALOG[0].id}"
         if selected not in self.model_choices:
-            selected = f"catalog::{CATALOG[0].id}"
+            selected = f"catalog::{ADVERTISED_CATALOG[0].id}"
         self.model_tree.selection_set(selected)
         self.model_tree.focus(selected)
         summary = f"Found {len(discovery.models)} existing GGUF model(s) in configured/common model folders."
@@ -162,7 +162,7 @@ class SetupForms:
             self.ctx_var.set(goal.context)
         self.requested_parallel_slots = goal.slots
         candidates = []
-        for model in CATALOG:
+        for model in ADVERTISED_CATALOG:
             matches = sum(tag in model.task_tags for tag in goal.preferred_tags)
             if matches:
                 candidates.append((matches, model.params_b, model))

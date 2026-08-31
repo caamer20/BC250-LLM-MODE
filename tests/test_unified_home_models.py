@@ -12,10 +12,12 @@ from _gui_stubs import install  # noqa: E402
 
 install()
 
-from bc250_llm_mode.catalog import CATALOG  # noqa: E402
+from bc250_llm_mode.catalog import ADVERTISED_CATALOG  # noqa: E402
 from bc250_llm_mode.gui.home_page import HomePage, build_home_view  # noqa: E402
 from bc250_llm_mode.gui.models_page import (  # noqa: E402
     MODEL_PRESENTATION_STATES,
+    ModelsPage,
+    build_install_progress_view,
     build_model_items,
     filter_model_items,
     model_action,
@@ -189,11 +191,121 @@ def test_model_filters_are_closed_and_searchable():
 def test_model_library_keeps_all_rows_when_context_exceeds_one_model_limit():
     items = build_model_items([], context=16384, slots=4)
 
-    assert len(items) == len(CATALOG)
+    assert len(items) == len(ADVERTISED_CATALOG)
     gemma = next(item for item in items if item.catalog_id == "gemma-2-9b-it")
     assert gemma.fit_verdict == "NO-FIT"
     assert "supports at most 8192 context tokens" in gemma.fit_detail
     assert filter_model_items(items, category="Recommended")
+
+
+def test_conversion_sources_are_hidden_but_existing_local_ggufs_remain_visible():
+    hidden = {"qwen38-9b-distill", "defiant-fable-9b"}
+    items = build_model_items(
+        [
+            _installed(
+                alias="existing-converted-gguf",
+                catalog_id="qwen38-9b-distill",
+                active=False,
+            )
+        ],
+        context=8192,
+        slots=1,
+    )
+
+    assert any(item.alias == "existing-converted-gguf" for item in items)
+    assert not any(item.remote and item.catalog_id in hidden for item in items)
+
+    setup_source = Path("bc250_llm_mode/gui/setup_forms.py").read_text(
+        encoding="utf-8"
+    )
+    assert "for model in ADVERTISED_CATALOG" in setup_source
+    assert "for model in CATALOG" not in setup_source
+
+
+def test_install_progress_exposes_phase_bytes_and_percent_on_models_page():
+    progress = build_install_progress_view(
+        SimpleNamespace(
+            state="RUNNING",
+            progress_current=2 * 1024**3,
+            progress_total=8 * 1024**3,
+            progress_unit="bytes",
+        ),
+        model_name="Qwen test",
+        current_step="transfer_source",
+    )
+
+    assert progress.mode == "determinate"
+    assert progress.value == pytest.approx(25.0)
+    assert progress.message == (
+        "Downloading: Qwen test — 2.00 GiB of 8.00 GiB (25%)."
+    )
+
+
+def test_install_progress_stays_visible_during_non_byte_phases():
+    progress = build_install_progress_view(
+        SimpleNamespace(
+            state="RUNNING",
+            progress_current=0,
+            progress_total=None,
+            progress_unit=None,
+        ),
+        model_name="Qwen test",
+        current_step="validate_candidate",
+    )
+
+    assert progress.mode == "indeterminate"
+    assert progress.value == 0.0
+    assert progress.message.startswith("Verifying model: Qwen test.")
+
+    source = Path("bc250_llm_mode/gui/models_page.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'text="Install / start progress"' in source
+    assert 'text="View installation details"' in source
+    assert '"MODEL_ACQUIRE", "MODEL_IMPORT", "MODEL_ACTIVATE"' in source
+    assert "def refresh_progress" in source
+    shell_source = Path("bc250_llm_mode/gui/shell.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'getattr(page, "refresh_progress", None)' in shell_source
+
+
+def test_models_page_shows_immediate_install_feedback_before_first_poll():
+    shell = SimpleNamespace(
+        reduced_motion=True,
+        request_observation=lambda _observe, _apply: False,
+        navigate=lambda _route: None,
+    )
+    application = SimpleNamespace(
+        runtime_config=SimpleNamespace(
+            current=lambda: {"context": 8192, "slots": 1}
+        )
+    )
+    page = ModelsPage(None, shell, application)
+
+    assert page.install_progress_text.get() == (
+        "No model installation is currently running."
+    )
+    page._begin_install_progress("Qwen test")
+    assert page.install_progress_text.get() == (
+        "Starting installation: Qwen test."
+    )
+    assert page._install_model_name(
+        SimpleNamespace(kind="MODEL_ACQUIRE"),
+        SimpleNamespace(request={"model_id": "qwen3-8b"}),
+    ) == "Qwen3 8B"
+
+    page._finish_install_progress(
+        model_name="Qwen test",
+        acquisition=SimpleNamespace(ok=True, status="SUCCEEDED"),
+        activation=None,
+        activation_expected=True,
+    )
+    assert page.install_progress_text.get() == (
+        "Installed Qwen test, but starting it needs attention. "
+        "Open Activity for details."
+    )
+    assert page._install_terminal_ok is False
 
 
 def test_periodic_gui_refreshes_reuse_action_button_widgets():

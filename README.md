@@ -93,7 +93,7 @@ The UMA carve-out is established by firmware before Linux boots. It cannot be sa
 1. Make sure all 40 compute units are unlocked in BIOS/firmware if your board exposes that option.
 2. Configure approximately 12 GiB GPU UMA and 4 GiB system memory on a 16 GB unit.
 3. Install adequate cooling and arrange a way to monitor GPU temperature during sustained inference.
-4. Keep at least 20 GiB free on the filesystem that will contain models. More space is needed for conversion workflows and multiple models.
+4. Keep at least 20 GiB free on the filesystem that will contain models. More space is needed when keeping multiple large models.
 5. Connect the BC-250 to the network for the initial Fedora container, build dependencies, `llama.cpp`, Python packages, and model downloads.
 6. Back up important data. Setup makes privileged system changes only after its mandatory acknowledgment screen, but this is still beta software.
 
@@ -230,6 +230,8 @@ window. The experience provides:
   and safe switching through the one owning systemd service; in the Models
   table, Up/Down moves the highlighted row and Enter runs its displayed primary
   action, so an installed model can be started or switched without a mouse;
+  installs show the current phase, downloaded bytes, percentage, and terminal
+  result in an inline progress panel linked to durable Activity details;
 - named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;
 - a query-only Performance Coach that shows at most three evidence-labelled suggestions and never applies a change automatically;
 - durable fixed-prompt calibration with thermal/fit preflight, cancellation only between candidates, exact prior-runtime restoration, and a separately applied winner proposal;
@@ -269,7 +271,7 @@ Tailscale is optional and is not installed by this application. On Linux, `tails
 
 ## Choosing a model
 
-The curated catalog currently includes forty models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot. The sixteen newest entries remain **Preview** until each completes a physical BC-250 Vulkan load and generation check.
+The advertised catalog currently includes 38 ready-made GGUF models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot. The sixteen newest entries remain **Preview** until each completes a physical BC-250 Vulkan load and generation check. Conversion-only source identities are intentionally hidden while the build has no pinned, verified converter; already-converted local GGUFs can still be discovered and imported.
 
 | Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -277,8 +279,6 @@ The curated catalog currently includes forty models. Projected totals below use 
 | [LFM2.5 1.2B Instruct](https://huggingface.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF) | Small chat/long-context/multi-user | Q5_K_M | 1.97 GiB | 2.16 GiB | 2.54 GiB |
 | [Qwen3.8 9B (Empero distill)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill-GGUF) | Reasoning/function calling | Q4_K_M | 8.63 GiB | 10.88 GiB (tight) | No fit |
 | [Qwen3.5 9B Instruct](https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF) | General/reasoning | Q5_K_M | 9.52 GiB | 11.77 GiB (tight) | No fit |
-| [Qwen3.8 9B Distill (converted)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) | Reasoning/function calling (local conversion) | Q5_K_M | 9.49 GiB | 11.74 GiB (tight) | No fit |
-| [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |
 | [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 7.45 GiB | 8.45 GiB | 10.45 GiB |
 | [Qwen3 14B](https://huggingface.co/bartowski/Qwen_Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 10.63 GiB (tight) | 11.88 GiB (tight) | No fit |
 | [Llama 3.2 3B Instruct](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) | Fast/low-power | Q8_0 | 5.94 GiB | 7.69 GiB | 11.19 GiB (tight) |
@@ -326,13 +326,11 @@ The LFM2.5 2.6B Q5 model is hardware-validated on the project BC-250: Vulkan loa
 
 Qwen3.8 9B is Empero's full-parameter reasoning distillation into the Qwen3.5-9B architecture, not an official Alibaba Qwen model release. The catalog downloads Empero's exact standard-layout GGUF filenames and deliberately excludes BF16, MTP, vision-projector, fused, and MAX artifacts. Its model card requires a recent llama.cpp build with Qwen3.5/Gated DeltaNet support. It is currently a metadata-validated compatibility candidate until it completes an on-card Vulkan load and generation test.
 
-The separate [Qwen3.8 9B Distill](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) release ships only a 19.3 GB BF16 safetensors checkpoint — no GGUF — so the catalog entry uses the same local-conversion workflow as The Defiant Fable: the wizard downloads the official checkpoint (plus tokenizer/config files), converts it inside the container with `convert_hf_to_gguf.py`, quantizes to a standard per-tensor K-quant (Q5_K_M recommended; Q6_K available), applies the guarded `qwen3_5` block-count/nextn repairs, and verifies before activation. Approximately 46 GiB of temporary space coexists during conversion. The multimodal projector is excluded: this catalog is text-only. Sampling follows the publisher's reasoning profile (`temperature 0.6`, `top-p 0.95`, `top-k 20`, `min-p 0`).
-
 Catalog entries can carry model-specific sampling profiles. Qwen3.8 launches with the publisher-recommended temperature `0.6`, top-p `0.95`, top-k `20`, and min-p `0`; older installed records retain conservative application defaults. The generated launcher is refreshed on every controlled server restart.
 
 The context control is per user/slot. The launcher reserves `context × slots` in llama.cpp, and the VRAM fit engine applies the same multiplier before allowing a restart. Select 1–8 **User slots** on the Optimization page. More slots allow more simultaneous requests, but reserve more KV memory and divide available compute throughput; reducing slots restores headroom for larger models.
 
-The original seed models and Defiant Fable workflow come from direct BC-250 development. Compatibility candidates are selected because current llama.cpp supports their architectures, their verified Hugging Face artifacts are single-file standard K-quants, and their projected allocations fit the BC-250 budget. Models not explicitly called hardware-validated may not yet have been individually load-tested on the target unit. Treat the fit badge as a conservative planning tool and report real-hardware results.
+The original seed models come from direct BC-250 development. Compatibility candidates are selected because current llama.cpp supports their architectures, their verified Hugging Face artifacts are single-file standard K-quants, and their projected allocations fit the BC-250 budget. Models not explicitly called hardware-validated may not yet have been individually load-tested on the target unit. Treat the fit badge as a conservative planning tool and report real-hardware results.
 
 Only the listed standard K-quants are offered for the larger candidates. I-quants, ARM/CPU-interleaved formats, multimodal projectors, MTP artifacts, and fused/MAX repacks remain excluded.
 

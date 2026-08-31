@@ -56,7 +56,9 @@ auto-start.
   row shows its provenance, quantization, fit, and allowed actions. With focus
   in the table, Up/Down moves the highlight and Enter runs the highlighted
   row's displayed primary action, including starting or switching an installed
-  model through the normal safe activation workflow.
+  model through the normal safe activation workflow. During installation, the
+  page shows the current phase, transferred bytes, percentage, and final result;
+  **View installation details** opens its durable Activity record.
 - **Profiles** offers Interactive, Long context, Shared, Cool, and Throughput
   goals plus bounded custom profiles. Preview before Apply.
 - **Chat** streams locally without opening a browser and stores a conversation
