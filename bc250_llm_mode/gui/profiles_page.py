@@ -96,7 +96,7 @@ class ProfilesPage(ttk.Frame):
 
         custom = ttk.LabelFrame(left, text="New custom profile", padding=7)
         custom.pack(fill="x", pady=(7, 0))
-        self._name = tk.StringVar(value="My workload")
+        self._profile_name = tk.StringVar(value="My workload")
         self._context = tk.IntVar(value=8192)
         self._slots = tk.IntVar(value=1)
         self._kv = tk.StringVar(value="q8_0")
@@ -108,7 +108,7 @@ class ProfilesPage(ttk.Frame):
         self._idle = tk.StringVar(value="KEEP_LOADED")
         self._stop_after = tk.IntVar(value=30)
         for label, variable, widget, options in (
-            ("Name", self._name, "entry", ()),
+            ("Name", self._profile_name, "entry", ()),
             ("Context per user", self._context, "spin", (512, 262144, 512)),
             ("Concurrent user slots", self._slots, "spin", (1, 8, 1)),
             ("KV cache", self._kv, "choice", ("q8_0", "q4_0")),
@@ -361,7 +361,7 @@ class ProfilesPage(ttk.Frame):
     def _editor_values(self) -> dict[str, Any]:
         idle_policy = str(self._idle.get())
         return {
-            "name": str(self._name.get()),
+            "name": str(self._profile_name.get()),
             "context_per_slot": int(self._context.get()),
             "slots": int(self._slots.get()),
             "kv_cache_type": str(self._kv.get()),
@@ -388,7 +388,7 @@ class ProfilesPage(ttk.Frame):
         row = self._profiles.get(self._selected_one() or "")
         if not row or row.get("owner") != "user":
             return
-        self._name.set(row["name"])
+        self._profile_name.set(row["name"])
         self._context.set(int(row["context_per_slot"]))
         self._slots.set(int(row["slots"]))
         self._kv.set(row["kv_cache_type"])

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -95,6 +96,28 @@ def test_activity_shelf_does_not_anchor_after_a_hidden_notice_bar():
 
     assert "after=self.notice_bar" not in source
     assert "def _show_activity_shelf" in source
+
+
+def test_gui_pages_do_not_overwrite_tk_widget_identity_fields():
+    reserved = {"_name", "_w", "children", "master", "tk"}
+    violations = []
+    for path in Path("bc250_llm_mode/gui").glob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            targets = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign):
+                targets = [node.target]
+            for target in targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "self"
+                    and target.attr in reserved
+                ):
+                    violations.append(f"{path.name}:{node.lineno}: self.{target.attr}")
+    assert violations == []
 
 
 def _installed(**changes):
