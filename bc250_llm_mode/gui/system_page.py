@@ -132,8 +132,14 @@ class SystemPage(ttk.Frame):
         self.shell = shell
         self.application = application
         self._disposed = False
+        self._last_cards: tuple[ServiceCardView, ...] = ()
+        self._has_observation = False
         self._cards_frame = ttk.Frame(self)
         self._cards_frame.pack(fill="both", expand=True)
+        self._render_cards((ServiceCardView(
+            "loading", "System status", "Checking…",
+            "Reading services, thermal safety, runtime, and recovery state.",
+        ),))
         self.refresh()
 
     def mount(self, parent=None):
@@ -184,11 +190,19 @@ class SystemPage(ttk.Frame):
                 platform_label=self.application.platform.profile.label,
             )
 
-        self.shell.request_observation(observe, self._render_cards)
+        def apply(cards) -> None:
+            self._has_observation = True
+            self._render_cards(cards)
+
+        self.shell.request_observation(observe, apply)
 
     def _render_cards(self, cards) -> None:
         if self._disposed:
             return
+        cards = tuple(cards)
+        if cards == self._last_cards:
+            return
+        self._last_cards = cards
         for child in self._cards_frame.winfo_children():
             child.destroy()
         for index, card in enumerate(cards):
@@ -209,6 +223,11 @@ class SystemPage(ttk.Frame):
         self._cards_frame.focus_set()
 
     def observation_failed(self, _error: BaseException) -> None:
+        if not self._has_observation:
+            self._render_cards((ServiceCardView(
+                "unavailable", "System status", "Retrying…",
+                "The first status check did not complete. This page will retry automatically.",
+            ),))
         self.shell.notice_bar.show_notice(Notice(
             "warning", "System status is stale",
             "One or more read-only probes failed; no ready state was inferred.",

@@ -118,6 +118,15 @@ def test_unified_shell_routes_system_settings_help_and_composed_logs():
     assert "dashboard" not in source.lower()
 
 
+def test_system_page_has_immediate_status_and_periodic_retry():
+    page = (PACKAGE / "gui" / "system_page.py").read_text(encoding="utf-8")
+    shell = (PACKAGE / "gui" / "shell.py").read_text(encoding="utf-8")
+    assert '"loading", "System status", "Checking…"' in page
+    assert '"unavailable", "System status", "Retrying…"' in page
+    refresh_block = shell.split("def _refresh_cycle(self) -> None:", 1)[1]
+    assert "Route.SYSTEM" in refresh_block
+
+
 def test_every_gui_module_avoids_direct_infrastructure_imports():
     banned_modules = {
         "server", "openwebui", "tailscale", "sharing", "llmmode",

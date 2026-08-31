@@ -12,7 +12,7 @@ from tkinter import ttk
 from ..message_catalog import safe_exception_message
 
 from ..chat_lifecycle import ChatCancellation, ChatResultClassification
-from ..chat_service import trim_messages
+from ..chat_service import ChatObservation, trim_messages
 from ..conversation_service import bounded_live_messages
 from ..conversation_ux import (
     conversation_action_confirmation,
@@ -46,7 +46,13 @@ class ChatPage(ttk.Frame):
         self._stream_started = 0.0
         self._tokens_emitted = 0
         self._first_token_ms: int | None = None
-        self._observation = application.chat_observation.current()
+        # The live endpoint probe belongs on the observation worker, never on
+        # Tk's UI thread.  Start conservatively and let refresh apply it.
+        self._observation = ChatObservation(
+            model=None, context=8192, slots=1, ready=False,
+            thermal_blocked=False, stale=True,
+            guidance="Checking the local model endpoint…",
+        )
         self._build()
         self._reload_list(select_first=True)
         self._render_transcript()

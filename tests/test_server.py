@@ -91,6 +91,30 @@ def test_health_reports_actual_server_context_and_slots(monkeypatch):
     assert result["model_matches_desired"] is True
 
 
+def test_local_server_readiness_is_bounded_and_identity_checked(monkeypatch):
+    calls = []
+
+    def fake_get(url, timeout=5):
+        calls.append((url, timeout))
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        return {"data": [{"id": "ornith-1.5-9b"}]}
+
+    monkeypatch.setattr(server, "_json_get", fake_get)
+    result = server.local_server_readiness(
+        {"server_port": 8080, "current_model": "ornith-1.5-9b"},
+        timeout=0.75,
+    )
+    assert result == {
+        "healthy": True,
+        "model_id": "ornith-1.5-9b",
+        "desired_model": "ornith-1.5-9b",
+        "model_matches_desired": True,
+    }
+    assert len(calls) == 2
+    assert all(timeout == 0.75 for _url, timeout in calls)
+
+
 def test_health_model_id_is_observed_not_desired(monkeypatch):
     """§11.2: the desired current_model is never proof of a live model."""
 

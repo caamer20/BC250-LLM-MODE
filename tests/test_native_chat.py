@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,7 +18,10 @@ from bc250_llm_mode.chat_lifecycle import (  # noqa: E402
     ChatCancellation,
     ChatResultClassification,
 )
-from bc250_llm_mode.chat_service import ChatSessionService  # noqa: E402
+from bc250_llm_mode.chat_service import (  # noqa: E402
+    ChatObservationService,
+    ChatSessionService,
+)
 from bc250_llm_mode.conversation_service import (  # noqa: E402
     ConversationService,
     MAX_LIVE_BYTES,
@@ -62,6 +66,59 @@ def _state():
 
 def _messages(canary="private prompt canary"):
     return [{"role": "user", "content": canary}]
+
+
+def _observation_service(live_server, *, inference_stale=False):
+    home = SimpleNamespace(snapshot=lambda: SimpleNamespace(to_dict=lambda: {
+        "cards": {
+            "inference": {
+                "health": {"state": "UNVERIFIED"},
+                "stale": inference_stale,
+            },
+            "thermal": {
+                "health": {"state": "READY"},
+                "stale": False,
+            },
+        },
+    }))
+    return ChatObservationService(
+        state_supplier=lambda: {
+            "current_model": "ornith-1.5-9b", "current_ctx": 64000,
+        },
+        home=home,
+        runtime=SimpleNamespace(current=lambda: {
+            "model_alias": "ornith-1.5-9b", "context": 64000, "slots": 1,
+        }),
+        live_server=live_server,
+    )
+
+
+def test_chat_readiness_uses_fresh_matching_local_endpoint():
+    observation = _observation_service(
+        lambda _state: {
+            "healthy": True,
+            "model_id": "ornith-1.5-9b",
+            "model_matches_desired": True,
+        },
+        inference_stale=True,
+    ).current()
+    assert observation.ready is True
+    assert observation.stale is False
+    assert observation.model == "ornith-1.5-9b"
+    assert observation.guidance == "Local model endpoint is verified and ready."
+
+
+def test_chat_readiness_fails_closed_for_wrong_or_unreachable_model():
+    mismatch = _observation_service(lambda _state: {
+        "healthy": True,
+        "model_id": "different-model",
+        "model_matches_desired": False,
+    }).current()
+    unavailable = _observation_service(
+        lambda _state: (_ for _ in ()).throw(ConnectionRefusedError())
+    ).current()
+    assert mismatch.ready is False
+    assert unavailable.ready is False
 
 
 def test_shared_transport_streams_and_emits_only_redacted_metrics():

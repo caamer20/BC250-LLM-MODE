@@ -466,7 +466,7 @@ class ApplicationWindow(SetupWindow):
         if page is not None and self._route in {
             Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
             Route.ACTIVITY, Route.MAINTENANCE,
-            Route.REPAIR, Route.UPDATES,
+            Route.REPAIR, Route.UPDATES, Route.SYSTEM,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:

@@ -425,6 +425,11 @@ class Application:
         from .chat_service import ChatObservationService, ChatSessionService
         from .conversation_service import ConversationService
 
+        def _chat_live_server(state):
+            from .server import local_server_readiness
+
+            return local_server_readiness(state)
+
         def _chat_thermal_ok() -> bool:
             try:
                 snapshot = application.home.snapshot().to_dict()
@@ -453,6 +458,7 @@ class Application:
             state_supplier=lambda: application.read_model(),
             home=application.home,
             runtime=application.runtime_config,
+            live_server=_chat_live_server,
         )
 
         # ONE durable activation path (Session 5C): adapter -> workflow ->

@@ -336,10 +336,11 @@ class ChatObservation:
 class ChatObservationService:
     """Read-only chat readiness derived from the shared appliance snapshot."""
 
-    def __init__(self, *, state_supplier, home, runtime) -> None:
+    def __init__(self, *, state_supplier, home, runtime, live_server=None) -> None:
         self._state_supplier = state_supplier
         self._home = home
         self._runtime = runtime
+        self._live_server = live_server
 
     def current(self) -> ChatObservation:
         state = self._state_supplier()
@@ -354,8 +355,23 @@ class ChatObservationService:
             return str(item.get("effective_state") or item.get("state") or "UNVERIFIED")
 
         thermal_blocked = health(thermal) in {"BLOCKED", "RECOVERY_REQUIRED", "REPAIR_REQUIRED"}
-        stale = bool(inference.get("stale") or thermal.get("stale"))
-        ready = health(inference) in {"READY", "DEGRADED"} and not stale and not thermal_blocked
+        live: Mapping[str, Any] = {}
+        if self._live_server is not None:
+            try:
+                observed = self._live_server(state)
+                if isinstance(observed, Mapping):
+                    live = observed
+            except Exception:  # noqa: BLE001 - a failed probe is not readiness
+                live = {}
+        live_ready = bool(
+            live.get("healthy") and live.get("model_matches_desired")
+        )
+        durable_ready = health(inference) in {"READY", "DEGRADED"}
+        stale = bool(
+            thermal.get("stale")
+            or (inference.get("stale") and not live_ready)
+        )
+        ready = (durable_ready or live_ready) and not stale and not thermal_blocked
         if thermal_blocked:
             guidance = "Generation is blocked by thermal safety. Open System."
         elif stale:
@@ -365,7 +381,12 @@ class ChatObservationService:
         else:
             guidance = "Local model endpoint is verified and ready."
         return ChatObservation(
-            model=str(profile.get("model_alias") or state.get("current_model") or "") or None,
+            model=str(
+                live.get("model_id")
+                or profile.get("model_alias")
+                or state.get("current_model")
+                or ""
+            ) or None,
             context=int(profile.get("context") or state.get("current_ctx") or 8192),
             slots=int(profile.get("slots") or (state.get("optimizations") or {}).get("parallel_slots") or 1),
             ready=ready,

@@ -439,6 +439,41 @@ def _json_get(url: str, timeout: float = 5) -> Any:
         return json.load(response)
 
 
+def local_server_readiness(
+    state: dict[str, Any], *, timeout: float = 1.5
+) -> dict[str, Any]:
+    """Observe the local llama endpoint once without mutating durable state.
+
+    Chat uses this short, worker-thread probe to avoid confusing missing or
+    stale historical inference evidence with a server that is ready now.
+    Both the health endpoint and the loaded-model identity must agree with the
+    selected model before the result is ready.
+    """
+    port = int(state.get("server_port", 8080))
+    health = _json_get(f"http://127.0.0.1:{port}/health", timeout=timeout)
+    models = _json_get(f"http://127.0.0.1:{port}/v1/models", timeout=timeout)
+    data = models.get("data") if isinstance(models, dict) else None
+    observed_model = (
+        data[0].get("id")
+        if isinstance(data, list) and data and isinstance(data[0], dict)
+        else None
+    )
+    desired_model = state.get("current_model")
+    health_ok = isinstance(health, dict) and str(
+        health.get("status") or ""
+    ).lower() in {"ok", "ready", "healthy"}
+    return {
+        "healthy": health_ok and bool(observed_model),
+        "model_id": observed_model,
+        "desired_model": desired_model,
+        "model_matches_desired": bool(
+            observed_model is not None
+            and desired_model is not None
+            and observed_model == desired_model
+        ),
+    }
+
+
 def minimal_inference_probe(state: dict[str, Any], timeout: float = 20.0) -> dict[str, Any]:
     """Bounded single-token completion proving real generation works.
 
