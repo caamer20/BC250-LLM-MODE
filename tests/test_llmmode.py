@@ -99,14 +99,13 @@ def test_text_console_transition_is_protected_from_display_session_exit(monkeypa
         "--collect",
         "--no-block",
     ]
-    assert "--property=IgnoreOnIsolate=yes" in command
     assert (
         "--property=ExecStartPost=/usr/bin/systemctl start getty@tty1.service"
         in command
     )
     assert "--property=ExecStartPost=/usr/sbin/chvt 1" in command
     assert command[-3:] == [
-        "/usr/bin/systemctl", "isolate", "multi-user.target",
+        "/usr/bin/systemctl", "stop", "display-manager.service",
     ]
 
 

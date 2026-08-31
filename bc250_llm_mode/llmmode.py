@@ -20,7 +20,7 @@ SLEEP_TARGETS = (
     "hybrid-sleep.target",
     "suspend-then-hibernate.target",
 )
-CONSOLE_TARGET = "multi-user.target"
+DESKTOP_MANAGER_UNIT = "display-manager.service"
 CONSOLE_GETTY = "getty@tty1.service"
 CONSOLE_VT = "1"
 CONSOLE_TRANSITION_UNIT_PREFIX = "bc250-llm-console-transition"
@@ -130,8 +130,9 @@ def activate_text_console(
 
     The transition runs in a transient system service because stopping the
     display manager also stops the GUI process that requested the action.
-    ``IgnoreOnIsolate`` lets the fixed post-actions start tty1 and select it
-    after ``multi-user.target`` has removed the graphical session.
+    Fixed post-actions start tty1 and select it after the display manager has
+    removed the graphical session. Only the display manager is stopped so an
+    explicitly running model and independent network services remain active.
     """
     host = _platform_service(platform)
     host.require_current_boot_llm_mode()
@@ -155,13 +156,12 @@ def activate_text_console(
             "--collect",
             "--no-block",
             "--property=Type=oneshot",
-            "--property=IgnoreOnIsolate=yes",
             "--property=TimeoutStartSec=30s",
             f"--property=ExecStartPost={systemctl_path} start {CONSOLE_GETTY}",
             f"--property=ExecStartPost={chvt_path} {CONSOLE_VT}",
             systemctl_path,
-            "isolate",
-            CONSOLE_TARGET,
+            "stop",
+            DESKTOP_MANAGER_UNIT,
         ],
     )
 

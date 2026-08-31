@@ -13,7 +13,9 @@ versions are tagged in git.
   before the transition, the next boot remains graphical, and persistent
   administrator no-sleep masks are preserved. GUI shutdown now observes the
   real display-manager state so a stale LLM-session record cannot leave a
-  model running while the graphical desktop is active.
+  model running while the graphical desktop is active. The transition stops
+  only the display manager so an explicitly running model and independent
+  network services remain active.
 - Updated the immutable Linux/AMD64 Open WebUI pin from v0.6.14 to v0.11.1;
   the managed updater still verifies the exact OCI manifest before replacing a
   container and preserves its existing data storage and prior running state.
