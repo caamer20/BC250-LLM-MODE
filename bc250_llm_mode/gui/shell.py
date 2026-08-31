@@ -459,9 +459,13 @@ class ApplicationWindow(SetupWindow):
         """
         try:
             state = self.application.read_model()
-            if str(state.get("system_mode") or "") == "desktop":
+            runner = self.runner()
+            host = self.application.host_mode.status(state, runner)
+            if not isinstance(host, dict) or "desktop_active" not in host:
+                raise RuntimeError("desktop session status was unavailable")
+            desktop_active = bool(host["desktop_active"])
+            if desktop_active or str(state.get("system_mode") or "") == "desktop":
                 service = self.application.model_server
-                runner = self.runner()
                 status = service.status(state, runner)
                 if not isinstance(status, dict) or "active" not in status:
                     raise RuntimeError("model service status was unavailable")

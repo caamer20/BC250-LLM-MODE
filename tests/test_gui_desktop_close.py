@@ -29,11 +29,19 @@ class _ModelServer:
         return {"active": self.remains_active}
 
 
-def _window(tmp_path, *, mode: str, server: _ModelServer):
+def _window(
+    tmp_path, *, mode: str, server: _ModelServer,
+    desktop_active: bool | None = None,
+):
     del tmp_path
     summary = SimpleNamespace(active_count=0)
+    if desktop_active is None:
+        desktop_active = mode == "desktop"
     application = SimpleNamespace(
         read_model=lambda: {"system_mode": mode},
+        host_mode=SimpleNamespace(
+            status=lambda _state, _runner: {"desktop_active": desktop_active}
+        ),
         model_server=server,
         operation_query=SimpleNamespace(active_summary=lambda: summary),
     )
@@ -79,6 +87,18 @@ def test_llm_mode_close_leaves_explicit_serving_session_running(tmp_path):
     window.request_close()
 
     assert server.calls == []
+    assert closed == [True]
+
+
+def test_stale_llm_record_cannot_leave_model_running_on_active_desktop(tmp_path):
+    server = _ModelServer(active=True)
+    window, closed = _window(
+        tmp_path, mode="llm-session", server=server, desktop_active=True,
+    )
+
+    window.request_close()
+
+    assert server.calls == ["status", "stop"]
     assert closed == [True]
 
 
