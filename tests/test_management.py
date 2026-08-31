@@ -92,6 +92,22 @@ def _diginspect_tuple():
     )
 
 
+def _named_data_mount():
+    return json.dumps([{
+        "Type": "volume",
+        "Name": openwebui.DATA_VOLUME,
+        "Destination": openwebui.DATA_DESTINATION,
+    }]) + "\n"
+
+
+def _legacy_data_mount():
+    return json.dumps([{
+        "Type": "bind",
+        "Source": openwebui.LEGACY_DATA_BIND,
+        "Destination": openwebui.DATA_DESTINATION,
+    }]) + "\n"
+
+
 def test_openwebui_install_is_loopback_contained(monkeypatch):
     """U0.6: no host networking; UI published strictly on 127.0.0.1."""
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
@@ -99,6 +115,7 @@ def test_openwebui_install_is_loopback_contained(monkeypatch):
         {
             ("podman", "network", "exists", openwebui.NETWORK): (1, ""),
             ("podman", "container", "exists", openwebui.CONTAINER): (1, ""),
+            ("podman", "container", "exists", openwebui.LEGACY_CONTAINER): (1, ""),
             _diginspect_tuple()[0]: _diginspect_tuple()[1],
         }
     )
@@ -131,13 +148,14 @@ def test_openwebui_install_refuses_unverified_image_digest(monkeypatch):
 
 
 def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
-    """Legacy/uncontained topology is migrated with the volume preserved."""
+    """Legacy/uncontained topology preserves its bounded historical data bind."""
     monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
     legacy_networks = json.dumps({"host": {}})
     outputs = {
         ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
         ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, legacy_networks + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER): (0, _legacy_data_mount()),
         _diginspect_tuple()[0]: _diginspect_tuple()[1],
     }
     runner = FakeRunner(outputs)
@@ -155,6 +173,8 @@ def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
         i for i, c in enumerate(commands) if c[:2] == ["podman", "start"]
     )
     assert create_index < start_index
+    create = commands[create_index]
+    assert f"{openwebui.LEGACY_DATA_BIND}:{openwebui.DATA_DESTINATION}" in create
     assert state["openwebui_container"] == openwebui.CONTAINER
 
 
@@ -165,6 +185,7 @@ def test_openwebui_update_pulls_verified_pin_recreates_and_preserves_data(monkey
         ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
         ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "running\n"),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, networks + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER): (0, _named_data_mount()),
         ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
         ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
         _diginspect_tuple()[0]: _diginspect_tuple()[1],
@@ -194,7 +215,7 @@ def test_openwebui_update_pulls_verified_pin_recreates_and_preserves_data(monkey
     assert all(command != ["podman", "pull", openwebui.IMAGE_TAG_DISPLAY] for command in commands)
     create = commands[create_index]
     assert openwebui.IMAGE_REF == create[-1]
-    assert f"{openwebui.DATA_VOLUME}:/app/backend/data" in create
+    assert f"{openwebui.DATA_VOLUME}:{openwebui.DATA_DESTINATION}" in create
     assert any("src=/profile/openwebui-credential" in value for value in create)
     assert "--network" in create and create[create.index("--network") + 1] == openwebui.NETWORK
     assert not any(flag in commands[remove_index] for flag in ("-v", "--volumes"))
@@ -209,6 +230,7 @@ def test_openwebui_update_digest_failure_leaves_container_untouched(monkeypatch)
         ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "exited\n"),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (
             0, json.dumps({openwebui.NETWORK: {}}) + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER): (0, _named_data_mount()),
         ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
         _diginspect_tuple()[0]: (0, json.dumps(["ghcr.io/open-webui/open-webui@sha256:" + "0" * 64]) + "\n"),
     }
@@ -237,6 +259,7 @@ def test_openwebui_update_keeps_a_previously_stopped_container_stopped(monkeypat
         ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "exited\n"),
         ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (
             0, json.dumps({openwebui.NETWORK: {}}) + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER): (0, _named_data_mount()),
         ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
         ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
         _diginspect_tuple()[0]: _diginspect_tuple()[1],
@@ -256,6 +279,67 @@ def test_openwebui_update_keeps_a_previously_stopped_container_stopped(monkeypat
     assert ["podman", "start", openwebui.CONTAINER] not in commands
     assert result["running"] is False
     assert result["running_state_restored"] is True
+
+
+def test_openwebui_update_preserves_the_historical_bind_mount(monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    outputs = {
+        ("podman", "container", "exists", openwebui.LEGACY_CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.LEGACY_CONTAINER): (0, "running\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.LEGACY_CONTAINER): (
+            0, json.dumps({"host": {}}) + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.LEGACY_CONTAINER): (0, _legacy_data_mount()),
+        ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
+        ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
+    }
+    runner = FakeRunner(outputs)
+    state = {
+        "openwebui_container": openwebui.LEGACY_CONTAINER,
+        "gateway_provisioned": True,
+        "gateway_credential_file": "/profile/openwebui-credential",
+    }
+
+    result = openwebui.update_open_webui(state, runner)
+
+    create = next(
+        command for command, _ in runner.commands
+        if command[:2] == ["podman", "create"]
+    )
+    assert f"{openwebui.LEGACY_DATA_BIND}:{openwebui.DATA_DESTINATION}" in create
+    assert f"{openwebui.DATA_VOLUME}:{openwebui.DATA_DESTINATION}" not in create
+    assert result["data_source_preserved"] == openwebui.LEGACY_DATA_BIND
+
+
+def test_openwebui_update_refuses_unknown_data_mount_before_pull(monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    unknown = json.dumps([{
+        "Type": "bind",
+        "Source": "/some/other/path",
+        "Destination": openwebui.DATA_DESTINATION,
+    }]) + "\n"
+    outputs = {
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "running\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (
+            0, json.dumps({openwebui.NETWORK: {}}) + "\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER): (0, unknown),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
+    }
+    runner = FakeRunner(outputs)
+
+    with pytest.raises(RuntimeError, match="unrecognized data mount"):
+        openwebui.update_open_webui(
+            {
+                "openwebui_container": openwebui.CONTAINER,
+                "gateway_credential_file": "/profile/openwebui-credential",
+            },
+            runner,
+        )
+
+    commands = [command for command, _ in runner.commands]
+    assert ["podman", "pull", openwebui.IMAGE_REF] not in commands
+    assert ["podman", "rm", openwebui.CONTAINER] not in commands
 
 
 def test_tailscale_status_separates_daemon_and_tailnet(monkeypatch):

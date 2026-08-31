@@ -223,7 +223,8 @@ window. The experience provides:
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
 - Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**,
   **Update pinned Open WebUI**, and **Open WebUI** controls; the update action
-  preserves the named data volume and reapplies only the app-approved digest;
+  preserves verified current data storage—including the bounded legacy data
+  path—and reapplies only the app-approved digest;
 - optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
 - named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;

@@ -15,8 +15,8 @@ versions are tagged in git.
   GGUF filenames, corrected two stale Qwen repositories, and admitted the
   standard `lfm2` GGUF architecture used by the existing LFM2.5 entries.
 - Added a System action that applies the app-approved digest-pinned Open WebUI
-  image while preserving its named data volume, gateway credential boundary,
-  and prior running/stopped state.
+  image while preserving its verified named-volume or bounded legacy-bind data,
+  gateway credential boundary, and prior running/stopped state.
 - Closing the GUI in Desktop mode now stops and verifies the model service
   before exit. Minimize, navigation, and explicit current-boot LLM Mode serving
   remain unchanged.

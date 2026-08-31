@@ -19,9 +19,16 @@ IMAGE_DIGEST_SHA256 = (
 )
 IMAGE_REF = f"ghcr.io/open-webui/open-webui@{IMAGE_DIGEST_SHA256}"
 DATA_VOLUME = "bc250-open-webui"
+DATA_DESTINATION = "/app/backend/data"
+# Early appliance images used this one fixed host directory. It remains a
+# supported migration source so a contained/digest-pinned recreate never makes
+# existing accounts and conversations appear to vanish. Arbitrary bind paths
+# are not accepted.
+LEGACY_DATA_BIND = "/var/lib/open-webui"
+ALLOWED_DATA_SOURCES = frozenset({DATA_VOLUME, LEGACY_DATA_BIND})
 # U0.6 containment: the UI lives on a dedicated private Podman network and
 # is published STRICTLY on host loopback. Host networking is never used;
-# a legacy host-network container is migrated (named volume preserved)
+# a legacy host-network container is migrated (verified data storage preserved)
 # before it may start.
 NETWORK = "bc250-openwebui"
 UI_PUBLISH = "127.0.0.1:3000:8080"
@@ -87,26 +94,71 @@ def _container_topology(
     return "unknown"
 
 
+def _container_data_source(runner: CommandRunner, container: str) -> str:
+    """Return the one approved storage source mounted at the WebUI data path.
+
+    Existing containers are observed before removal. Only the managed named
+    volume or the historical fixed bind path may cross the recreate boundary;
+    missing, ambiguous, and arbitrary host mounts fail closed while the old
+    container is still intact.
+    """
+    result = runner.run(
+        ["podman", "inspect", "--format", "{{json .Mounts}}", container],
+        check=False,
+    )
+    try:
+        mounts = json.loads(result.stdout.strip() or "[]")
+    except ValueError as exc:
+        raise RuntimeError("Could not verify Open WebUI data storage.") from exc
+    if not isinstance(mounts, list):
+        raise RuntimeError("Could not verify Open WebUI data storage.")
+    matches = [
+        mount for mount in mounts
+        if isinstance(mount, dict) and mount.get("Destination") == DATA_DESTINATION
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("Open WebUI must have exactly one verified data mount.")
+    mount = matches[0]
+    source = None
+    if str(mount.get("Type") or "").lower() == "volume":
+        source = mount.get("Name")
+    elif str(mount.get("Type") or "").lower() == "bind":
+        source = mount.get("Source")
+    if source not in ALLOWED_DATA_SOURCES:
+        raise RuntimeError(
+            "Open WebUI uses an unrecognized data mount; the existing container "
+            "was left unchanged."
+        )
+    return str(source)
+
+
 def _migrate_legacy_container(
     state: dict[str, Any], runner: CommandRunner, container: str
 ) -> None:
-    """Stop+remove a legacy/uncontained container, KEEPING its volume."""
+    """Stop+remove a legacy/uncontained container after storage verification."""
     runner.emit(
         f"Migrating Open WebUI container {container} to the contained "
-        "private network (user data volume is preserved)."
+        "private network (verified user data storage is preserved)."
     )
     runner.run(["podman", "stop", "--time", "10", container], check=False)
     runner.run(["podman", "rm", container], check=False)
 
 
-def _create_command(container: str, *, credential_file: str | None = None) -> list[str]:
+def _create_command(
+    container: str,
+    *,
+    credential_file: str | None = None,
+    data_source: str = DATA_VOLUME,
+) -> list[str]:
     # Security posture (ADR 005 D5 / plan §10.4): dedicated private network,
     # UI published strictly on host loopback, read-only rootfs with explicit
     # writable tmpfs+volume, no-new-privileges, ALL capabilities dropped,
     # bounded memory/CPU/PIDs/file-size, non-host networking, digest-pinned
-    # image. Host networking / privileged / host-PID / device / interactive
-    # bind mounts are forbidden. The credential rides a 0600 env file mounted
-    # read-only; it is never in argv or container labels.
+    # image. Host networking / privileged / host-PID / device / arbitrary bind
+    # mounts are forbidden. The one historical data bind and the 0600 credential
+    # file are bounded exceptions; the credential is never in argv or labels.
+    if data_source not in ALLOWED_DATA_SOURCES:
+        raise ValueError("unapproved Open WebUI data source")
     command = [
         "podman", "create", "--name", container,
         "--network", NETWORK,
@@ -121,7 +173,7 @@ def _create_command(container: str, *, credential_file: str | None = None) -> li
         "--pids-limit", "256",
         "--cpus", "4",
         "--ulimit", "fsize=1g",
-        "-v", f"{DATA_VOLUME}:/app/backend/data",
+        "-v", f"{data_source}:{DATA_DESTINATION}",
     ]
     if READ_ONLY_ROOT:
         command += ["--read-only", "--tmpfs", WRITABLE_TMPFS]
@@ -246,16 +298,22 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner,
             )
     container, exists = _container_name(state, runner)
     _ensure_network(state, runner)
+    data_source = DATA_VOLUME
     if exists:
         topology = _container_topology(state, runner, container)
         if container == LEGACY_CONTAINER or topology != "contained":
+            data_source = _container_data_source(runner, container)
             # Legacy/uncontained containers are migrated (volume
             # preserved) and recreated contained — never reused or
             # started while unsafe (U0.6).
             _migrate_legacy_container(state, runner, container)
             container, exists = CONTAINER, False
     if not exists:
-        runner.run(_create_command(container, credential_file=credential_file))
+        runner.run(_create_command(
+            container,
+            credential_file=credential_file,
+            data_source=data_source,
+        ))
     runner.run(["podman", "start", container], check=False)
     state["openwebui_installed"] = True
     state["openwebui_container"] = container
@@ -271,13 +329,13 @@ def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str,
 
     The registry input is the immutable ``IMAGE_REF`` only.  Pull and digest
     verification complete before the existing container is touched.  Recreate
-    reuses the ONE hardened create command, including the named ``DATA_VOLUME``
-    and the currently provisioned gateway credential file.  The container is
+    reuses the ONE hardened create command, including the verified current data
+    source and the provisioned gateway credential file. The container is
     restarted only when it was running before the refresh.
 
-    Removing a container never removes its named volume; no ``--volumes``/``-v``
-    removal flag is used here.  Consequently Open WebUI accounts, settings, and
-    conversations remain in ``DATA_VOLUME`` across the recreate.
+    No ``--volumes``/``-v`` removal flag is used. Consequently Open WebUI
+    accounts, settings, and conversations remain on their verified storage
+    source across the recreate.
     """
     if not shutil.which("podman"):
         raise RuntimeError(
@@ -291,6 +349,7 @@ def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str,
         )
     container = str(before["container"])
     was_running = bool(before.get("running"))
+    data_source = _container_data_source(runner, container)
     credential_file = state.get("gateway_credential_file")
     if not isinstance(credential_file, str) or not credential_file:
         raise RuntimeError(
@@ -316,10 +375,14 @@ def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str,
     _ensure_network(state, runner)
     if was_running:
         runner.run(["podman", "stop", "--time", "10", container])
-    # Deliberately omit every volume-removal flag: DATA_VOLUME is the durable
-    # user-data owner and the replacement mounts that same exact name.
+    # Deliberately omit every volume-removal flag. The replacement mounts the
+    # same verified source, including the bounded legacy bind migration case.
     runner.run(["podman", "rm", container])
-    runner.run(_create_command(container, credential_file=credential_file))
+    runner.run(_create_command(
+        container,
+        credential_file=credential_file,
+        data_source=data_source,
+    ))
     if was_running:
         runner.run(["podman", "start", container])
 
@@ -327,6 +390,7 @@ def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str,
     state["openwebui_container"] = container
     observed = open_webui_status(state, runner)
     observed["updated"] = True
+    observed["data_source_preserved"] = data_source
     observed["running_state_restored"] = bool(observed.get("running")) == was_running
     if not observed["running_state_restored"]:
         raise RuntimeError(
@@ -334,8 +398,8 @@ def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str,
             "to its prior running state. Check System status before retrying."
         )
     runner.emit(
-        "Open WebUI was recreated from the application-pinned image; the "
-        f"{DATA_VOLUME} data volume was preserved and its prior running state "
+        "Open WebUI was recreated from the application-pinned image; its "
+        "verified data storage and prior running state "
         "was restored."
     )
     return observed
