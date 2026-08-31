@@ -87,6 +87,13 @@ def _catalog_match(path: Path) -> ModelEntry | None:
         if model.id in lowered:
             return model
     name = path.name.lower().replace("_", "-")
+    # Durable catalog downloads use literal remote filenames. Match those
+    # before legacy aliases so similarly named families (Phi-4 Mini/Phi-4,
+    # Qwen 1.5B/14B) cannot be misidentified after discovery.
+    for model in CATALOG:
+        for filename in model.allow_globs.values():
+            if "*" not in filename and name == filename.lower().replace("_", "-"):
+                return model
     if "defiant-fable" in name:
         return next(model for model in CATALOG if model.id == "defiant-fable-9b")
     if "lfm2.5" in name and "2.6b" in name:

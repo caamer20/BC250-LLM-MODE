@@ -106,6 +106,8 @@ def system_card_views(
             webui_detail,
             "stop-webui" if webui_running else "start-webui" if webui.get("installed") else "install-webui",
             "Stop" if webui_running else "Start" if webui.get("installed") else "Install",
+            "update-webui" if webui.get("installed") else None,
+            "Update pinned Open WebUI" if webui.get("installed") else None,
         ),
         ServiceCardView(
             "remote", "Remote access", "Connected" if tailscale.get("connected") else (
@@ -312,6 +314,7 @@ class SystemPage(ttk.Frame):
             elif code == "install-webui": result = self.application.openwebui.install(state, runner)
             elif code == "start-webui": result = self.application.openwebui.start(state, runner)
             elif code == "stop-webui": result = self.application.openwebui.stop(state, runner)
+            elif code == "update-webui": result = self.application.openwebui.update(state, runner)
             elif code == "start-tailscale": result = self.application.tailscale.start(state, runner)
             elif code == "stop-tailscale": result = self.application.tailscale.stop(state, runner)
             elif code == "start-sharing": result = self.application.sharing.start(state, runner)

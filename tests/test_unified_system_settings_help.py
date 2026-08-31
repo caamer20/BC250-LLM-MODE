@@ -85,6 +85,8 @@ def test_system_cards_offer_one_primary_service_direction():
     assert by_key["server"].primary_code == "start-server"
     assert by_key["server"].more_code is None
     assert by_key["webui"].primary_code == "start-webui"
+    assert by_key["webui"].more_code == "update-webui"
+    assert by_key["webui"].more_label == "Update pinned Open WebUI"
     assert by_key["remote"].primary_code == "start-tailscale"
     assert by_key["host"].primary_code == "llm-mode"
     assert "http://127.0.0.1:3000" in by_key["webui"].detail
@@ -109,6 +111,7 @@ def test_system_cards_offer_one_primary_service_direction():
     assert "Local: http://127.0.0.1:3000" in webui.detail
     assert "Tailnet HTTPS: https://bc250.example.ts.net:8443/" in webui.detail
     assert "Device Tailscale IP: 100.115.57.31" in webui.detail
+    assert (webui.primary_code, webui.more_code) == ("stop-webui", "update-webui")
     remote = {card.key: card for card in shared}["remote"]
     assert "IP 100.115.57.31" in remote.detail
 
@@ -149,6 +152,12 @@ def test_system_page_has_immediate_status_and_periodic_retry():
     assert '"unavailable", "System status", "Retrying…"' in page
     refresh_block = shell.split("def _refresh_cycle(self) -> None:", 1)[1]
     assert "Route.SYSTEM" in refresh_block
+
+
+def test_system_page_routes_the_pinned_openwebui_update_through_its_service():
+    page = (PACKAGE / "gui" / "system_page.py").read_text(encoding="utf-8")
+    assert 'elif code == "update-webui"' in page
+    assert "self.application.openwebui.update(state, runner)" in page
 
 
 def test_every_gui_module_avoids_direct_infrastructure_imports():

@@ -1152,6 +1152,18 @@ class OpenWebUIService:
         persist_state_diff(self._units, before, view)
         return result
 
+    def update(self, view, runner) -> Any:
+        from .openwebui import update_open_webui
+
+        # Re-resolve the current scoped credential before recreating the
+        # container; the secret itself remains in its 0600 file and never
+        # enters argv, state persistence, or logs.
+        self._refresh_gateway(view)
+        before = dict(view)
+        result = update_open_webui(view, runner)
+        persist_state_diff(self._units, before, view)
+        return result
+
     def status(self, view, runner) -> Any:
         from .openwebui import open_webui_status
 

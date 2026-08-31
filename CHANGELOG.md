@@ -5,6 +5,22 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### Catalog, WebUI, and desktop lifecycle
+
+- Expanded the curated model catalog from 24 to 40 entries across 360M–16B,
+  including ultra-small, mature, current, multilingual, reasoning, coding,
+  Gemma 3, and MoE options. New entries remain Preview pending physical
+  BC-250 Vulkan qualification.
+- Replaced wildcard paths on every direct catalog download with exact verified
+  GGUF filenames, corrected two stale Qwen repositories, and admitted the
+  standard `lfm2` GGUF architecture used by the existing LFM2.5 entries.
+- Added a System action that applies the app-approved digest-pinned Open WebUI
+  image while preserving its named data volume, gateway credential boundary,
+  and prior running/stopped state.
+- Closing the GUI in Desktop mode now stops and verifies the model service
+  before exit. Minimize, navigation, and explicit current-boot LLM Mode serving
+  remain unchanged.
+
 ### Acquisition transport fixes
 
 - Follow bounded HTTPS redirects while resolving immutable Hugging Face

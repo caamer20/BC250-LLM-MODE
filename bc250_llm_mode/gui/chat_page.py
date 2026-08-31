@@ -452,8 +452,8 @@ class ChatPage(ttk.Frame):
         self.shell.drawer.show_confirmation(
             Confirmation(
                 "Stop this response and close?",
-                "The response will stop; the model server remains under System control.",
-                "Your message and any partial response are saved locally before closing.",
+                "The response will stop. In Desktop mode, the model server also stops before the app closes.",
+                "Your message and any partial response are saved locally. Reopen the app to start the model again.",
                 "Stop and close",
             ),
             lambda: self._stop_and_close(callback),

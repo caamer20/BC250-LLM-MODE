@@ -158,6 +158,106 @@ def test_openwebui_migrates_legacy_host_network_container(monkeypatch):
     assert state["openwebui_container"] == openwebui.CONTAINER
 
 
+def test_openwebui_update_pulls_verified_pin_recreates_and_preserves_data(monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    networks = json.dumps({openwebui.NETWORK: {}})
+    outputs = {
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "running\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (0, networks + "\n"),
+        ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
+        ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
+    }
+    runner = FakeRunner(outputs)
+    state = {
+        "openwebui_container": openwebui.CONTAINER,
+        "gateway_provisioned": True,
+        "gateway_credential_file": "/profile/openwebui-credential",
+    }
+
+    result = openwebui.update_open_webui(state, runner)
+
+    commands = [command for command, _ in runner.commands]
+    pull_index = commands.index(["podman", "pull", openwebui.IMAGE_REF])
+    stop_index = commands.index(["podman", "stop", "--time", "10", openwebui.CONTAINER])
+    remove_index = commands.index(["podman", "rm", openwebui.CONTAINER])
+    create_index = next(i for i, command in enumerate(commands) if command[:2] == ["podman", "create"])
+    start_index = commands.index(["podman", "start", openwebui.CONTAINER])
+    digest_indices = [
+        i for i, command in enumerate(commands)
+        if command[:3] == ["podman", "image", "inspect"]
+    ]
+    verified_before_stop = [index for index in digest_indices if pull_index < index < stop_index]
+    assert verified_before_stop
+    assert stop_index < remove_index < create_index < start_index
+    assert all(command != ["podman", "pull", openwebui.IMAGE_TAG_DISPLAY] for command in commands)
+    create = commands[create_index]
+    assert openwebui.IMAGE_REF == create[-1]
+    assert f"{openwebui.DATA_VOLUME}:/app/backend/data" in create
+    assert any("src=/profile/openwebui-credential" in value for value in create)
+    assert "--network" in create and create[create.index("--network") + 1] == openwebui.NETWORK
+    assert not any(flag in commands[remove_index] for flag in ("-v", "--volumes"))
+    assert result["updated"] is True
+    assert result["running_state_restored"] is True
+
+
+def test_openwebui_update_digest_failure_leaves_container_untouched(monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    outputs = {
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "exited\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (
+            0, json.dumps({openwebui.NETWORK: {}}) + "\n"),
+        ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
+        _diginspect_tuple()[0]: (0, json.dumps(["ghcr.io/open-webui/open-webui@sha256:" + "0" * 64]) + "\n"),
+    }
+    runner = FakeRunner(outputs)
+
+    with pytest.raises(RuntimeError, match="digest"):
+        openwebui.update_open_webui(
+            {
+                "openwebui_container": openwebui.CONTAINER,
+                "gateway_credential_file": "/profile/openwebui-credential",
+            },
+            runner,
+        )
+
+    commands = [command for command, _ in runner.commands]
+    assert ["podman", "pull", openwebui.IMAGE_REF] in commands
+    assert ["podman", "rm", openwebui.CONTAINER] not in commands
+    assert not any(command[:2] == ["podman", "create"] for command in commands)
+    assert ["podman", "start", openwebui.CONTAINER] not in commands
+
+
+def test_openwebui_update_keeps_a_previously_stopped_container_stopped(monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    outputs = {
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER): (0, "exited\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER): (
+            0, json.dumps({openwebui.NETWORK: {}}) + "\n"),
+        ("podman", "network", "exists", openwebui.NETWORK): (0, ""),
+        ("podman", "pull", openwebui.IMAGE_REF): (0, "pulled\n"),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
+    }
+    runner = FakeRunner(outputs)
+
+    result = openwebui.update_open_webui(
+        {
+            "openwebui_container": openwebui.CONTAINER,
+            "gateway_credential_file": "/profile/openwebui-credential",
+        },
+        runner,
+    )
+
+    commands = [command for command, _ in runner.commands]
+    assert ["podman", "stop", "--time", "10", openwebui.CONTAINER] not in commands
+    assert ["podman", "start", openwebui.CONTAINER] not in commands
+    assert result["running"] is False
+    assert result["running_state_restored"] is True
+
+
 def test_tailscale_status_separates_daemon_and_tailnet(monkeypatch):
     monkeypatch.setattr(
         tailscale.shutil,

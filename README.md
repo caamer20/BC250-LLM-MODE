@@ -221,7 +221,9 @@ Settings, and Help all stay in that
 window. The experience provides:
 
 - live state for the single `bc250-llm.service`, with **Start**, **Stop**, and **Restart** controls;
-- Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**, and **Open WebUI** controls;
+- Open WebUI installation-on-first-start plus **Start**, **Stop**, **Restart**,
+  **Update pinned Open WebUI**, and **Open WebUI** controls; the update action
+  preserves the named data volume and reapplies only the app-approved digest;
 - optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
 - installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
 - named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;
@@ -257,13 +259,13 @@ minimized windows back off. Model, context, and user-slot activations are
 transactional: if a new configuration fails its health check, the application
 restores and restarts the last working configuration.
 
-The GUI never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation.
+The GUI never starts `llama-server` directly. Every start, switch, and context change goes through `bc250-llm.service`, preserving the single-owner rule and preventing competing processes from consuming the UMA allocation. Closing the GUI in normal Desktop mode stops and verifies that service before exiting; minimizing the window does not. Closing the control window during explicit current-boot LLM Mode leaves that serving session running.
 
 Tailscale is optional and is not installed by this application. On Linux, `tailscaled` is the systemd-managed daemon, while `tailscale up` joins/connects the machine to its tailnet. The app exposes those as separate actions so stopping the daemon is not confused with signing out or changing tailnet state. A first-time **Connect** may print an authentication URL in the application log.
 
 ## Choosing a model
 
-The curated catalog currently includes twenty-four models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot.
+The curated catalog currently includes forty models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot. The sixteen newest entries remain **Preview** until each completes a physical BC-250 Vulkan load and generation check.
 
 | Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |
@@ -274,14 +276,14 @@ The curated catalog currently includes twenty-four models. Projected totals belo
 | [Qwen3.8 9B Distill (converted)](https://huggingface.co/empero-ai/Qwen3.8-9B-Distill) | Reasoning/function calling (local conversion) | Q5_K_M | 9.49 GiB | 11.74 GiB (tight) | No fit |
 | [The Defiant Fable 9B](https://huggingface.co/pipenetwork/Qwen3.5-9B-The-Defiant-Fable-Uncensored-Heretic-MLX-bf16) | Creative/uncensored conversion | Q5_K_M | 9.55 GiB | 11.80 GiB (tight) | No fit |
 | [Qwen3 8B](https://huggingface.co/Qwen/Qwen3-8B-GGUF) | General/fast | Q5_K_M | 7.45 GiB | 8.45 GiB | 10.45 GiB |
-| [Qwen3 14B](https://huggingface.co/ggml-org/Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 10.63 GiB (tight) | 11.88 GiB (tight) | No fit |
+| [Qwen3 14B](https://huggingface.co/bartowski/Qwen_Qwen3-14B-GGUF) | Larger general model | Q4_K_M | 10.63 GiB (tight) | 11.88 GiB (tight) | No fit |
 | [Llama 3.2 3B Instruct](https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF) | Fast/low-power | Q8_0 | 5.94 GiB | 7.69 GiB | 11.19 GiB (tight) |
 | [Llama 3.1 8B Instruct](https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF) | Mature general chat | Q5_K_M | 8.34 GiB | 10.34 GiB | No fit |
 | [Qwen2.5 Coder 7B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-7B-Instruct-GGUF) | Coding/debugging | Q6_K | 7.70 GiB | 8.57 GiB | 10.32 GiB |
 | [DeepSeek R1 Distill Qwen 7B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF) | Reasoning/math | Q6_K | 7.70 GiB | 8.57 GiB | 10.32 GiB |
 | [Mistral Nemo 12B Instruct](https://huggingface.co/bartowski/Mistral-Nemo-Instruct-2407-GGUF) | Capable multilingual chat | Q5_K_M | 11.63 GiB (tight) | No fit | No fit |
 | [Phi-4 14B](https://huggingface.co/bartowski/phi-4-GGUF) | Reasoning/math/code | Q4_K_M | No fit | No fit | No fit |
-| [Qwen3 4B Instruct 2507](https://huggingface.co/Qwen/Qwen3-4B-Instruct-2507-GGUF) | Fast general/long-context | Q4_K_M | 7.84 GiB | No fit | No fit |
+| [Qwen3 4B Instruct 2507](https://huggingface.co/bartowski/Qwen_Qwen3-4B-Instruct-2507-GGUF) | Fast general/long-context | Q4_K_M | 7.84 GiB | No fit | No fit |
 | [Qwen2.5 3B Instruct](https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF) | Tiny multi-user assistant | Q8_0 | 5.19 GiB | 6.31 GiB | 8.56 GiB |
 | [Mistral 7B Instruct v0.3](https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF) | Classic general chat | Q5_K_M | 10.15 GiB | No fit | No fit |
 | [DeepSeek R1 Distill Llama 8B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Llama-8B-GGUF) | Reasoning/math | Q5_K_M | 10.34 GiB | No fit | No fit |
@@ -289,12 +291,30 @@ The curated catalog currently includes twenty-four models. Projected totals belo
 | [Llama 3.2 1B Instruct](https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF) | Ultra-light/multi-user | Q8_0 | 3.32 GiB | 4.32 GiB | 6.32 GiB |
 | [Ornith 1.5 9B](https://huggingface.co/ornith-ai/Ornith-1.5-9B-GGUF) | Newest generalist (compat. candidate) | Q6_K | 10.48 GiB | No fit | No fit |
 | [Qwen3.8 2B Distill](https://huggingface.co/empero-ai/Qwen3.8-2B-Distill-GGUF) | Small reasoning/long context | Q8_0 | 5.40 GiB | 7.65 GiB | No fit |
-| [Qwen2.5 Coder 3B Instruct](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF) | Smallest dedicated coder | Q8_0 | 5.42 GiB | 6.54 GiB | 8.79 GiB |
+| [Qwen2.5 Coder 3B Instruct](https://huggingface.co/Qwen/Qwen2.5-Coder-3B-Instruct-GGUF) | Smallest dedicated coder | Q8_0 | 5.49 GiB | 6.62 GiB | 8.87 GiB |
 | [Qwen2.5 Coder 14B Instruct](https://huggingface.co/bartowski/Qwen2.5-Coder-14B-Instruct-GGUF) | Largest coder that fits (single user) | Q4_K_M | No fit² | No fit | No fit |
+| [SmolLM2 360M Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-360M-Instruct-GGUF) | Ultra-small appliance checks | Q8_0 | 2.61 GiB | Trained limit 8K | Trained limit 8K |
+| [Qwen2.5 0.5B Instruct](https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF) | Tiny multilingual/multi-user | Q8_0 | 2.00 GiB | 2.38 GiB | 3.13 GiB |
+| [Qwen3 0.6B](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF) | Tiny reasoning/chat | Q8_0 | 5.10 GiB | 8.60 GiB | No fit |
+| [TinyLlama 1.1B Chat](https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF) | Mature tiny baseline | Q8_0 | Trained limit 2K | Trained limit 2K | Trained limit 2K |
+| [DeepSeek R1 Distill Qwen 1.5B](https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-1.5B-GGUF) | Small reasoning/math | Q8_0 | 3.64 GiB | 4.51 GiB | 6.26 GiB |
+| [Qwen3 1.7B](https://huggingface.co/Qwen/Qwen3-1.7B-GGUF) | Compact reasoning/chat | Q8_0 | 6.21 GiB | 9.71 GiB | No fit |
+| [SmolLM2 1.7B Instruct](https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct-GGUF) | Compact general assistant | Q4_K_M | 7.98 GiB | Trained limit 8K | Trained limit 8K |
+| [Gemma 2 2B IT](https://huggingface.co/bartowski/gemma-2-2b-it-GGUF) | Compact prose/general chat | Q8_0 | 6.84 GiB | Trained limit 8K | Trained limit 8K |
+| [Phi-3.5 Mini Instruct](https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF) | Mature small reasoning/code | Q4_K_M | No fit³ | No fit | No fit |
+| [Phi-4 Mini Instruct](https://huggingface.co/bartowski/microsoft_Phi-4-mini-instruct-GGUF) | Modern small reasoning/code | Q8_0 | 8.80 GiB | No fit | No fit |
+| [Gemma 3 4B IT](https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF) | Text-only multilingual/general | Q8_0 | 9.10 GiB | No fit | No fit |
+| [OpenHermes 2.5 Mistral 7B](https://huggingface.co/TheBloke/OpenHermes-2.5-Mistral-7B-GGUF) | Mature ChatML/tool-use baseline | Q5_K_M | 9.78 GiB | No fit | No fit |
+| [Falcon3 10B Instruct](https://huggingface.co/tiiuae/Falcon3-10B-Instruct-GGUF) | Large multilingual generalist | Q4_K_M | 11.86 GiB (tight) | No fit | No fit |
+| [Gemma 3 12B IT](https://huggingface.co/bartowski/google_gemma-3-12b-it-GGUF) | Large text-only generalist | Q4_K_M | No fit³ | No fit | No fit |
+| [Qwen2.5 14B Instruct](https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF) | Large mature generalist | Q3_K_M | No fit³ | No fit | No fit |
+| [DeepSeek Coder V2 Lite 16B](https://huggingface.co/bartowski/DeepSeek-Coder-V2-Lite-Instruct-GGUF) | Large 2.4B-active MoE coder | Q3_K_M | 10.57 GiB (tight) | No fit | No fit |
 
 ² Qwen2.5 Coder 14B carries a heavy 192 KiB/token KV cache: plan a single user at 8K (Q3_K_M 9.51 GiB FITS; Q4_K_M 11.49 GiB TIGHT).
 
-The six newest entries widen the coverage at both ends of the size spectrum. Qwen3 4B Instruct 2507 and Qwen2.5 3B Instruct are the new quality-per-gib sweet spot; Mistral 7B v0.3 and DeepSeek R1 Distill Llama 8B fill classic-chat and reasoning niches; Llama 3.2 1B is an ultra-light tier that fits near-full precision with large contexts or many slots. Gemma 2 9B IT carries a wide 336 KiB/token KV cache and a native 8192-token limit, so it is planned as a single-user short-context model: it projects to roughly 9.07 GiB for one slot at 8K and no fit for four shared slots.
+³ These larger or KV-heavy entries are intended for one short-context slot. The four-user table is deliberately fail-closed; reduce **User slots** before choosing them.
+
+The expansion now spans 360M through 16B total parameters: ultra-small appliance checks, current and mature chat baselines, reasoning, multilingual, coding, and a 2.4B-active MoE. Every direct-download catalog entry uses a literal verified filename rather than a wildcard, preventing the durable downloader from selecting projectors, split files, or incompatible layouts. Gemma 2 9B IT carries a wide 336 KiB/token KV cache and a native 8192-token limit, so it remains a single-user short-context model: it projects to roughly 9.07 GiB for one slot at 8K and no fit for four shared slots.
 
 LFM2.5 is especially useful when several clients share the server. LiquidAI advertises a 128K-trained context window, and its hybrid convolution/attention layout uses only eight attention layers in the 2.6B model and six in the 1.2B model. At Q8 KV this projects to roughly 8 KiB/token and 6 KiB/token respectively. A 128K LFM2.5 2.6B Q5 configuration projects to about 3.78 GiB for one slot or 6.71 GiB for four; the 1.2B Instruct model projects to about 2.52 GiB for one slot or 4.71 GiB for four.
 

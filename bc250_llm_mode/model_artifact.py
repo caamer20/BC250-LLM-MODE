@@ -25,6 +25,7 @@ KNOWN_ARCHITECTURES = frozenset(
         "qwen3",
         "qwen3moe",
         "qwen35",
+        "lfm2",
         "phi3",
         "gemma",
         "gemma2",

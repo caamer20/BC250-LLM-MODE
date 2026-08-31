@@ -43,11 +43,19 @@ def test_standard_artifact_allowed():
 
 
 def test_catalog_ids_are_unique_and_all_downloads_are_standard_layouts():
-    assert len(CATALOG) == 24
+    assert len(CATALOG) == 40
     assert len({model.id for model in CATALOG}) == len(CATALOG)
     for model in CATALOG:
         for pattern in model.allow_globs.values():
             validate_artifact(model.repo, pattern)
+
+
+def test_direct_catalog_downloads_use_literal_safe_remote_filenames():
+    for model in CATALOG:
+        if model.conversion:
+            continue
+        assert all("*" not in filename for filename in model.allow_globs.values()), model.id
+        assert all(filename.lower().endswith(".gguf") for filename in model.allow_globs.values())
 
 
 @pytest.mark.parametrize(
@@ -137,7 +145,9 @@ def test_search_catalog_matches_tags_names_and_ids():
     assert len(search_catalog("")) == len(CATALOG)
     reasoning_ids = {model.id for model in search_catalog("reasoning")}
     assert {"phi4-14b", "deepseek-r1-llama-8b", "deepseek-r1-qwen-7b"} <= reasoning_ids
-    assert [model.id for model in search_catalog("gemma")] == ["gemma-2-9b-it"]
+    assert {model.id for model in search_catalog("gemma")} == {
+        "gemma-2-2b-it", "gemma-2-9b-it", "gemma-3-4b-it", "gemma-3-12b-it",
+    }
     assert all("coder" in model.id or "code" in model.task_tags for model in search_catalog("code"))
     assert search_catalog("no-such-tag-xyz") == ()
 
@@ -181,3 +191,51 @@ def test_discovery_matches_qwen38_distill_conversions_separately():
 
     assert _catalog_match(Path("/models/Qwen3.8-9B-Distill-Q5_K_M.gguf")).id == "qwen38-9b-distill"
     assert _catalog_match(Path("/models/Qwen3.8-9B-Q5_K_M.gguf")).id == "qwen38-9b"
+
+
+@pytest.mark.parametrize(
+    ("filename", "model_id"),
+    [
+        ("smollm2-360m-instruct-q8_0.gguf", "smollm2-360m-instruct"),
+        ("qwen2.5-0.5b-instruct-q8_0.gguf", "qwen25-0p5b-instruct"),
+        ("Qwen3-0.6B-Q8_0.gguf", "qwen3-0p6b"),
+        ("tinyllama-1.1b-chat-v1.0.Q6_K.gguf", "tinyllama-1p1b-chat"),
+        ("DeepSeek-R1-Distill-Qwen-1.5B-Q5_K_M.gguf", "deepseek-r1-qwen-1p5b"),
+        ("Qwen3-1.7B-Q8_0.gguf", "qwen3-1p7b"),
+        ("smollm2-1.7b-instruct-q4_k_m.gguf", "smollm2-1p7b-instruct"),
+        ("microsoft_Phi-4-mini-instruct-Q6_K.gguf", "phi4-mini-instruct"),
+        ("google_gemma-3-12b-it-Q4_K_M.gguf", "gemma-3-12b-it"),
+        ("DeepSeek-Coder-V2-Lite-Instruct-Q3_K_M.gguf", "deepseek-coder-v2-lite-16b"),
+    ],
+)
+def test_discovery_matches_literal_catalog_filenames(filename, model_id):
+    from pathlib import Path
+    from bc250_llm_mode.local_models import _catalog_match
+
+    assert _catalog_match(Path("/models") / filename).id == model_id
+
+
+@pytest.mark.parametrize(
+    ("model_id", "quant", "ctx", "slots", "verdict"),
+    [
+        ("smollm2-360m-instruct", "Q8_0", 8192, 4, "FITS"),
+        ("qwen3-0p6b", "Q8_0", 32768, 4, "NO-FIT"),
+        ("deepseek-r1-qwen-1p5b", "Q8_0", 32768, 4, "FITS"),
+        ("phi4-mini-instruct", "Q8_0", 32768, 4, "NO-FIT"),
+        ("gemma-3-4b-it", "Q8_0", 8192, 4, "FITS"),
+        ("falcon3-10b-instruct", "Q5_K_M", 8192, 1, "FITS"),
+        ("gemma-3-12b-it", "Q4_K_M", 8192, 1, "TIGHT"),
+        ("qwen25-14b-instruct", "Q3_K_M", 8192, 1, "FITS"),
+        ("deepseek-coder-v2-lite-16b", "Q3_K_M", 16384, 1, "FITS"),
+    ],
+)
+def test_catalog_round5_bc250_fit_matrix(model_id, quant, ctx, slots, verdict):
+    assert calculate_fit(model_by_id(model_id), quant, ctx, parallel_slots=slots).verdict == verdict
+
+
+def test_round5_additions_remain_preview_until_physical_bc250_qualification():
+    from bc250_llm_mode.catalog import validation_tier
+
+    added = CATALOG[24:]
+    assert len(added) == 16
+    assert all(validation_tier(model) == "preview" for model in added)

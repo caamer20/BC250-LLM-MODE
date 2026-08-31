@@ -85,10 +85,11 @@ def test_streaming_identity_detects_in_place_rewrite(tmp_path):
     assert len(first) == 3
 
 
-def test_qwen35_is_a_supported_standard_architecture(tmp_path):
-    """Qwen3.5-family GGUFs (including Ornith) are standard layouts."""
-    path = tmp_path / "qwen35.gguf"
-    path.write_bytes(_gguf(arch=b"qwen35"))
+@pytest.mark.parametrize("architecture", [b"qwen35", b"lfm2"])
+def test_catalog_architectures_are_supported_standard_layouts(tmp_path, architecture):
+    """Qwen3.5/Ornith and LiquidAI LFM2 catalog files are standard layouts."""
+    path = tmp_path / "catalog.gguf"
+    path.write_bytes(_gguf(arch=architecture))
 
     assert gguf_layout_verdict(path) == VERDICT_STANDARD
 

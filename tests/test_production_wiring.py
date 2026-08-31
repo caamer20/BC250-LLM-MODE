@@ -141,11 +141,13 @@ def test_openwebui_and_sharing_methods_reach_adapters(tmp_path, monkeypatch):
     monkeypatch.setattr(openwebui, "start_open_webui", lambda st, rn: {"running": True})
     monkeypatch.setattr(openwebui, "stop_open_webui", lambda st, rn: {"running": False})
     monkeypatch.setattr(openwebui, "restart_open_webui", lambda st, rn: {"running": True})
+    monkeypatch.setattr(openwebui, "update_open_webui", lambda st, rn: {"updated": True})
     monkeypatch.setattr(openwebui, "open_webui_status", lambda st, rn: {"running": False})
 
     assert application.openwebui.install(view, runner) == {"installed": True}
     assert application.openwebui.start(view, runner) == {"running": True}
     assert application.openwebui.restart(view, runner) == {"running": True}
+    assert application.openwebui.update(view, runner) == {"updated": True}
     assert application.openwebui.stop(view, runner) == {"running": False}
     assert application.openwebui.status(view, runner) == {"running": False}
 

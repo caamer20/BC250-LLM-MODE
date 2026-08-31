@@ -9,7 +9,7 @@ from ..command_palette import palette_commands
 from .routes import SETUP_CHAPTERS, PRIMARY_ROUTES, Route, available_routes, parse_route
 from .setup_page import SetupWindow, setup_resume_view
 from .widgets import BottomDrawer, NoticeBar
-from .view_state import Confirmation
+from .view_state import Confirmation, Notice
 
 
 class ApplicationWindow(SetupWindow):
@@ -436,12 +436,50 @@ class ApplicationWindow(SetupWindow):
             self.drawer.show_confirmation(
                 Confirmation(
                     "Close BC250 LLM MODE?",
-                    f"{summary.active_count} durable operation(s) are active. {worker}",
-                    "Operation history and recovery evidence remain saved; closing never marks work cancelled.",
+                    f"{summary.active_count} durable operation(s) are active. {worker} "
+                    "In Desktop mode, a running model will stop before the app closes.",
+                    "Operation history and recovery evidence remain saved; closing never marks work cancelled. "
+                    "Reopen the app to start the model again.",
                     "Close app",
                 ),
-                self.destroy,
+                self._close_application,
             )
+            return
+        self._close_application()
+
+    def _close_application(self) -> None:
+        """Stop Desktop-mode inference before ending the GUI process.
+
+        LLM Mode is an explicit current-boot serving session, so closing its
+        control window does not end that session.  In normal Desktop mode the
+        GUI owns the interactive model lifetime: it verifies the live service
+        state, stops an active server, and refuses to disappear if the stop
+        cannot be verified.  Window unmap/minimize and route changes never call
+        this boundary.
+        """
+        try:
+            state = self.application.read_model()
+            if str(state.get("system_mode") or "") == "desktop":
+                service = self.application.model_server
+                runner = self.runner()
+                status = service.status(state, runner)
+                if not isinstance(status, dict) or "active" not in status:
+                    raise RuntimeError("model service status was unavailable")
+                if status["active"]:
+                    stopped = service.stop(state, runner)
+                    if not isinstance(stopped, dict) or stopped.get("active") is not False:
+                        raise RuntimeError("model service did not reach inactive state")
+        except Exception as exc:
+            self.emit(f"Desktop close kept the app open: {exc.__class__.__name__}")
+            self.notice_bar.show_notice(Notice(
+                "error",
+                "The model could not be stopped",
+                "BC250 LLM MODE stayed open so inference is not left running unexpectedly. "
+                "Use Stop on the System page, then close the app again.",
+                action_label="Open System",
+                action_route=Route.SYSTEM.value,
+                dismissible=False,
+            ))
             return
         self.destroy()
 

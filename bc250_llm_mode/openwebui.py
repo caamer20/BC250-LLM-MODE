@@ -266,6 +266,81 @@ def install_open_webui(state: dict[str, Any], runner: CommandRunner,
     )
 
 
+def update_open_webui(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+    """Refresh the app-pinned image and recreate the managed container.
+
+    The registry input is the immutable ``IMAGE_REF`` only.  Pull and digest
+    verification complete before the existing container is touched.  Recreate
+    reuses the ONE hardened create command, including the named ``DATA_VOLUME``
+    and the currently provisioned gateway credential file.  The container is
+    restarted only when it was running before the refresh.
+
+    Removing a container never removes its named volume; no ``--volumes``/``-v``
+    removal flag is used here.  Consequently Open WebUI accounts, settings, and
+    conversations remain in ``DATA_VOLUME`` across the recreate.
+    """
+    if not shutil.which("podman"):
+        raise RuntimeError(
+            "Podman is required for Open WebUI; re-run environment setup."
+        )
+
+    before = open_webui_status(state, runner)
+    if not before.get("installed"):
+        raise RuntimeError(
+            "Open WebUI is not installed; use Install before updating it."
+        )
+    container = str(before["container"])
+    was_running = bool(before.get("running"))
+    credential_file = state.get("gateway_credential_file")
+    if not isinstance(credential_file, str) or not credential_file:
+        raise RuntimeError(
+            "A verified Open WebUI gateway credential is required before "
+            "the managed container can be updated."
+        )
+
+    # Pull the release-pinned immutable identity only.  A failed pull or a
+    # registry/metadata mismatch leaves the existing container untouched.
+    pulled = runner.run(["podman", "pull", IMAGE_REF], check=False)
+    if pulled.returncode != 0:
+        raise RuntimeError(
+            "Could not pull the pinned Open WebUI image; the existing "
+            "container was left unchanged."
+        )
+    digest = _verify_image_digest(state, runner)
+    if not digest["verified"]:
+        raise RuntimeError(
+            "Pulled Open WebUI image digest did not match the application pin; "
+            "the existing container was left unchanged."
+        )
+
+    _ensure_network(state, runner)
+    if was_running:
+        runner.run(["podman", "stop", "--time", "10", container])
+    # Deliberately omit every volume-removal flag: DATA_VOLUME is the durable
+    # user-data owner and the replacement mounts that same exact name.
+    runner.run(["podman", "rm", container])
+    runner.run(_create_command(container, credential_file=credential_file))
+    if was_running:
+        runner.run(["podman", "start", container])
+
+    state["openwebui_installed"] = True
+    state["openwebui_container"] = container
+    observed = open_webui_status(state, runner)
+    observed["updated"] = True
+    observed["running_state_restored"] = bool(observed.get("running")) == was_running
+    if not observed["running_state_restored"]:
+        raise RuntimeError(
+            "Open WebUI data was preserved, but the container did not return "
+            "to its prior running state. Check System status before retrying."
+        )
+    runner.emit(
+        "Open WebUI was recreated from the application-pinned image; the "
+        f"{DATA_VOLUME} data volume was preserved and its prior running state "
+        "was restored."
+    )
+    return observed
+
+
 def start_open_webui_impl(state: dict[str, Any], runner: CommandRunner,
                           credential_file: str | None = None) -> dict[str, Any]:
     status = open_webui_status(state, runner)
