@@ -374,7 +374,17 @@ class ApplicationWindow(SetupWindow):
             del self._tracked_operation_ids[:-16]
         short = operation_id if len(operation_id) <= 20 else operation_id[:17] + "…"
         self._activity_text.set(f"Operation {short} was recorded")
-        self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+        self._show_activity_shelf()
+
+    def _show_activity_shelf(self) -> None:
+        if self._activity_shelf.winfo_manager() == "pack":
+            return
+        anchor = (
+            self.notice_bar
+            if self.notice_bar.winfo_manager() == "pack"
+            else self._header
+        )
+        self._activity_shelf.pack(fill="x", pady=(0, 6), after=anchor)
 
     def _refresh_activity_shelf(self) -> None:
         query = getattr(self.application, "operation_query", None)
@@ -388,13 +398,13 @@ class ApplicationWindow(SetupWindow):
             self._activity_text.set(
                 f"{summary.recovery_required_count} operation(s) need recovery"
             )
-            self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+            self._show_activity_shelf()
         elif summary.active_count:
             self._activity_text.set(
                 f"{summary.running_count} running · {summary.queued_count} queued · "
                 f"{summary.paused_count} paused"
             )
-            self._activity_shelf.pack(fill="x", pady=(0, 6), after=self.notice_bar)
+            self._show_activity_shelf()
         elif not self._tracked_operation_ids:
             self._activity_shelf.pack_forget()
         page_streaming = bool(getattr(self._page, "_streaming", False))

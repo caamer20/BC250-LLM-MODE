@@ -215,6 +215,15 @@ class HomePage(ttk.Frame):
             self._cards.columnconfigure(column, weight=1)
         self._shortcuts = ttk.Frame(self)
         self._shortcuts.pack(fill="x", pady=(10, 0))
+        self._shortcut_routes: list[str | None] = [None] * 4
+        self._shortcut_buttons: list[ttk.Button] = []
+        for index in range(4):
+            button = ttk.Button(
+                self._shortcuts,
+                command=lambda slot=index: self._run_shortcut(slot),
+            )
+            button.pack(side="left", padx=(0, 5))
+            self._shortcut_buttons.append(button)
         self._apply_snapshot({})
         self.refresh()
 
@@ -265,13 +274,17 @@ class HomePage(ttk.Frame):
             state_var, summary_var = self._card_vars[card.key]
             state_var.set(("STALE · " if card.stale else "") + card.state)
             summary_var.set(card.summary)
-        for child in self._shortcuts.winfo_children():
-            child.destroy()
-        for label, route in view.shortcuts[:4]:
-            ttk.Button(
-                self._shortcuts, text=label,
-                command=lambda target=route: self.shell.navigate(target),
-            ).pack(side="left", padx=(0, 5))
+        shortcuts = view.shortcuts[:4]
+        for index, button in enumerate(self._shortcut_buttons):
+            if index < len(shortcuts):
+                label, route = shortcuts[index]
+                self._shortcut_routes[index] = route
+                button.configure(text=label)
+                if not button.winfo_manager():
+                    button.pack(side="left", padx=(0, 5))
+            else:
+                self._shortcut_routes[index] = None
+                button.pack_forget()
 
     def focus_primary(self) -> None:
         self._primary_button.focus_set()
@@ -280,6 +293,11 @@ class HomePage(ttk.Frame):
         self._explanation.set(
             "Status could not be refreshed; the last bounded view remains visible."
         )
+
+    def _run_shortcut(self, index: int) -> None:
+        target = self._shortcut_routes[index]
+        if target is not None:
+            self.shell.navigate(target)
 
     def _run_primary(self) -> None:
         if self._view is None:

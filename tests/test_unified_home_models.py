@@ -12,7 +12,7 @@ from _gui_stubs import install  # noqa: E402
 install()
 
 from bc250_llm_mode.catalog import CATALOG  # noqa: E402
-from bc250_llm_mode.gui.home_page import build_home_view  # noqa: E402
+from bc250_llm_mode.gui.home_page import HomePage, build_home_view  # noqa: E402
 from bc250_llm_mode.gui.models_page import (  # noqa: E402
     MODEL_PRESENTATION_STATES,
     build_model_items,
@@ -70,6 +70,31 @@ def test_home_stale_evidence_never_renders_ready_and_is_compact():
     model_card = next(card for card in view.cards if card.key == "model")
     assert model_card.stale is True
     assert model_card.state == "STALE"
+
+
+def test_home_refresh_reuses_shortcut_widgets_instead_of_recreating_them():
+    class Shell:
+        def request_observation(self, _work, _apply):
+            return False
+
+        def navigate(self, _target):
+            return None
+
+    page = HomePage(None, Shell(), SimpleNamespace())
+    shortcuts = tuple(page._shortcut_buttons)
+
+    page._apply_snapshot(_home())
+    page._apply_snapshot(_home(inference="UNVERIFIED"))
+
+    assert tuple(page._shortcut_buttons) == shortcuts
+    assert [button is original for button, original in zip(page._shortcut_buttons, shortcuts)] == [True] * 4
+
+
+def test_activity_shelf_does_not_anchor_after_a_hidden_notice_bar():
+    source = Path("bc250_llm_mode/gui/shell.py").read_text(encoding="utf-8")
+
+    assert "after=self.notice_bar" not in source
+    assert "def _show_activity_shelf" in source
 
 
 def _installed(**changes):
