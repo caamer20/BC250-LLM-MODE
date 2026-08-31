@@ -25,8 +25,10 @@ class HelpPage(ttk.Frame):
             text=(
                 "1. Choose a model in Models.  2. Install and start it.  "
                 "3. Chat locally or enable the authenticated remote endpoint.\n\n"
-                "LLM Mode is current-boot only. Restarting returns to the normal graphical desktop "
-                "with the model service disabled."
+                "Entering LLM Mode from System closes the graphical desktop and opens a full-screen "
+                "tty1 login for this boot. Restarting returns to the normal graphical desktop with "
+                "the model service disabled. From tty1, return without rebooting with "
+                "~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop --now."
             ),
             wraplength=720,
             justify="left",

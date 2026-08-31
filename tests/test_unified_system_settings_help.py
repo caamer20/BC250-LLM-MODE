@@ -89,6 +89,7 @@ def test_system_cards_offer_one_primary_service_direction():
     assert by_key["webui"].more_label == "Update pinned Open WebUI"
     assert by_key["remote"].primary_code == "start-tailscale"
     assert by_key["host"].primary_code == "llm-mode"
+    assert by_key["host"].primary_label == "Enter LLM Mode…"
     assert "http://127.0.0.1:3000" in by_key["webui"].detail
 
     shared = system_card_views(
@@ -114,6 +115,20 @@ def test_system_cards_offer_one_primary_service_direction():
     assert (webui.primary_code, webui.more_code) == ("stop-webui", "update-webui")
     remote = {card.key: card for card in shared}["remote"]
     assert "IP 100.115.57.31" in remote.detail
+
+    stale_record = system_card_views(
+        home={"system_mode": "llm-session", "desktop_active": True},
+        server={}, webui={}, tailscale={}, sharing={}, runtime={}, backups=0,
+        platform_label="Bazzite",
+    )
+    assert {card.key: card for card in stale_record}["host"].primary_code == "llm-mode"
+
+    console = system_card_views(
+        home={"system_mode": "llm-session", "desktop_active": False},
+        server={}, webui={}, tailscale={}, sharing={}, runtime={}, backups=0,
+        platform_label="Bazzite",
+    )
+    assert {card.key: card for card in console}["host"].primary_code == "desktop"
 
 
 def test_log_tail_service_is_closed_bounded_and_missing_safe(tmp_path):
@@ -158,6 +173,13 @@ def test_system_page_routes_the_pinned_openwebui_update_through_its_service():
     page = (PACKAGE / "gui" / "system_page.py").read_text(encoding="utf-8")
     assert 'elif code == "update-webui"' in page
     assert "self.application.openwebui.update(state, runner)" in page
+
+
+def test_system_page_confirms_and_activates_full_screen_llm_console():
+    page = (PACKAGE / "gui" / "system_page.py").read_text(encoding="utf-8")
+    assert '"Enter LLM Mode?"' in page
+    assert '"Leave desktop"' in page
+    assert "activate_console_now=True" in page
 
 
 def test_every_gui_module_avoids_direct_infrastructure_imports():

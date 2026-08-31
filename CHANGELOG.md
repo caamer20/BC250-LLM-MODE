@@ -7,6 +7,11 @@ versions are tagged in git.
 
 ### Catalog, WebUI, and desktop lifecycle
 
+- Fixed **System → Enter LLM Mode** so it explicitly confirms, closes the
+  graphical desktop, and opens the full-screen tty1 text login through a
+  transition that survives display-session shutdown. State is committed
+  before the transition, the next boot remains graphical, and persistent
+  administrator no-sleep masks are preserved.
 - Updated the immutable Linux/AMD64 Open WebUI pin from v0.6.14 to v0.11.1;
   the managed updater still verifies the exact OCI manifest before replacing a
   container and preserves its existing data storage and prior running state.

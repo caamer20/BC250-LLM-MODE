@@ -94,6 +94,10 @@ def test_host_mode_service_methods_reach_real_modules(tmp_path, monkeypatch):
         lambda st, rn, **_kwargs: calls.append("apply") or st.update(system_mode="llm-session"),
     )
     monkeypatch.setattr(
+        llmmode, "activate_text_console",
+        lambda rn, **_kwargs: calls.append("console"),
+    )
+    monkeypatch.setattr(
         desktop, "switch_to_desktop_mode",
         lambda st, rn, *, activate_now=False, **_kwargs: calls.append("switch"),
     )
@@ -105,6 +109,12 @@ def test_host_mode_service_methods_reach_real_modules(tmp_path, monkeypatch):
     result = application.host_mode.return_to_desktop(view, runner)
     assert result["boot_policy"] == "desktop"
     assert calls == ["stage", "apply", "switch"]
+
+    result = application.host_mode.enter_llm_mode(
+        view, runner, activate_console_now=True,
+    )
+    assert result["system_mode"] == "llm-session"
+    assert calls[-2:] == ["apply", "console"]
 
 
 def test_component_lifecycle_provisions_and_routes_runtime_to_durable_command(

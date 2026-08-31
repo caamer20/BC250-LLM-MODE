@@ -78,6 +78,15 @@ Press `Ctrl+K` to search local pages and previews. The palette never runs a
 protected action. Press `Ctrl+F` to focus the page's primary control, `Ctrl+L`
 for bounded logs, and `Escape` to close the drawer.
 
+**System → Enter LLM Mode** asks for confirmation, closes the graphical
+desktop and its applications, and opens the full-screen tty1 login for this
+boot. Sign in there to use the BC250 as a text-console appliance. Reboot to
+return to the desktop, or run:
+
+```bash
+~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop --now
+```
+
 ## Select a model and workload
 
 Use only standard per-tensor-layout GGUFs. Fused, MAX, and imatrix-MAX repacks

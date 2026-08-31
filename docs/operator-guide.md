@@ -152,7 +152,7 @@ paths into issue reports.
 ## Desktop return, uninstall, and reinstall
 
 ```bash
-bc250-llm-mode desktop-mode --now
+~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop-mode --now
 bc250-llm-mode uninstall
 bc250-llm-mode desktop-integration remove
 ```

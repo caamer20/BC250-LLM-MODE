@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .routes import Route
-from .view_state import Notice
+from .view_state import Confirmation, Notice
 
 
 @dataclass(frozen=True)
@@ -90,6 +90,10 @@ def system_card_views(
         webui_detail += " Tailnet HTTPS: not enabled."
     if tailnet_ip:
         webui_detail += f" Device Tailscale IP: {tailnet_ip}."
+    desktop_active = home.get("desktop_active")
+    llm_console_active = (
+        home.get("system_mode") == "llm-session" and desktop_active is not True
+    )
     return (
         ServiceCardView(
             "server", "Model server", "Service active" if server_active else "Stopped",
@@ -124,10 +128,17 @@ def system_card_views(
             "Disable HTTPS" if sharing_on else "Enable HTTPS",
         ),
         ServiceCardView(
-            "host", "Host mode", str(platform_label),
-            "LLM Mode affects this boot only; the next boot remains graphical with model auto-start off.",
-            "desktop" if home.get("system_mode") == "llm-session" else "llm-mode",
-            "Return to desktop" if home.get("system_mode") == "llm-session" else "Enter LLM Mode",
+            "host", "Host mode",
+            "Text console active" if llm_console_active else str(platform_label),
+            (
+                "LLM Mode is using the full-screen text console for this boot; "
+                "the next boot remains graphical with model auto-start off."
+                if llm_console_active else
+                "Entering LLM Mode closes graphical desktop apps and opens a "
+                "full-screen tty1 login. Save desktop work first. The next boot remains graphical."
+            ),
+            "desktop" if llm_console_active else "llm-mode",
+            "Return to desktop" if llm_console_active else "Enter LLM Mode…",
         ),
         ServiceCardView(
             "thermal", "Thermal safety",
@@ -192,7 +203,10 @@ class SystemPage(ttk.Frame):
                     return fallback
 
             home = self.application.home.snapshot().to_dict()
-            home["system_mode"] = state.get("system_mode")
+            home.update(safe(
+                lambda: self.application.host_mode.status(state, runner),
+                {"system_mode": state.get("system_mode"), "desktop_active": True},
+            ))
             server = safe(
                 lambda: self.application.model_server.status(state, runner), {}
             )
@@ -295,6 +309,23 @@ class SystemPage(ttk.Frame):
         ))
 
     def _act(self, code: str) -> None:
+        if code == "llm-mode":
+            self.shell.drawer.show_confirmation(
+                Confirmation(
+                    "Enter LLM Mode?",
+                    "The graphical desktop and all desktop applications will close. "
+                    "A full-screen tty1 login will replace them for this boot.",
+                    "Save work in other applications first. Reboot returns to the "
+                    "graphical desktop, or sign in on tty1 and run "
+                    "~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop --now.",
+                    "Leave desktop",
+                ),
+                lambda: self._run_action(code),
+            )
+            return
+        self._run_action(code)
+
+    def _run_action(self, code: str) -> None:
         result_box: dict[str, Any] = {}
         state = self.application.read_model()
         runner = self.shell.runner()
@@ -319,7 +350,10 @@ class SystemPage(ttk.Frame):
             elif code == "stop-tailscale": result = self.application.tailscale.stop(state, runner)
             elif code == "start-sharing": result = self.application.sharing.start(state, runner)
             elif code == "stop-sharing": result = self.application.sharing.stop(state, runner)
-            elif code == "llm-mode": result = self.application.host_mode.enter_llm_mode(state, runner)
+            elif code == "llm-mode":
+                result = self.application.host_mode.enter_llm_mode(
+                    state, runner, activate_console_now=True,
+                )
             elif code == "desktop": result = self.application.host_mode.return_to_desktop(state, runner)
             elif code == "runtime-update":
                 result = self.application.runtime_lifecycle.update(requested_by="gui")

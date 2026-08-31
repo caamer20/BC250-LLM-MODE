@@ -1031,10 +1031,24 @@ class HostModeService:
         persist_state_diff(self._units, before, view)
         return {"boot_policy": view.get("boot_policy", "desktop")}
 
+    def status(self, view, runner) -> dict[str, Any]:
+        observed = runner.run(
+            ["systemctl", "is-active", "display-manager.service"],
+            check=False,
+        )
+        desktop_active = (
+            observed.returncode == 0 and observed.stdout.strip() == "active"
+        )
+        return {
+            "system_mode": view.get("system_mode", "desktop"),
+            "desktop_active": desktop_active,
+        }
+
     def enter_llm_mode(self, view, runner, *, install_service_fn=None,
                        install: bool = False,
-                       mask_desktop_services: bool = False) -> dict[str, Any]:
-        from .llmmode import apply_llm_mode
+                       mask_desktop_services: bool = False,
+                       activate_console_now: bool = False) -> dict[str, Any]:
+        from .llmmode import activate_text_console, apply_llm_mode
 
         before = dict(view)
         apply_llm_mode(
@@ -1043,7 +1057,11 @@ class HostModeService:
         )
         if install and install_service_fn is not None:
             install_service_fn(view, runner)
+        # Commit the current-boot identity before the graphical session is
+        # stopped; the requester cannot persist anything after that boundary.
         persist_state_diff(self._units, before, view)
+        if activate_console_now:
+            activate_text_console(runner, platform=self._platform)
         return {"system_mode": view.get("system_mode")}
 
     def return_to_desktop(self, view, runner, *, activate_now: bool = False) -> dict[str, Any]:

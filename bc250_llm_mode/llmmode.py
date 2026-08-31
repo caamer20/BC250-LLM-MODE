@@ -20,6 +20,10 @@ SLEEP_TARGETS = (
     "hybrid-sleep.target",
     "suspend-then-hibernate.target",
 )
+CONSOLE_TARGET = "multi-user.target"
+CONSOLE_GETTY = "getty@tty1.service"
+CONSOLE_VT = "1"
+CONSOLE_TRANSITION_UNIT_PREFIX = "bc250-llm-console-transition"
 UDEV_RULE_PATH = Path("/etc/udev/rules.d/99-amdgpu-nosleep.rules")
 RUNTIME_UDEV_RULE_PATH = Path("/run/udev/rules.d/99-amdgpu-nosleep.rules")
 UDEV_RULE = 'ACTION=="add", SUBSYSTEM=="pci", ATTR{vendor}=="0x1002", ATTR{power/control}="on"\n'
@@ -71,7 +75,12 @@ def stage_desktop_boot(
     service = str(state.get("service_name", "bc250-llm.service"))
     runner.emit(f"Staging normal {host.profile.label} desktop mode for the next boot")
     _run_root(runner, ["systemctl", "set-default", "graphical.target"])
-    _run_root(runner, ["systemctl", "unmask", *SLEEP_TARGETS], check=False)
+    # LLM Mode owns runtime-only sleep masks. A persistent mask may be an
+    # administrator's independent no-sleep policy, so never remove it here.
+    _run_root(
+        runner, ["systemctl", "unmask", "--runtime", *SLEEP_TARGETS],
+        check=False,
+    )
     _run_root(
         runner,
         ["systemctl", "unmask", *host.profile.desktop_units],
@@ -112,6 +121,49 @@ def stage_desktop_boot(
             "manager before expecting normal runtime power management after reboot."
         )
     return state
+
+
+def activate_text_console(
+    runner: CommandRunner, *, platform: Any = None
+) -> None:
+    """Leave the graphical session for a current-boot tty1 console.
+
+    The transition runs in a transient system service because stopping the
+    display manager also stops the GUI process that requested the action.
+    ``IgnoreOnIsolate`` lets the fixed post-actions start tty1 and select it
+    after ``multi-user.target`` has removed the graphical session.
+    """
+    host = _platform_service(platform)
+    host.require_current_boot_llm_mode()
+    _require_commands("systemctl", "systemd-run", "chvt")
+    systemctl_path = shutil.which("systemctl")
+    systemd_run_path = shutil.which("systemd-run")
+    chvt_path = shutil.which("chvt")
+    if not systemctl_path or not systemd_run_path or not chvt_path:
+        raise RuntimeError("Required console transition commands are unavailable")
+
+    unit = f"{CONSOLE_TRANSITION_UNIT_PREFIX}-{os.getpid()}.service"
+    runner.emit(
+        "Closing the graphical desktop and opening the full-screen tty1 "
+        "login. The next boot remains graphical."
+    )
+    _run_root(
+        runner,
+        [
+            systemd_run_path,
+            f"--unit={unit}",
+            "--collect",
+            "--no-block",
+            "--property=Type=oneshot",
+            "--property=IgnoreOnIsolate=yes",
+            "--property=TimeoutStartSec=30s",
+            f"--property=ExecStartPost={systemctl_path} start {CONSOLE_GETTY}",
+            f"--property=ExecStartPost={chvt_path} {CONSOLE_VT}",
+            systemctl_path,
+            "isolate",
+            CONSOLE_TARGET,
+        ],
+    )
 
 
 def apply_llm_mode(
@@ -177,7 +229,6 @@ def revert_llm_mode(
     host.require_current_boot_llm_mode()
     _require_commands(*host.profile.required_host_mode_commands())
     stage_desktop_boot(state, runner, platform=host)
-    _run_root(runner, ["systemctl", "unmask", *SLEEP_TARGETS], check=False)
     _run_root(runner, ["systemctl", "unmask", "--runtime", *SLEEP_TARGETS], check=False)
     _run_root(runner, ["systemctl", "unmask", *host.profile.desktop_units], check=False)
     _run_root(

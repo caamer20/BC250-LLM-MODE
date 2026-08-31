@@ -167,7 +167,7 @@ chapters preserve every canonical durable setup stage, and each action remains
 safe to resume or re-run:
 
 1. **This machine** — finds the AMD GPU by PCI vendor ID instead of assuming `card0` or `card1`; checks memory, disk, Vulkan, host capabilities, and the supported 12/4 profile. The exact safety warning then requires all three checkboxes and the typed text `I ACCEPT` before any mutation.
-2. **System mode** — starts current-boot LLM Mode with runtime-only sleep/GPU-awake rules while guaranteeing `graphical.target` and no model auto-start for the next boot.
+2. **System mode** — prepares current-boot LLM Mode with runtime-only app-owned sleep/GPU-awake rules while guaranteeing `graphical.target` and no model auto-start for the next boot. After setup, **System → Enter LLM Mode** explicitly closes the graphical session and opens the full-screen tty1 text login.
 3. **Runtime** — creates or reuses the controlled Fedora Distrobox, installs the pinned Vulkan `llama.cpp` runtime through the durable workflow, and smoke-tests Vulkan.
 4. **Model** — lets the user choose a curated download or existing local GGUF, shows live context/slot/VRAM fit, applies only selected bounded optimizations, resumes downloads, and validates the artifact.
 5. **Ready** — activates through the one owning systemd service, verifies health and inference, optionally configures Open WebUI, then routes directly into native Chat/Home.
@@ -206,7 +206,7 @@ LLM Mode is intentionally limited to the current boot. Every setup, repair, and 
 
 - the next boot target is the host's normal systemd `graphical.target`;
 - `bc250-llm.service` is disabled for boot, although an explicitly started model may continue running now;
-- sleep/display-manager masks and the AMD GPU-awake udev rule are runtime-only;
+- app-owned sleep/display-manager masks and the AMD GPU-awake udev rule are runtime-only; independently configured persistent administrator masks are preserved;
 - any older app-owned Bazzite `amdgpu.runpm=0` kernel argument and `/etc` udev rule are removed from the next deployment.
 
 On CachyOS, LLM Mode does not add or edit persistent kernel arguments. CachyOS may use systemd-boot, GRUB, Limine, or rEFInd; the active manager is reported, and an externally supplied `amdgpu.runpm=0` is surfaced with manual recovery guidance instead of being edited by guesswork.
@@ -561,7 +561,7 @@ bc250-llm-mode slots <1-8>             Set concurrent users after a VRAM fit che
 bc250-llm-mode boot-policy [status|desktop]
                                         Show or restage desktop/no-LLM next boot
 bc250-llm-mode logs [server|setup]     Tail a log [--lines 1..1000]
-bc250-llm-mode llm-mode                Start LLM Mode for the current boot only
+bc250-llm-mode llm-mode                Close the desktop and open tty1 LLM Mode for this boot
 bc250-llm-mode install-model <id>      Install a curated catalog model; without --quant the
   [--quant <quant>] [--ctx <tokens>]   best-fitting quantization is chosen automatically
 bc250-llm-mode switch <model-id>       Switch the single server to an installed model
@@ -578,7 +578,7 @@ This is the non-destructive way to leave dedicated LLM Mode while keeping downlo
 ~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop-mode --now
 ```
 
-It stops/disables the model service, stops retained LLM/Open WebUI containers, restores `graphical.target`, unmasks sleep and display-manager units, removes the GPU-awake rule, and reverts opted-in host optimizations. App-owned `amdgpu.runpm=0` is removed automatically on Bazzite; externally managed CachyOS boot arguments are reported without being guessed or edited. `--now` starts the graphical target in the current boot. Without it, the graphical desktop starts after the next reboot.
+It stops/disables the model service, stops retained LLM/Open WebUI containers, restores `graphical.target`, removes app-owned runtime sleep/display-manager masks and the GPU-awake rule, and reverts opted-in host optimizations. Independent persistent administrator no-sleep masks remain in place. App-owned `amdgpu.runpm=0` is removed automatically on Bazzite; externally managed CachyOS boot arguments are reported without being guessed or edited. `--now` starts the graphical target in the current boot. Without it, the graphical desktop starts after the next reboot.
 
 Reboot when the command reports that a kernel-argument change is pending:
 

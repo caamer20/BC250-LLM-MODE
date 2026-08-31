@@ -1388,8 +1388,8 @@ def main(argv: list[str] | None = None) -> int:
             state, runner,
             install_service_fn=install_service,
             install=bool(state.get("setup_complete") and state.get("current_model")),
+            activate_console_now=True,
         )
-        runner.emit("LLM Mode is active for this boot; reboot returns to desktop with no LLM auto-start.")
         return 0
     if args.command == "install-model":
         require_acknowledgment(state)
