@@ -194,6 +194,9 @@ class ModelsPage(ttk.Frame):
         self._disposed = False
         self._all_items: tuple[ModelItemView, ...] = ()
         self._visible: dict[str, ModelItemView] = {}
+        self._rendered_visible: tuple[ModelItemView, ...] | None = None
+        self._rendered_detail: ModelItemView | None = None
+        self._detail_was_rendered = False
         self._selected_key: str | None = None
         self._route_context = dict(context or {})
         runtime = application.runtime_config.current()
@@ -260,6 +263,21 @@ class ModelsPage(ttk.Frame):
         ttk.Button(draft, text="Recalculate fit", command=self.refresh).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
         self.action_bar = ttk.Frame(right)
         self.action_bar.pack(fill="x", pady=(4, 0))
+        self._primary_action_code: str | None = None
+        self._secondary_action_code: str | None = None
+        self._primary_action_button = ttk.Button(
+            self.action_bar, command=self._run_primary_action,
+        )
+        self._secondary_action_button = ttk.Button(
+            self.action_bar, command=self._run_secondary_action,
+        )
+        self._apply_draft_button = ttk.Button(
+            self.action_bar, text="Apply context / slots",
+            command=lambda: self._run_action("activate"),
+        )
+        self._remove_button = ttk.Button(
+            self.action_bar, text="Remove…", command=self._confirm_remove,
+        )
 
     def mount(self, parent=None):
         del parent
@@ -313,6 +331,8 @@ class ModelsPage(ttk.Frame):
         if requested:
             for item in self._all_items:
                 if item.alias == requested or item.catalog_id == requested:
+                    if self._selected_key != item.key:
+                        self._rendered_visible = None
                     self._selected_key = item.key
                     break
             self._route_context.pop("model_id", None)
@@ -329,6 +349,9 @@ class ModelsPage(ttk.Frame):
             self._all_items, query=self.search_var.get(), category=self.filter_var.get()
         )
         self._visible = {item.key: item for item in visible}
+        if visible == self._rendered_visible:
+            return
+        self._rendered_visible = visible
         self.tree.delete(*self.tree.get_children())
         for item in visible:
             size = (
@@ -358,8 +381,17 @@ class ModelsPage(ttk.Frame):
 
     def _render_detail(self) -> None:
         item = self._selected()
-        for child in self.action_bar.winfo_children():
-            child.destroy()
+        if self._detail_was_rendered and item == self._rendered_detail:
+            return
+        self._detail_was_rendered = True
+        self._rendered_detail = item
+        for button in (
+            self._primary_action_button, self._secondary_action_button,
+            self._apply_draft_button, self._remove_button,
+        ):
+            button.pack_forget()
+        self._primary_action_code = None
+        self._secondary_action_code = None
         if item is None:
             self.detail_title.set("No models match this view")
             self.detail_state.set("")
@@ -378,22 +410,25 @@ class ModelsPage(ttk.Frame):
         self.quant_box.configure(values=item.available_quants)
         self.quant_var.set(item.quant or (item.available_quants[0] if item.available_quants else ""))
         action = model_action(item)
-        ttk.Button(
-            self.action_bar, text=action.label,
-            command=lambda: self._run_action(action.code),
-        ).pack(side="left")
+        self._primary_action_code = action.code
+        self._primary_action_button.configure(text=action.label)
+        self._primary_action_button.pack(side="left")
         if action.secondary_code and action.secondary_label:
-            ttk.Button(
-                self.action_bar, text=action.secondary_label,
-                command=lambda: self._run_action(action.secondary_code),
-            ).pack(side="left", padx=5)
+            self._secondary_action_code = action.secondary_code
+            self._secondary_action_button.configure(text=action.secondary_label)
+            self._secondary_action_button.pack(side="left", padx=5)
         if not item.remote and item.state not in {"QUARANTINED", "RECOVERY_REQUIRED"}:
-            ttk.Button(
-                self.action_bar, text="Apply context / slots",
-                command=lambda: self._run_action("activate"),
-            ).pack(side="left", padx=5)
+            self._apply_draft_button.pack(side="left", padx=5)
         if not item.remote:
-            ttk.Button(self.action_bar, text="Remove…", command=self._confirm_remove).pack(side="right")
+            self._remove_button.pack(side="right")
+
+    def _run_primary_action(self) -> None:
+        if self._primary_action_code is not None:
+            self._run_action(self._primary_action_code)
+
+    def _run_secondary_action(self) -> None:
+        if self._secondary_action_code is not None:
+            self._run_action(self._secondary_action_code)
 
     def _run_action(self, code: str) -> None:
         item = self._selected()

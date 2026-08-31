@@ -229,7 +229,10 @@ class ConnectionsPage(ttk.Frame):
         snapshot, clients = payload
         self._snapshot = dict(snapshot)
         view = build_connections_view(snapshot, clients)
+        previous_view = self._view
         self._view = view
+        if view == previous_view:
+            return
         self._clients = {row["client_id"]: row for row in view.clients}
         self._headline.set(view.headline)
         self._detail.set(view.detail)

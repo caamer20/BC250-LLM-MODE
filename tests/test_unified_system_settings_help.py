@@ -87,6 +87,30 @@ def test_system_cards_offer_one_primary_service_direction():
     assert by_key["webui"].primary_code == "start-webui"
     assert by_key["remote"].primary_code == "start-tailscale"
     assert by_key["host"].primary_code == "llm-mode"
+    assert "http://127.0.0.1:3000" in by_key["webui"].detail
+
+    shared = system_card_views(
+        home={"cards": {"thermal": {"health": {"state": "READY"}}},
+              "system_mode": "desktop"},
+        server={"active": True},
+        webui={"installed": True, "running": True,
+               "url": "http://127.0.0.1:3000"},
+        tailscale={
+            "daemon_active": True, "connected": True,
+            "addresses": ["100.115.57.31", "fd7a:115c:a1e0::4838:3920"],
+        },
+        sharing={
+            "webui_enabled": True,
+            "webui_url": "https://bc250.example.ts.net:8443/",
+        },
+        runtime={}, backups=0, platform_label="Bazzite",
+    )
+    webui = {card.key: card for card in shared}["webui"]
+    assert "Local: http://127.0.0.1:3000" in webui.detail
+    assert "Tailnet HTTPS: https://bc250.example.ts.net:8443/" in webui.detail
+    assert "Device Tailscale IP: 100.115.57.31" in webui.detail
+    remote = {card.key: card for card in shared}["remote"]
+    assert "IP 100.115.57.31" in remote.detail
 
 
 def test_log_tail_service_is_closed_bounded_and_missing_safe(tmp_path):

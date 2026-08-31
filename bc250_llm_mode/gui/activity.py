@@ -268,6 +268,14 @@ class ActivityCenterFrame(ttk.Frame):
         self.detail_timeline.pack(fill="x", pady=(4, 2))
         self.action_bar = ttk.Frame(self)
         self.action_bar.pack(fill="x")
+        self._action_specs: list[ActionSpec | None] = [None] * 5
+        self._action_buttons: list[ttk.Button] = []
+        for index in range(len(self._action_specs)):
+            button = ttk.Button(
+                self.action_bar,
+                command=lambda slot=index: self._run_action_slot(slot),
+            )
+            self._action_buttons.append(button)
         self.copy_button = ttk.Button(
             self, text="Copy support details",
             command=self._copy_support_details,
@@ -371,9 +379,10 @@ class ActivityCenterFrame(ttk.Frame):
 
     def _render_detail(self, detail: OperationDetail | None) -> None:
         self.rendered_summary = detail.summary if detail else None
-        for child in self.action_bar.winfo_children():
-            child.destroy()
         if detail is None:
+            for index, button in enumerate(self._action_buttons):
+                self._action_specs[index] = None
+                button.pack_forget()
             self.detail_headline.config(text="Select an operation")
             self.detail_progress.config(text="")
             self.detail_message.config(text="")
@@ -384,11 +393,21 @@ class ActivityCenterFrame(ttk.Frame):
         self.detail_progress.config(text=progress_text(summary))
         self.detail_message.config(text=message_copy(summary))
         self.detail_timeline.config(text=timeline_text(detail))
-        for spec in action_plan(summary, self.application.operation_commands):
-            button = ttk.Button(
-                self.action_bar, text=spec.label, command=self._guarded(spec),
-            )
-            button.pack(side="left", padx=3)
+        plan = action_plan(summary, self.application.operation_commands)
+        for index, button in enumerate(self._action_buttons):
+            spec = plan[index] if index < len(plan) else None
+            self._action_specs[index] = spec
+            if spec is None:
+                button.pack_forget()
+                continue
+            button.configure(text=spec.label)
+            if not button.winfo_manager():
+                button.pack(side="left", padx=3)
+
+    def _run_action_slot(self, index: int) -> None:
+        spec = self._action_specs[index]
+        if spec is not None:
+            self._guarded(spec)()
 
     def _guarded(self, spec: ActionSpec):
         def execute() -> None:

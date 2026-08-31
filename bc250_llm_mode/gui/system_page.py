@@ -73,7 +73,23 @@ def system_card_views(
     server_active = bool(server.get("active"))
     webui_running = bool(webui.get("running"))
     daemon = bool(tailscale.get("daemon_active"))
-    sharing_on = str(sharing.get("status") or "").lower() not in {"", "off", "disabled"}
+    webui_shared = bool(sharing.get("webui_enabled"))
+    sharing_on = bool(webui_shared or sharing.get("api_enabled"))
+    local_webui_url = str(webui.get("url") or "http://127.0.0.1:3000")
+    tailnet_webui_url = str(sharing.get("webui_url") or "")
+    tailnet_addresses = tailscale.get("addresses")
+    tailnet_ip = next((
+        str(address) for address in (
+            tailnet_addresses if isinstance(tailnet_addresses, (list, tuple)) else ()
+        ) if ":" not in str(address)
+    ), "")
+    webui_detail = f"Local: {local_webui_url} (this BC250 only)."
+    if webui_shared and tailnet_webui_url:
+        webui_detail += f" Tailnet HTTPS: {tailnet_webui_url}"
+    else:
+        webui_detail += " Tailnet HTTPS: not enabled."
+    if tailnet_ip:
+        webui_detail += f" Device Tailscale IP: {tailnet_ip}."
     return (
         ServiceCardView(
             "server", "Model server", "Service active" if server_active else "Stopped",
@@ -87,7 +103,7 @@ def system_card_views(
             "webui", "Web interface", "Running" if webui_running else (
                 "Installed" if webui.get("installed") else "Not installed"
             ),
-            "Open WebUI remains optional and binds through the authenticated local gateway.",
+            webui_detail,
             "stop-webui" if webui_running else "start-webui" if webui.get("installed") else "install-webui",
             "Stop" if webui_running else "Start" if webui.get("installed") else "Install",
         ),
@@ -95,7 +111,11 @@ def system_card_views(
             "remote", "Remote access", "Connected" if tailscale.get("connected") else (
                 "Daemon ready" if daemon else "Off"
             ),
-            f"Tailscale daemon {'active' if daemon else 'stopped'} · HTTPS sharing {'on' if sharing_on else 'off'}.",
+            (
+                f"Tailscale daemon {'active' if daemon else 'stopped'} · "
+                f"IP {tailnet_ip or 'not assigned'} · HTTPS sharing "
+                f"{'on' if sharing_on else 'off'}."
+            ),
             "stop-tailscale" if daemon else "start-tailscale",
             "Stop Tailscale" if daemon else "Start Tailscale",
             "stop-sharing" if sharing_on else "start-sharing",
@@ -134,6 +154,7 @@ class SystemPage(ttk.Frame):
         self._disposed = False
         self._last_cards: tuple[ServiceCardView, ...] = ()
         self._has_observation = False
+        self._card_widgets: dict[str, dict[str, Any]] = {}
         self._cards_frame = ttk.Frame(self)
         self._cards_frame.pack(fill="both", expand=True)
         self._render_cards((ServiceCardView(
@@ -203,19 +224,56 @@ class SystemPage(ttk.Frame):
         if cards == self._last_cards:
             return
         self._last_cards = cards
-        for child in self._cards_frame.winfo_children():
-            child.destroy()
+        wanted = {card.key for card in cards}
+        for key in tuple(self._card_widgets):
+            if key not in wanted:
+                self._card_widgets[key]["frame"].destroy()
+                del self._card_widgets[key]
         for index, card in enumerate(cards):
-            frame = ttk.LabelFrame(self._cards_frame, text=card.title, padding=7)
+            widgets = self._card_widgets.get(card.key)
+            if widgets is None:
+                frame = ttk.LabelFrame(self._cards_frame, padding=7)
+                state_var = tk.StringVar(value="")
+                detail_var = tk.StringVar(value="")
+                ttk.Label(frame, textvariable=state_var).pack(anchor="w")
+                ttk.Label(
+                    frame, textvariable=detail_var, wraplength=330,
+                ).pack(anchor="w", fill="x", pady=(2, 5))
+                actions = ttk.Frame(frame)
+                actions.pack(fill="x")
+                widgets = {
+                    "frame": frame,
+                    "state": state_var,
+                    "detail": detail_var,
+                    "primary": ttk.Button(actions),
+                    "more": ttk.Button(actions),
+                }
+                self._card_widgets[card.key] = widgets
+            frame = widgets["frame"]
+            frame.configure(text=card.title)
             frame.grid(row=index // 2, column=index % 2, sticky="nsew", padx=4, pady=4)
-            ttk.Label(frame, text=card.state).pack(anchor="w")
-            ttk.Label(frame, text=card.detail, wraplength=330).pack(anchor="w", fill="x", pady=(2, 5))
-            actions = ttk.Frame(frame)
-            actions.pack(fill="x")
+            widgets["state"].set(card.state)
+            widgets["detail"].set(card.detail)
+            primary = widgets["primary"]
+            more = widgets["more"]
             if card.primary_code and card.primary_label:
-                ttk.Button(actions, text=card.primary_label, command=lambda code=card.primary_code: self._act(code)).pack(side="left")
+                primary.configure(
+                    text=card.primary_label,
+                    command=lambda code=card.primary_code: self._act(code),
+                )
+                if not primary.winfo_manager():
+                    primary.pack(side="left")
+            else:
+                primary.pack_forget()
             if card.more_code and card.more_label:
-                ttk.Button(actions, text=card.more_label, command=lambda code=card.more_code: self._act(code)).pack(side="left", padx=5)
+                more.configure(
+                    text=card.more_label,
+                    command=lambda code=card.more_code: self._act(code),
+                )
+                if not more.winfo_manager():
+                    more.pack(side="left", padx=5)
+            else:
+                more.pack_forget()
         self._cards_frame.columnconfigure(0, weight=1)
         self._cards_frame.columnconfigure(1, weight=1)
 

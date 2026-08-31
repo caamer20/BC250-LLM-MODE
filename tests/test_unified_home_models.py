@@ -196,6 +196,21 @@ def test_model_library_keeps_all_rows_when_context_exceeds_one_model_limit():
     assert filter_model_items(items, category="Recommended")
 
 
+def test_periodic_gui_refreshes_reuse_action_button_widgets():
+    models = Path("bc250_llm_mode/gui/models_page.py").read_text(encoding="utf-8")
+    activity = Path("bc250_llm_mode/gui/activity.py").read_text(encoding="utf-8")
+    connections = Path(
+        "bc250_llm_mode/gui/connections_page.py"
+    ).read_text(encoding="utf-8")
+    system = Path("bc250_llm_mode/gui/system_page.py").read_text(encoding="utf-8")
+
+    assert "action_bar.winfo_children()" not in models
+    assert "action_bar.winfo_children()" not in activity
+    assert "self._rendered_visible" in models
+    assert "if view == previous_view:" in connections
+    assert "self._card_widgets" in system
+
+
 def test_gui4_pages_import_no_host_infrastructure_and_replace_home_mount():
     banned = (
         "server", "openwebui", "tailscale", "sharing", "llmmode",
