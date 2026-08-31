@@ -244,6 +244,10 @@ class ModelsPage(ttk.Frame):
         scroll.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll.set)
         self.tree.bind("<<TreeviewSelect>>", self._select)
+        self.tree.bind("<Up>", self._highlight_previous)
+        self.tree.bind("<Down>", self._highlight_next)
+        self.tree.bind("<Return>", self._run_highlighted_action)
+        self.tree.bind("<KP_Enter>", self._run_highlighted_action)
 
         self.detail_title = tk.StringVar(value="Select a model")
         self.detail_state = tk.StringVar(value="")
@@ -362,19 +366,67 @@ class ModelsPage(ttk.Frame):
                 "", "end", iid=item.key, text=item.display_name,
                 values=(item.state, item.family, size, item.fit_verdict or "Unknown"),
             )
-        if self._selected_key in self._visible:
-            self.tree.selection_set(self._selected_key)
-        elif visible:
+        if self._selected_key not in self._visible and visible:
             self._selected_key = visible[0].key
-            self.tree.selection_set(self._selected_key)
-        else:
+        elif not visible:
             self._selected_key = None
-        self._render_detail()
+        if self._selected_key is not None:
+            self._highlight(self._selected_key)
+        else:
+            self._render_detail()
 
     def _select(self, _event=None) -> None:
         selected = self.tree.selection()
         self._selected_key = selected[0] if selected else None
+        if self._selected_key is not None:
+            self.tree.focus(self._selected_key)
         self._render_detail()
+
+    def _highlight(self, key: str) -> None:
+        """Keep the visible row, Tk focus item, and detail pane in sync."""
+        if key not in self._visible:
+            return
+        self._selected_key = key
+        self.tree.selection_set(key)
+        self.tree.focus(key)
+        self.tree.see(key)
+        self._render_detail()
+
+    def _move_highlight(self, offset: int) -> str:
+        rows = tuple(self.tree.get_children(""))
+        if not rows:
+            return "break"
+        selected = tuple(self.tree.selection())
+        current = next((key for key in selected if key in rows), None)
+        if current is None:
+            focused = self.tree.focus()
+            current = focused if focused in rows else None
+        if current is None and self._selected_key in rows:
+            current = self._selected_key
+        if current is None:
+            target_index = 0
+        else:
+            target_index = max(0, min(len(rows) - 1, rows.index(current) + offset))
+        self._highlight(rows[target_index])
+        return "break"
+
+    def _highlight_previous(self, _event=None) -> str:
+        return self._move_highlight(-1)
+
+    def _highlight_next(self, _event=None) -> str:
+        return self._move_highlight(1)
+
+    def _run_highlighted_action(self, _event=None) -> str:
+        selected = tuple(self.tree.selection())
+        key = selected[0] if selected else None
+        if key is not None and key in self._visible:
+            self._highlight(key)
+            # Keyboard activation intentionally follows the same guarded
+            # primary path as the visible button.  In particular, remote rows
+            # remain install-and-start actions, busy rows open Activity, and a
+            # disabled button stays inert.
+            self._primary_action_button.invoke()
+        return "break"
 
     def _selected(self) -> ModelItemView | None:
         return self._visible.get(self._selected_key or "")
@@ -423,8 +475,11 @@ class ModelsPage(ttk.Frame):
             self._remove_button.pack(side="right")
 
     def _run_primary_action(self) -> None:
-        if self._primary_action_code is not None:
-            self._run_action(self._primary_action_code)
+        item = self._selected()
+        if item is not None:
+            # Recompute from the selected read model so a stale button code can
+            # never bypass a newly-busy or recovery-required state.
+            self._run_action(model_action(item).code)
 
     def _run_secondary_action(self) -> None:
         if self._secondary_action_code is not None:

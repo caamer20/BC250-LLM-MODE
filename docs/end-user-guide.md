@@ -53,7 +53,10 @@ auto-start.
 
 - **Home** shows one primary safe next action and five bounded health cards.
 - **Models** combines installed, discovered, and curated models. Selecting a
-  row shows its provenance, quantization, fit, and allowed actions.
+  row shows its provenance, quantization, fit, and allowed actions. With focus
+  in the table, Up/Down moves the highlight and Enter runs the highlighted
+  row's displayed primary action, including starting or switching an installed
+  model through the normal safe activation workflow.
 - **Profiles** offers Interactive, Long context, Shared, Cool, and Throughput
   goals plus bounded custom profiles. Preview before Apply.
 - **Chat** streams locally without opening a browser and stores a conversation

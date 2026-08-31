@@ -226,7 +226,10 @@ window. The experience provides:
   preserves verified current data storage—including the bounded legacy data
   path—and reapplies only the app-approved digest;
 - optional Tailscale daemon **Start**, **Stop**, and **Restart** controls, with separate **Connect** and **Disconnect** actions;
-- installed and newly discovered GGUF models, including validation/registration and safe switching through the one owning systemd service;
+- installed and newly discovered GGUF models, including validation/registration
+  and safe switching through the one owning systemd service; in the Models
+  table, Up/Down moves the highlighted row and Enter runs its displayed primary
+  action, so an installed model can be started or switched without a mouse;
 - named Interactive, Long context, Shared, Cool, Throughput, and bounded custom workload profiles with exact model/quant/context/slot/VRAM previews;
 - a query-only Performance Coach that shows at most three evidence-labelled suggestions and never applies a change automatically;
 - durable fixed-prompt calibration with thermal/fit preflight, cancellation only between candidates, exact prior-runtime restoration, and a separately applied winner proposal;

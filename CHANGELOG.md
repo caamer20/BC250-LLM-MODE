@@ -20,6 +20,9 @@ versions are tagged in git.
 - Closing the GUI in Desktop mode now stops and verifies the model service
   before exit. Minimize, navigation, and explicit current-boot LLM Mode serving
   remain unchanged.
+- The Models table now has an explicit keyboard contract: Up/Down moves the
+  visible highlight and Enter invokes that row's same safe primary action,
+  including transactional start/switch for an installed model.
 
 ### Acquisition transport fixes
 

@@ -13,6 +13,11 @@ focuses the current page's primary control, `Ctrl+L` opens bounded logs, and
 token matching without a network call. Protected results only open their
 normal preview page.
 
+In the Models table, Up and Down move the visible selected-row highlight and
+Enter invokes that row's displayed primary action. It uses the same guarded
+action path as the button; fit checks, durable operation tracking, and any
+applicable safety behavior remain in force.
+
 Settings provides 100%, 125%, 150%, 175%, and 200% interface scaling and a
 reduced-motion preference. Light and dark semantic colors meet a 4.5:1 text
 contrast floor against the configured background. State, fit, warning,
