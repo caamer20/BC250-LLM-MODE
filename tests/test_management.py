@@ -92,6 +92,16 @@ def _diginspect_tuple():
     )
 
 
+def test_openwebui_release_pin_is_v0111_linux_amd64_manifest():
+    assert openwebui.IMAGE_TAG_DISPLAY == "v0.11.1"
+    assert openwebui.IMAGE_DIGEST_SHA256 == (
+        "sha256:e3a36f3aefb2408ac01d8aa2bba24f75d2569ffb6de6e7d2865c0045a38592ac"
+    )
+    assert openwebui.IMAGE_REF == (
+        "ghcr.io/open-webui/open-webui@" + openwebui.IMAGE_DIGEST_SHA256
+    )
+
+
 def _named_data_mount():
     return json.dumps([{
         "Type": "volume",

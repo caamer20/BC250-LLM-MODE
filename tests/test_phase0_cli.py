@@ -146,6 +146,7 @@ def test_cli_parser_accepts_every_documented_action():
     parser = _parser()
     table = [
         ["llm", "status"], ["llm", "ensure"], ["webui", "status"],
+        ["webui", "update"],
         ["tailscale", "status"], ["serve", "status"],
         ["models", "list"], ["models", "search", "code"], ["models", "recommend"],
         ["ctx", "8192"], ["slots", "4"], ["boot-policy"], ["boot-policy", "desktop"],

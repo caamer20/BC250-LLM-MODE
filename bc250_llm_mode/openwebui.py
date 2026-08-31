@@ -11,11 +11,11 @@ LEGACY_CONTAINER = "open-webui"
 # DEF-006 / ADR 005 §3.5: production identity is an immutable @sha256 digest,
 # never a mutable tag. The tag is human display metadata only (D5). The digest
 # below was resolved from the OCI registry for the amd64/linux platform image of
-# the v0.6.14 tag on 2026-05 (index digest fb4593f2..., amd64 manifest digest
-# f7845348...). Registry: ghcr.io, repo open-webui/open-webui, amd64/linux.
-IMAGE_TAG_DISPLAY = "v0.6.14"
+# the v0.11.1 tag on 2026-08-31 (index digest 6bb1fbe8..., amd64 manifest digest
+# e3a36f3a...). Registry: ghcr.io, repo open-webui/open-webui, amd64/linux.
+IMAGE_TAG_DISPLAY = "v0.11.1"
 IMAGE_DIGEST_SHA256 = (
-    "sha256:f784534835ebbe57ba4f6093040702ff962ddab1e9aa2767f88cf3119d474721"
+    "sha256:e3a36f3aefb2408ac01d8aa2bba24f75d2569ffb6de6e7d2865c0045a38592ac"
 )
 IMAGE_REF = f"ghcr.io/open-webui/open-webui@{IMAGE_DIGEST_SHA256}"
 DATA_VOLUME = "bc250-open-webui"

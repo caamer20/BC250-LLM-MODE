@@ -7,6 +7,11 @@ versions are tagged in git.
 
 ### Catalog, WebUI, and desktop lifecycle
 
+- Updated the immutable Linux/AMD64 Open WebUI pin from v0.6.14 to v0.11.1;
+  the managed updater still verifies the exact OCI manifest before replacing a
+  container and preserves its existing data storage and prior running state.
+  `bc250-llm-mode openwebui update` now exposes the same safe updater as the
+  System-page button.
 - Hid the two conversion-only source entries from Models, first-run setup,
   search, recommendations, and direct CLI installation while the build has no
   pinned verified converter. Existing already-converted local GGUFs remain

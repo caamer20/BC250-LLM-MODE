@@ -169,7 +169,9 @@ def _parser() -> argparse.ArgumentParser:
     llm = sub.add_parser("llm", help="Manage the single systemd-owned model server")
     llm.add_argument("action", choices=("start", "stop", "restart", "status", "ensure"))
     webui = sub.add_parser("webui", aliases=["openwebui"], help="Manage optional Open WebUI")
-    webui.add_argument("action", choices=("start", "stop", "restart", "status"))
+    webui.add_argument(
+        "action", choices=("start", "stop", "restart", "status", "update")
+    )
     tailscale = sub.add_parser("tailscale", help="Manage optional Tailscale")
     tailscale.add_argument(
         "action", choices=("start", "stop", "restart", "status", "connect", "disconnect")
@@ -1005,6 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
             "stop": lambda: svc.stop(state, runner),
             "restart": lambda: svc.restart(state, runner),
             "status": lambda: svc.status(state, runner),
+            "update": lambda: svc.update(state, runner),
         }
         result = actions[args.action]()
         # Persistence owner: OpenWebUIService committed internally; the CLI
