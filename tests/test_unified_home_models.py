@@ -11,6 +11,7 @@ from _gui_stubs import install  # noqa: E402
 
 install()
 
+from bc250_llm_mode.catalog import CATALOG  # noqa: E402
 from bc250_llm_mode.gui.home_page import build_home_view  # noqa: E402
 from bc250_llm_mode.gui.models_page import (  # noqa: E402
     MODEL_PRESENTATION_STATES,
@@ -135,6 +136,16 @@ def test_model_filters_are_closed_and_searchable():
     assert all("multi-user" in item.tags for item in filter_model_items(items, category="Multi-user"))
     with pytest.raises(ValueError):
         filter_model_items(items, category="Execute anything")
+
+
+def test_model_library_keeps_all_rows_when_context_exceeds_one_model_limit():
+    items = build_model_items([], context=16384, slots=4)
+
+    assert len(items) == len(CATALOG)
+    gemma = next(item for item in items if item.catalog_id == "gemma-2-9b-it")
+    assert gemma.fit_verdict == "NO-FIT"
+    assert "supports at most 8192 context tokens" in gemma.fit_detail
+    assert filter_model_items(items, category="Recommended")
 
 
 def test_gui4_pages_import_no_host_infrastructure_and_replace_home_mount():

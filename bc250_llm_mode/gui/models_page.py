@@ -128,15 +128,24 @@ def build_model_items(
             continue
         quants = tuple(entry.allow_globs)
         quant = "Q5_K_M" if "Q5_K_M" in quants else quants[0]
-        fit = calculate_fit(entry, quant, context, parallel_slots=slots)
+        try:
+            fit = calculate_fit(entry, quant, context, parallel_slots=slots)
+            fit_verdict = fit.verdict
+            fit_detail = fit.detail
+        except ValueError as exc:
+            # A draft may exceed one catalog entry's trained context limit.
+            # That is a per-model NO-FIT result, not a reason to discard the
+            # installed library and every other downloadable model.
+            fit_verdict = "NO-FIT"
+            fit_detail = f"NO-FIT — {exc}"
         items.append(ModelItemView(
             key=f"catalog::{entry.id}",
             display_name=entry.display_name,
             family=entry.family,
             size_gib=entry.weights_gib_by_quant.get(quant),
             state="RECOVERY_REQUIRED" if recovery_required else "AVAILABLE",
-            fit_verdict=fit.verdict,
-            fit_detail=fit.detail,
+            fit_verdict=fit_verdict,
+            fit_detail=fit_detail,
             support_tier=validation_tier(entry),
             description=entry.notes,
             source_repo=entry.repo,
