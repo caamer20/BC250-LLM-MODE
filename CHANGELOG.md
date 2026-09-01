@@ -97,6 +97,17 @@ versions are tagged in git.
   and identify provenance/identity evidence. Actions are Install, Start and
   Chat, Switch and Chat, Open Chat, Resolve recovery, or View why it cannot
   start; successful install/start/switch opens native Chat.
+- Added the EUF-8 `TaskProgressProjection v1` shared by Models, Connections,
+  Activity, and the human-readable operations CLI. It shows elapsed time and
+  durable phase without ETA, emits fractions only for measured byte/file/item
+  totals, says Still working after a 15-second quiet interval, preserves the
+  operation's safe cancellation boundary, and makes window close explicitly
+  non-cancelling.
+- Froze finite 10-second gateway, 120-second Open WebUI, 120-second model,
+  30-second Tailscale/Serve, and 300-second aggregate connection-setup
+  deadlines. Expiry produces the stable redacted
+  `OPERATION_DEADLINE_EXCEEDED` recovery problem without rewriting durable
+  operation state.
 
 ### Catalog, WebUI, and desktop lifecycle
 

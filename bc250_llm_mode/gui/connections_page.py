@@ -13,6 +13,8 @@ from tkinter import ttk
 from ..connection_setup import CLIENT_CARDS, instructions_for
 from ..presentation import format_timestamp
 from ..problem_details import problem_detail
+from ..progress_projection import format_elapsed, project_operation_progress
+from .routes import Route
 from .view_state import Confirmation, Notice
 
 
@@ -181,6 +183,16 @@ class ConnectionsPage(ttk.Frame):
 
         guided = ttk.LabelFrame(right, text="What do you want to connect?", padding=7)
         guided.pack(fill="x")
+        self._setup_progress = tk.StringVar(
+            value="No guided connection setup is currently running."
+        )
+        ttk.Label(
+            guided, textvariable=self._setup_progress, wraplength=300,
+        ).pack(anchor="w", fill="x", pady=(0, 5))
+        ttk.Button(
+            guided, text="View connection activity",
+            command=lambda: self.shell.navigate(Route.ACTIVITY),
+        ).pack(anchor="w", pady=(0, 5))
         for title, intent in (
             ("Open WebUI on this BC250", "OPENWEBUI"),
             ("Phone or tablet app", "PHONE_TABLET"),
@@ -257,7 +269,7 @@ class ConnectionsPage(ttk.Frame):
             command=self._confirm_retire_legacy,
         ).pack(anchor="w", pady=(5, 0))
 
-        self._apply(({}, [], {}))
+        self._apply(({}, [], {}, None, None))
         self.refresh()
 
     def mount(self, parent=None):
@@ -281,6 +293,7 @@ class ConnectionsPage(ttk.Frame):
                 self.application.connections.snapshot().to_dict(),
                 self.application.connection_credentials.list_clients(),
                 self.application.integration_setup.legacy_status(),
+                *self._observe_setup_operation(),
             ),
             self._apply,
         )
@@ -290,6 +303,9 @@ class ConnectionsPage(ttk.Frame):
             return
         snapshot, clients, *extra = payload
         self._legacy = dict(extra[0]) if extra and isinstance(extra[0], Mapping) else {}
+        setup_summary = extra[1] if len(extra) > 1 else None
+        setup_detail = extra[2] if len(extra) > 2 else None
+        self._render_setup_progress(setup_summary, setup_detail)
         self._snapshot = dict(snapshot)
         view = build_connections_view(snapshot, clients)
         previous_view = self._view
@@ -385,6 +401,47 @@ class ConnectionsPage(ttk.Frame):
             self.refresh()
 
         self.shell._work(work, done)
+
+    def _observe_setup_operation(self):
+        page = self.application.operation_query.list(
+            scope="active", kind="INTEGRATION_SETUP", page_size=4,
+        )
+        summary = page.items[0] if page.items else None
+        detail = (
+            self.application.operation_query.show(summary.operation_id)
+            if summary is not None else None
+        )
+        return summary, detail
+
+    def refresh_progress(self) -> None:
+        """Use the shared coordinator while guided setup owns the action lane."""
+        if self._disposed:
+            return
+        self.shell.request_observation(
+            self._observe_setup_operation,
+            lambda result: self._render_setup_progress(*result),
+        )
+
+    def _render_setup_progress(self, summary: Any, detail: Any) -> None:
+        if summary is None:
+            self._setup_progress.set(
+                "No guided connection setup is currently running."
+            )
+            return
+        projection = project_operation_progress(
+            summary, current_step=getattr(detail, "current_step", None),
+        )
+        text = (
+            f"{projection.phase_label} · "
+            f"{format_elapsed(projection.elapsed_seconds)}. "
+            f"Next: {projection.next_checkpoint}."
+        )
+        if projection.problem is not None:
+            text += (
+                f" {projection.problem.title}: "
+                f"{projection.problem.user_message}"
+            )
+        self._setup_progress.set(text)
 
     def _add(self) -> None:
         label = self._label.get()

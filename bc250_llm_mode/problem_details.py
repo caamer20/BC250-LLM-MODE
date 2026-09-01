@@ -194,6 +194,17 @@ PROBLEM_CATALOG: dict[str, ProblemDetail] = {
         "RECOVERY_REQUIRED", "recovery", "error", "Recovery needs attention",
         "Open Activity and complete the guided recovery action.", "operations",
         "view-activity", "View Activity", "A durable operation could not prove a safe terminal state."),
+    "OPERATION_DEADLINE_EXCEEDED": _problem(
+        "OPERATION_DEADLINE_EXCEEDED", "operations", "error",
+        "Task is taking too long",
+        "Open Activity to review the current phase and its safe recovery action.",
+        "operations", "view-activity", "View Activity",
+        "The named finite operation deadline expired without a durable checkpoint."),
+    "OPERATION_FAILED": _problem(
+        "OPERATION_FAILED", "operations", "error", "Task stopped safely",
+        "Open Activity to review the recorded problem and safe next action.",
+        "operations", "view-activity", "View Activity",
+        "A durable operation reached a safe failure state without a public failure code."),
     "GATEWAY_INTERNAL": _problem(
         "GATEWAY_INTERNAL", "internal", "error", "Private API request failed",
         "Retry once; if it repeats, open Activity for redacted details.", "gateway",

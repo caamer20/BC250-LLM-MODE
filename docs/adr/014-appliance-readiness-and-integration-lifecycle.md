@@ -205,7 +205,38 @@ response body is persisted.
 - Editing Open WebUI's database with an unversioned script.
 - Treating successful developer socket fixtures as physical client evidence.
 
-## 9. Exit criteria
+## 9. Decision D6 — one truthful progress projection
+
+Every durable operation surface consumes `TaskProgressProjection v1` with the
+same task title, phase, durable state, elapsed seconds, last progress time,
+optional measured fraction, cancellation availability, close safety, next
+checkpoint, and optional typed problem. Models, Connections, Activity, and the
+human-readable operations CLI may arrange those fields differently but may not
+derive competing progress truth.
+
+Only totals with the closed measured units bytes, files, or items produce a
+fraction. Workflow step counts, startup stages, and verification stages never
+produce a percentage or ETA. After 15 seconds without a durable progress
+timestamp change, an active operation says **Still working** and retains its
+current phase. Closing the window never cancels an operation; the cancel action
+is present only when the durable operation summary allows it.
+
+The finite stage deadlines are:
+
+- gateway socket readiness: 10 seconds;
+- Open WebUI application/provider warm-up: 120 seconds;
+- model health, identity, and inference: 120 seconds;
+- Tailscale/Serve convergence: 30 seconds; and
+- complete `INTEGRATION_SETUP`: 300 seconds aggregate.
+
+An elapsed deadline projects `OPERATION_DEADLINE_EXCEEDED` with the bounded
+View Activity recovery action. Projection never mutates the operation or
+declares the external effect failed; the owning adapter and durable workflow
+remain authoritative for timeout, compensation, and terminal state. Physical
+evidence may motivate a later reviewed ADR revision, but no deadline may become
+unbounded or invisible.
+
+## 10. Exit criteria
 
 - Buffered and SSE live-socket tests prove the shared policy, bounded streaming,
   first-event delivery, terminal event, exact slot release, and content-free

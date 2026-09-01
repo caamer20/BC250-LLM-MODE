@@ -166,7 +166,7 @@ def test_every_durable_state_renders_plain_language_with_severity(world):
     assert severity_rank("PAUSED") < severity_rank("QUEUED")
 
 
-def test_progress_never_renders_100_before_terminal():
+def test_progress_never_fabricates_step_percentage_before_terminal():
     def make(state, current, total):
         return __import__(
             "bc250_llm_mode.operations.views", fromlist=["OperationSummary"]
@@ -181,11 +181,11 @@ def test_progress_never_renders_100_before_terminal():
         )
 
     working = make("RUNNING", 3, 3)
-    assert "99%" in progress_text(working)
+    assert "%" not in progress_text(working)
     assert "100%" not in progress_text(working)
     done = make("SUCCEEDED", 3, 3)
     assert progress_text(done) == ""
-    assert "25%" in progress_text(make("VERIFYING", 1, 4))
+    assert "%" not in progress_text(make("VERIFYING", 1, 4))
 
 
 def test_action_availability_comes_from_summary_flags_only(world):

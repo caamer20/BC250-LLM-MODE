@@ -13,6 +13,8 @@ import json
 import sys
 import time
 
+from .progress_projection import format_elapsed, project_operation_progress
+
 _MAX_FOLLOW_SECONDS = 3600.0
 _FOLLOW_INTERVAL_SECONDS = 0.5
 
@@ -120,11 +122,11 @@ def _list(query, args) -> int:
         print("no operations match this view")
         return 0
     for item in page.items:
-        progress = ""
-        if item.progress_total:
-            progress = (
-                f" {item.progress_current}/{item.progress_total}"
-                f"{item.progress_unit or ''}"
+        projected = project_operation_progress(item)
+        progress = f"  {projected.phase_label} · {format_elapsed(projected.elapsed_seconds)}"
+        if projected.determinate_fraction is not None:
+            progress += (
+                f" · {projected.determinate_fraction * 100:.0f}% measured"
             )
         line = (
             f"{item.operation_id}  {item.kind}  {item.state}{progress}"
@@ -150,13 +152,24 @@ def _show(query, operation_id, args) -> int:
         print(json.dumps(detail.to_dict(), sort_keys=True))
         return 0
     s = detail.summary
+    projected = project_operation_progress(s, current_step=detail.current_step)
     print(f"{s.operation_id}")
     print(f"  kind:     {s.kind} (request v{s.kind_version})")
     print(f"  state:    {s.state}" + (f" — {s.phase}" if s.phase else ""))
-    if s.progress_total:
+    print(f"  phase:    {projected.phase_label}")
+    print(f"  elapsed:  {format_elapsed(projected.elapsed_seconds)}")
+    if projected.determinate_fraction is not None:
         print(
             f"  progress: {s.progress_current}/{s.progress_total}"
             f" {s.progress_unit or ''}"
+            f" ({projected.determinate_fraction * 100:.0f}% measured)"
+        )
+    print(f"  checkpoint: {projected.next_checkpoint}")
+    print(f"  close:    safe; closing does not cancel this operation")
+    if projected.problem is not None:
+        print(
+            f"  problem:  {projected.problem.code} — "
+            f"{projected.problem.user_message}"
         )
     print(f"  surface:  {s.surface}")
     if detail.current_step:

@@ -27,6 +27,7 @@ from tkinter import ttk
 from ..operations.model import TERMINAL_STATES, OperationState
 from ..operations.views import OperationDetail, OperationSummary
 from ..presentation import format_timestamp
+from ..progress_projection import format_elapsed, project_operation_progress
 from .view_state import Confirmation
 
 # -- pure presentation contract ----------------------------------------------------
@@ -113,18 +114,36 @@ def headline(summary: OperationSummary) -> str:
     return f"{label}: {summary.title}"
 
 
-def progress_text(summary: OperationSummary) -> str:
-    """Bounded progress text; NEVER renders 100% before a terminal state."""
+def progress_text(
+    summary: OperationSummary,
+    *,
+    current_step: str | None = None,
+) -> str:
+    """Shared phase/elapsed projection with measured progress only."""
     if summary.state in TERMINAL_STATES:
         return ""
-    if not summary.progress_total:
-        return ""
-    current = min(int(summary.progress_current or 0), int(summary.progress_total))
-    percent = int(current * 100 / int(summary.progress_total))
-    if percent >= 100:
-        percent = 99  # terminal verification has not completed yet
-    unit = summary.progress_unit or ""
-    return f"{current}/{summary.progress_total} {unit} ({percent}%)"
+    projection = project_operation_progress(
+        summary, current_step=current_step,
+    )
+    parts = [projection.phase_label]
+    if summary.created_at:
+        parts.append(format_elapsed(projection.elapsed_seconds))
+    fraction = projection.determinate_fraction
+    if fraction is not None:
+        current = min(
+            int(summary.progress_current or 0), int(summary.progress_total or 0)
+        )
+        total = int(summary.progress_total or 0)
+        unit = summary.progress_unit or ""
+        measured = f"{current}/{total} {unit}".strip()
+        if fraction < 1.0:
+            measured += f" ({fraction * 100:.0f}%)"
+        else:
+            measured += " (measured work complete; verifying)"
+        parts.append(measured)
+    if projection.problem is not None:
+        parts.append(projection.problem.title)
+    return " · ".join(parts)
 
 
 def message_copy(summary: OperationSummary) -> str:
@@ -390,8 +409,19 @@ class ActivityCenterFrame(ttk.Frame):
             return
         summary = detail.summary
         self.detail_headline.config(text=headline(summary))
-        self.detail_progress.config(text=progress_text(summary))
-        self.detail_message.config(text=message_copy(summary))
+        projection = project_operation_progress(
+            summary, current_step=detail.current_step,
+        )
+        self.detail_progress.config(
+            text=progress_text(summary, current_step=detail.current_step)
+        )
+        detail_copy = message_copy(summary)
+        if projection.problem is not None:
+            detail_copy += (
+                f"\n{projection.problem.title}: "
+                f"{projection.problem.user_message}"
+            )
+        self.detail_message.config(text=detail_copy)
         self.detail_timeline.config(text=timeline_text(detail))
         plan = action_plan(summary, self.application.operation_commands)
         for index, button in enumerate(self._action_buttons):

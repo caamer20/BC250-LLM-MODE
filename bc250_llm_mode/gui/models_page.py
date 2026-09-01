@@ -18,6 +18,7 @@ from ..model_recommendation import (
     fit_label,
 )
 from ..presentation import format_number
+from ..progress_projection import format_elapsed, project_operation_progress
 from .routes import Route
 from .view_state import Confirmation, Notice
 
@@ -45,26 +46,6 @@ class ModelInstallProgressView:
     value: float
 
 
-_INSTALL_STEP_LABELS = {
-    "resolve_source": "Resolving source",
-    "reserve_storage": "Checking storage",
-    "transfer_source": "Downloading",
-    "materialize_candidate": "Preparing model",
-    "validate_candidate": "Verifying model",
-    "publish_artifact": "Installing model",
-    "register_installation": "Registering model",
-    "finalize_staging": "Finishing installation",
-    "resolve_candidate": "Resolving installed model",
-    "capture_prior": "Capturing rollback state",
-    "commit_candidate_config": "Applying model configuration",
-    "publish_candidate_handoff": "Publishing runtime configuration",
-    "restart_candidate": "Starting model service",
-    "verify_candidate_health": "Checking model health",
-    "verify_candidate_inference": "Verifying model response",
-    "promote_known_good": "Saving known-good model",
-}
-
-
 def _format_progress_bytes(value: int) -> str:
     if value >= 1024**3:
         return f"{value / 1024**3:.2f} GiB"
@@ -80,17 +61,23 @@ def build_install_progress_view(
     current_step: str | None = None,
 ) -> ModelInstallProgressView:
     """Render durable acquisition truth without exposing source paths."""
-    state = str(getattr(summary, "state", "") or "")
-    step = _INSTALL_STEP_LABELS.get(
-        str(current_step or ""),
-        "Waiting" if state == "QUEUED" else "Preparing installation",
+    projection = project_operation_progress(
+        summary, current_step=current_step,
     )
     current = max(0, int(getattr(summary, "progress_current", 0) or 0))
     total = int(getattr(summary, "progress_total", 0) or 0)
     unit = str(getattr(summary, "progress_unit", "") or "")
-    if total > 0:
+    elapsed = (
+        f" · {format_elapsed(projection.elapsed_seconds)}"
+        if getattr(summary, "created_at", None) else ""
+    )
+    problem = (
+        f" {projection.problem.title}: {projection.problem.user_message}"
+        if projection.problem is not None else ""
+    )
+    if projection.determinate_fraction is not None:
         bounded = min(current, total)
-        percent = bounded * 100.0 / total
+        percent = projection.determinate_fraction * 100.0
         if unit == "bytes":
             amount = (
                 f"{_format_progress_bytes(bounded)} of "
@@ -99,12 +86,14 @@ def build_install_progress_view(
         else:
             amount = f"{bounded} of {total} {unit}".strip()
         return ModelInstallProgressView(
-            f"{step}: {model_name} — {amount} ({percent:.0f}%).",
+            f"{projection.phase_label}: {model_name} — {amount} "
+            f"({percent:.0f}%){elapsed}.{problem}",
             "determinate",
             percent,
         )
     return ModelInstallProgressView(
-        f"{step}: {model_name}. Activity has the durable step details.",
+        f"{projection.phase_label}: {model_name}{elapsed}. "
+        f"Next: {projection.next_checkpoint}.{problem}",
         "indeterminate",
         0.0,
     )

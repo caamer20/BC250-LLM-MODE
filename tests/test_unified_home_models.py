@@ -254,7 +254,7 @@ def test_install_progress_exposes_phase_bytes_and_percent_on_models_page():
     assert progress.mode == "determinate"
     assert progress.value == pytest.approx(25.0)
     assert progress.message == (
-        "Downloading: Qwen test — 2.00 GiB of 8.00 GiB (25%)."
+        "Downloading model data: Qwen test — 2.00 GiB of 8.00 GiB (25%)."
     )
 
 
@@ -272,7 +272,7 @@ def test_install_progress_stays_visible_during_non_byte_phases():
 
     assert progress.mode == "indeterminate"
     assert progress.value == 0.0
-    assert progress.message.startswith("Verifying model: Qwen test.")
+    assert progress.message.startswith("Verifying model files: Qwen test.")
 
     source = Path("bc250_llm_mode/gui/models_page.py").read_text(
         encoding="utf-8"

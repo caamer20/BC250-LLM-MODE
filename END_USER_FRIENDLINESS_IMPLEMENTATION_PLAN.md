@@ -1,6 +1,6 @@
 # BC250 LLM MODE — End-User Friendliness Completion Implementation Plan
 
-**Status:** Execution in progress. EUF-0 through EUF-7 are developer-
+**Status:** Execution in progress. EUF-0 through EUF-8 are developer-
 implemented; later EUF milestones and all physical, security,
 human-acceptance, soak, publication, and release gates remain pending.
 Developer tests and live diagnostics on one BC250 do not constitute those
@@ -763,6 +763,19 @@ Rules:
 
 The ADR may adjust exact values from physical evidence, but every value must be
 finite, named, surfaced, and tested.
+
+**Developer implementation checkpoint:** the pure
+`TaskProgressProjection v1` now supplies this exact shape to Models,
+Connections, Activity, and human-readable operations CLI output. Bytes, files,
+and item counts are the only closed measured-total units that can produce a
+fraction; synthetic workflow-step totals do not. The quiet interval is 15
+seconds. Gateway, Open WebUI, model, and Tailscale stages use named 10/120/120/
+30-second deadlines, and `INTEGRATION_SETUP` uses a 300-second aggregate
+deadline. Expiry projects the stable `OPERATION_DEADLINE_EXCEEDED` problem and
+View Activity action without mutating durable state. The one refresh
+coordinator remains the only polling owner, and closing remains explicitly
+safe without implying cancellation. Physical timing and resource validation
+remain pending.
 
 ### Acceptance
 
