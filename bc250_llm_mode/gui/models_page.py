@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import math
 from typing import Any, Iterable, Mapping
 
 import tkinter as tk
 from tkinter import filedialog, ttk
 
 from ..catalog import ADVERTISED_CATALOG, calculate_fit, validation_tier
+from ..appliance_readiness import readiness_from_snapshots
+from ..model_recommendation import (
+    ModelRecommendationPolicy,
+    RecommendationCandidate,
+    evidence_is_fresh,
+    fit_label,
+)
 from ..presentation import format_number
 from .routes import Route
 from .view_state import Confirmation, Notice
@@ -122,9 +130,19 @@ class ModelItemView:
     deletion_eligible: bool = False
     deletion_blockers: tuple[str, ...] = ()
     active: bool = False
+    running: bool = False
     verified: bool = False
     remote: bool = False
     busy: bool = False
+    switching: bool = False
+    recommended: bool = False
+    recommendation_rank: int | None = None
+    recommendation_label: str | None = None
+    recommendation_reasons: tuple[str, ...] = ()
+    measurement_summary: str = "Not measured on this machine"
+    profile_summary: str = ""
+    immutable_identity: bool = False
+    standard_layout: bool = False
 
     def __post_init__(self) -> None:
         if self.state not in MODEL_PRESENTATION_STATES:
@@ -133,16 +151,37 @@ class ModelItemView:
 
 def model_action(item: ModelItemView) -> ModelActionView:
     if item.busy or item.state in {"DOWNLOADING", "VALIDATING", "REMOVING", "RECOVERY_REQUIRED"}:
-        return ModelActionView("activity", "View activity")
-    if item.state == "QUARANTINED":
-        return ModelActionView("validation", "View validation issue")
+        return ModelActionView("activity", "Resolve recovery")
+    if item.state == "QUARANTINED" or item.fit_verdict == "NO-FIT":
+        return ModelActionView("fit", "View why it cannot start")
     if item.remote:
-        return ModelActionView("install-start", "Install and start", "install", "Install only")
+        return ModelActionView(
+            "install-start", "Install, Start and Chat", "install", "Install only")
     if item.active and item.verified:
-        return ModelActionView("chat", "Open chat")
-    if item.active:
-        return ModelActionView("checks", "Run verification checks")
-    return ModelActionView("activate", "Start this model")
+        return ModelActionView("chat", "Open Chat")
+    if item.active and item.running:
+        return ModelActionView("checks", "View why it cannot start")
+    return ModelActionView(
+        "activate", "Switch and Chat" if item.switching else "Start and Chat")
+
+
+def _measurement_summary(row: Any, *, now=None) -> tuple[bool, str]:
+    summary = getattr(row, "benchmark_summary", None)
+    if not isinstance(summary, Mapping) or not evidence_is_fresh(
+        getattr(row, "last_verified_inference_at", None), now=now,
+    ):
+        return False, "Not measured on this machine"
+    parts = []
+    for key, label, suffix in (
+        ("tokens_per_second", "speed", " tok/s"),
+        ("first_token_seconds", "first token", " s"),
+        ("peak_temperature_c", "peak", " °C"),
+    ):
+        value = summary.get(key)
+        if isinstance(value, (int, float)) and math.isfinite(float(value)):
+            parts.append(f"{label} {float(value):.1f}{suffix}")
+    return (True, "Measured locally: " + " · ".join(parts)) if parts else (
+        False, "Not measured on this machine")
 
 
 def build_model_items(
@@ -153,9 +192,16 @@ def build_model_items(
     operations_active: bool = False,
     recovery_required: bool = False,
     inference_verified: bool = False,
+    model_running: bool | None = None,
+    now=None,
 ) -> tuple[ModelItemView, ...]:
     """Merge durable installations and curated remote candidates once."""
+    if model_running is None:
+        model_running = bool(inference_verified)
     installed_rows = list(installed)
+    catalog_by_id = {entry.id: entry for entry in ADVERTISED_CATALOG}
+    another_model_active = any(
+        bool(getattr(row, "active", False)) for row in installed_rows)
     installed_catalog = {
         str(getattr(row, "catalog_id", "") or ""): row
         for row in installed_rows if getattr(row, "catalog_id", None)
@@ -166,9 +212,28 @@ def build_model_items(
         validation = str(getattr(row, "validation_status", "") or "")
         active = bool(getattr(row, "active", False))
         quarantined = trust.upper() == "QUARANTINED" or validation.lower() == "quarantined"
-        verified = active and inference_verified and not bool(getattr(row, "fit_verdict", None) == "NO-FIT")
-        state = "QUARANTINED" if quarantined else "VERIFIED" if verified else "ACTIVE" if active else "INSTALLED"
+        verified = (
+            active and model_running and inference_verified
+            and not bool(getattr(row, "fit_verdict", None) == "NO-FIT")
+        )
+        state = (
+            "QUARANTINED" if quarantined else "VERIFIED" if verified
+            else "ACTIVE" if active and model_running else "INSTALLED")
         byte_size = getattr(row, "byte_size", None)
+        entry = catalog_by_id.get(str(getattr(row, "catalog_id", "") or ""))
+        support_tier = validation_tier(entry) if entry is not None else "local"
+        format_name = str(getattr(row, "format", "") or "").lower()
+        standard_layout = bool(
+            format_name == "gguf"
+            and trust.upper() == "VERIFIED"
+            and validation.lower() in {"verified", "validated"}
+            and not quarantined
+        )
+        immutable_identity = bool(getattr(row, "content_digest", None))
+        architecture = str(getattr(row, "architecture", "") or "")
+        architecture_compatible = bool(
+            entry is not None and architecture == entry.family)
+        measured_local, measurement_summary = _measurement_summary(row, now=now)
         items.append(ModelItemView(
             key=f"installed::{row.alias}",
             display_name=str(row.display_name),
@@ -177,7 +242,7 @@ def build_model_items(
             state="RECOVERY_REQUIRED" if recovery_required else state,
             fit_verdict=getattr(row, "fit_verdict", None),
             fit_detail=str(getattr(row, "fit_detail", None) or "Fit evidence is unavailable for this custom artifact."),
-            support_tier="installed",
+            support_tier=support_tier,
             description=(
                 f"Managed {getattr(row, 'format', None) or 'GGUF'} artifact · "
                 f"validation {validation or 'unverified'} · trust {trust or 'unverified'}"
@@ -191,9 +256,15 @@ def build_model_items(
             deletion_eligible=bool(getattr(row, "deletion_eligible", False)),
             deletion_blockers=tuple(getattr(row, "deletion_blockers", ()) or ()),
             active=active,
+            running=active and model_running,
             verified=verified,
             remote=False,
             busy=operations_active,
+            switching=another_model_active and not active,
+            measurement_summary=measurement_summary,
+            profile_summary=f"Selected workload: {context:,} context · {slots} slot(s)",
+            immutable_identity=immutable_identity,
+            standard_layout=standard_layout and architecture_compatible,
         ))
     for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
@@ -228,7 +299,46 @@ def build_model_items(
             tags=entry.task_tags,
             remote=True,
             busy=operations_active,
+            switching=another_model_active,
+            measurement_summary="Not measured on this machine",
+            profile_summary=f"Selected workload: {context:,} context · {slots} slot(s)",
+            immutable_identity=False,
+            standard_layout=bool(
+                not entry.conversion
+                and all(
+                    "*" not in filename and "?" not in filename
+                    for filename in entry.allow_globs.values()
+                )
+            ),
         ))
+    candidates = []
+    for item in items:
+        candidates.append(RecommendationCandidate(
+            key=item.key,
+            standard_layout=item.standard_layout,
+            immutable_identity=item.immutable_identity,
+            fit_verdict=item.fit_verdict,
+            support_tier=item.support_tier,
+            architecture_compatible=(
+                item.standard_layout
+                and (item.remote or item.catalog_id in catalog_by_id)
+            ),
+            inference_verified=item.verified,
+            measured_local=item.measurement_summary.startswith("Measured locally:"),
+            installed=not item.remote,
+            active=item.active,
+        ))
+    decisions = ModelRecommendationPolicy().evaluate(candidates)
+    items = [
+        replace(
+            item,
+            recommended=decisions[item.key].eligible,
+            recommendation_rank=decisions[item.key].rank,
+            recommendation_label=decisions[item.key].label,
+            recommendation_reasons=decisions[item.key].reasons,
+        )
+        for item in items
+    ]
     return tuple(sorted(items, key=lambda item: (item.remote, item.display_name.lower())))
 
 
@@ -249,12 +359,14 @@ def filter_model_items(
             continue
         if category == "Multi-user" and "multi-user" not in item.tags:
             continue
-        if category == "Recommended" and not (
-            item.state in {"VERIFIED", "ACTIVE"}
-            or (item.fit_verdict == "FITS" and item.support_tier == "supported")
-        ):
+        if category == "Recommended" and not item.recommended:
             continue
         result.append(item)
+    if category == "Recommended":
+        result.sort(key=lambda item: (
+            item.recommendation_rank if item.recommendation_rank is not None else 999,
+            item.display_name.casefold(),
+        ))
     return tuple(result[:MAX_MODEL_ROWS])
 
 
@@ -402,10 +514,16 @@ class ModelsPage(ttk.Frame):
             return
         def observe():
             install_summary, install_detail = self._observe_install_operation()
+            home = self.application.home.snapshot().to_dict()
+            connection = self.application.connections.snapshot().to_dict()
             return (
                 self.application.model_library.entries(context=context, slots=slots),
                 self.application.operation_query.active_summary(),
-                self.application.home.snapshot().to_dict(),
+                home,
+                readiness_from_snapshots(
+                    home=home, connection=connection,
+                    target_journey="native_chat",
+                ),
                 install_summary,
                 install_detail,
             )
@@ -420,18 +538,16 @@ class ModelsPage(ttk.Frame):
     def _apply_observation(self, result, *, context: int, slots: int) -> None:
         if self._disposed:
             return
-        installed, active, home, install_summary, install_detail = result
+        installed, active, home, readiness, install_summary, install_detail = result
         self._render_observed_install_progress(install_summary, install_detail)
-        inference = home.get("cards", {}).get("inference", {})
-        inference_health = inference.get("health", {}) if isinstance(inference, Mapping) else {}
         self._all_items = build_model_items(
             installed, context=context, slots=slots,
             operations_active=bool(active.active_count),
             recovery_required=bool(active.recovery_required_count),
             inference_verified=(
-                str(inference_health.get("effective_state") or inference_health.get("state")) == "READY"
-                and not bool(inference.get("stale"))
+                bool(readiness.native_chat_ready)
             ),
+            model_running=bool(readiness.component("model").process_ready),
         )
         requested = self._route_context.get("model_id")
         if requested:
@@ -603,7 +719,7 @@ class ModelsPage(ttk.Frame):
             )
             self.tree.insert(
                 "", "end", iid=item.key, text=item.display_name,
-                values=(item.state, item.family, size, item.fit_verdict or "Unknown"),
+                values=(item.state, item.family, size, fit_label(item.fit_verdict)),
             )
         if self._selected_key not in self._visible and visible:
             self._selected_key = visible[0].key
@@ -689,13 +805,26 @@ class ModelsPage(ttk.Frame):
             self.detail_body.set("Change the search or filter.")
             return
         self.detail_title.set(item.display_name)
+        recommendation = (
+            f"{item.recommendation_label} · " if item.recommendation_label else "")
         self.detail_state.set(
-            f"{item.state} · {item.support_tier} support · {item.fit_verdict or 'fit unknown'}"
+            f"{recommendation}{item.state} · {item.support_tier} support · "
+            f"{fit_label(item.fit_verdict)}"
         )
         provenance = item.source_repo or "local managed source"
+        identity = (
+            "immutable artifact identity verified"
+            if item.immutable_identity else
+            "artifact identity resolves during installation"
+        )
+        recommendation_reasons = " · ".join(item.recommendation_reasons)
         self.detail_body.set(
-            f"{item.description}\n\nProvenance: {provenance}\n"
-            f"Fit: {item.fit_detail}\n"
+            f"{item.description}\n\n"
+            f"Details: {item.quant or 'quantization not selected'} · {item.profile_summary}\n"
+            f"Fit: {fit_label(item.fit_verdict)} · {item.fit_detail}\n"
+            f"Local evidence: {item.measurement_summary}\n"
+            f"Provenance: {provenance} · {identity}\n"
+            f"Recommendation evidence: {recommendation_reasons}\n"
             f"Removal: {'eligible for quarantine' if item.deletion_eligible else ', '.join(item.deletion_blockers) or 'not applicable'}"
         )
         self.quant_box.configure(values=item.available_quants)
@@ -728,8 +857,15 @@ class ModelsPage(ttk.Frame):
         item = self._selected()
         if item is None:
             return
-        if code in {"activity", "validation"}:
+        if code == "activity":
             self.shell.navigate(Route.ACTIVITY)
+            return
+        if code == "fit":
+            self.shell.notice_bar.show_notice(Notice(
+                "warning", "This model cannot start with the selected workload",
+                item.fit_detail or "Fit evidence is missing. Review the model details.",
+                dismissible=False,
+            ))
             return
         if code == "chat":
             self.shell.navigate(Route.CHAT)
@@ -797,6 +933,9 @@ class ModelsPage(ttk.Frame):
                 ),
                 dismissible=ok,
             ))
+            if ok and code in {"activate", "install-start"}:
+                self.shell.navigate(Route.CHAT)
+                return
             self.refresh()
 
         self.shell._work(action_fn, done)

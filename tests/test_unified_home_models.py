@@ -167,10 +167,12 @@ def test_model_library_merges_installed_and_catalog_without_duplicates():
     installed = next(item for item in items if item.alias == "qwen-installed")
     assert installed.state == "VERIFIED"
     assert model_action(installed).code == "chat"
+    assert model_action(installed).label == "Open Chat"
     assert sum(item.catalog_id == "qwen35-9b" for item in items) == 1
     remote = next(item for item in items if item.remote)
     action = model_action(remote)
     assert (action.code, action.secondary_code) == ("install-start", "install")
+    assert action.label == "Install, Start and Chat"
     assert set(item.state for item in items) <= MODEL_PRESENTATION_STATES
 
 
@@ -184,7 +186,7 @@ def test_model_actions_fail_closed_for_busy_quarantine_and_recovery():
         [_installed(active=False, trust_state="QUARANTINED")],
         context=8192, slots=1,
     )[0]
-    assert model_action(quarantine).code == "validation"
+    assert model_action(quarantine).code == "fit"
     recovery = build_model_items(
         [_installed(active=False)], context=8192, slots=1,
         recovery_required=True,

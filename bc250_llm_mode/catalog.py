@@ -1059,13 +1059,13 @@ def recommend_models(
     tag: str | None = None,
     limit: int | None = None,
 ) -> tuple[tuple[ModelEntry, str, FitResult], ...]:
-    """Rank catalog entries by the highest-fidelity quantization that safely FITS.
+    """Rank catalog entries through the shared objective EUF-7 policy."""
+    from .model_recommendation import (
+        ModelRecommendationPolicy,
+        RecommendationCandidate,
+    )
 
-    TIGHT and NO-FIT projections are never recommended. Ordering is quantization
-    fidelity first, then parameter count, so the head of the tuple is the most
-    capable model that fits the requested context × slots budget.
-    """
-    ranked: list[tuple[ModelEntry, str, FitResult]] = []
+    candidates: list[tuple[ModelEntry, str, FitResult]] = []
     for model in ADVERTISED_CATALOG:
         if tag and not any(tag.lower() in candidate.lower() for candidate in model.task_tags):
             continue
@@ -1074,10 +1074,34 @@ def recommend_models(
         except ValueError:
             # Context above the model's trained limit: never a recommendation.
             continue
-        if pick is None or pick[1].verdict != "FITS":
+        if pick is None:
             continue
-        ranked.append((model, pick[0], pick[1]))
-    ranked.sort(key=lambda item: (_quant_rank(item[1]), -item[0].params_b))
+        candidates.append((model, pick[0], pick[1]))
+    decisions = ModelRecommendationPolicy().evaluate(
+        RecommendationCandidate(
+            key=model.id,
+            standard_layout=bool(
+                not model.conversion
+                and all(
+                    "*" not in filename and "?" not in filename
+                    for filename in model.allow_globs.values()
+                )
+            ),
+            immutable_identity=False,
+            fit_verdict=fit.verdict,
+            support_tier=validation_tier(model),
+            architecture_compatible=True,
+            inference_verified=False,
+            measured_local=False,
+            installed=False,
+            active=False,
+        )
+        for model, _quant, fit in candidates
+    )
+    ranked = [
+        item for item in candidates if decisions[item[0].id].eligible
+    ]
+    ranked.sort(key=lambda item: int(decisions[item[0].id].rank or 999))
     if limit is not None:
         ranked = ranked[: max(0, limit)]
     return tuple(ranked)

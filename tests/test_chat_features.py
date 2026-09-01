@@ -178,14 +178,14 @@ def test_cli_bench_uses_chat_benchmark(tmp_path, monkeypatch, capsys):
 
 
 def test_recommend_models_ranks_best_fitting_first():
-    from bc250_llm_mode.catalog import recommend_models
+    from bc250_llm_mode.catalog import recommend_models, validation_tier
 
     ranked = recommend_models(32768, parallel_slots=4)
     assert ranked
     assert all(fit.verdict == "FITS" for _model, _quant, fit in ranked)
-    best_model, best_quant_name, _fit = ranked[0]
-    assert best_model.id == "qwen25-3b-instruct"
-    assert best_quant_name == "Q8_0"
+    assert all(validation_tier(model) == "supported" for model, _quant, _fit in ranked)
+    assert [model.id for model, _quant, _fit in ranked] == sorted(
+        model.id for model, _quant, _fit in ranked)
 
 
 def test_recommend_models_filters_by_tag_and_limit():

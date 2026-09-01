@@ -491,10 +491,11 @@ def run_chat(application) -> None:
                 )
                 if not ranked:
                     console.print("No catalog model safely fits the current context/slots budget.")
-                for model, quant, fit in ranked:
+                for index, (model, quant, fit) in enumerate(ranked, 1):
                     console.print(
-                        f"[cyan]{model.id}[/cyan] {quant} — {fit.detail}\n"
-                        f"  {model.display_name}: {model.notes}"
+                        f"[cyan]{index}. {model.id}[/cyan] {quant} — {fit.detail}\n"
+                        f"  {model.display_name}: {model.notes}\n"
+                        "  Local measurement: Not measured on this machine"
                     )
             except ValueError as exc:
                 console.print(f"[red]Usage: /recommend [tag] — {exc}[/red]")

@@ -85,6 +85,18 @@ versions are tagged in git.
 - Refocused Home on exactly five outcome cards—Model, Chat, Connections,
   Safety, and Maintenance—while preserving the existing safety/recovery-first
   primary-action policy and contextual links to detailed owners.
+- Added one pure EUF-7 model recommendation policy shared by the native Model
+  Library and catalog recommendation surfaces. It ranks only standard layout,
+  immutable installed identity, selected-workload fit, curated support and
+  architecture compatibility, current inference, fresh local measurement, and
+  installed state; preview, unsafe-layout, unidentified installed, and no-fit
+  entries cannot receive the recommendation label.
+- Model details now translate fit to Comfortable/Tight/Does not fit, keep
+  quantization and selected context/slots in Details, show local speed or
+  temperature only from fresh recorded evidence, otherwise say Not measured,
+  and identify provenance/identity evidence. Actions are Install, Start and
+  Chat, Switch and Chat, Open Chat, Resolve recovery, or View why it cannot
+  start; successful install/start/switch opens native Chat.
 
 ### Catalog, WebUI, and desktop lifecycle
 

@@ -1396,6 +1396,8 @@ def main(argv: list[str] | None = None) -> int:
                 "count": len(ranked),
                 "results": [
                     {
+                        "recommendation_rank": index,
+                        "recommendation_label": "Recommended to install",
                         "id": model.id,
                         "display_name": model.display_name,
                         "quant": quant,
@@ -1403,8 +1405,9 @@ def main(argv: list[str] | None = None) -> int:
                         "verdict": fit.verdict,
                         "required_gib": round(fit.required_gib, 2),
                         "detail": fit.detail,
+                        "local_measurement": "Not measured on this machine",
                     }
-                    for model, quant, fit in ranked
+                    for index, (model, quant, fit) in enumerate(ranked, 1)
                 ],
             }, indent=2))
             return 0
