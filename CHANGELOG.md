@@ -119,6 +119,9 @@ versions are tagged in git.
   tested version. Only pinned Open WebUI 0.11.1 names a third-party version;
   PocketPal/Python remain example-only and no hardware-tested evidence is
   claimed.
+- Made `connections capabilities` a genuinely pre-composition command so its
+  bundled offline matrix remains available in repair mode and read-only
+  environments without creating or opening a user profile.
 
 ### Catalog, WebUI, and desktop lifecycle
 

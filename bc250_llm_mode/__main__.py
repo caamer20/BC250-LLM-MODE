@@ -694,6 +694,17 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(payload, indent=2))
         return 2 if payload["integration_tier"] == "unsupported" else 0
 
+    if (
+        args.command == "connections"
+        and args.connection_action == "capabilities"
+    ):
+        # Static/offline contract: usable from repair media and read-only
+        # environments without creating or opening an installation profile.
+        from .client_compatibility import capability_contract
+
+        print(json.dumps(capability_contract(), indent=2))
+        return 0
+
     application = Application.compose()
     if args.command == "repair-retry":
         if not application.operational and args.state:
@@ -1112,16 +1123,12 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "connections":
-        from .client_compatibility import capability_contract
         from .connection_setup import CLIENT_SCOPES, instructions_for
 
         action = args.connection_action
         credentials = application.connection_credentials
         if action == "status":
             print(json.dumps(application.connections.snapshot().to_dict(), indent=2))
-            return 0
-        if action == "capabilities":
-            print(json.dumps(capability_contract(), indent=2))
             return 0
         if action == "clients":
             print(json.dumps({

@@ -94,6 +94,20 @@ def test_status_clients_and_instructions_are_redacted(world, monkeypatch, capsys
     assert len(contract["capabilities"]) == 8
 
 
+def test_capabilities_is_offline_and_precomposition(monkeypatch, capsys):
+    monkeypatch.setattr(
+        Application,
+        "compose",
+        classmethod(lambda cls, *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("offline compatibility must not compose a profile")
+        )),
+    )
+
+    assert entry.cli(("connections", "capabilities")) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["offline"] is True
+
+
 def test_test_command_uses_same_snapshot_and_probe_service(world, capsys):
     snapshot = {
         "model": {"public_alias": "defiant-fable-q5"},
