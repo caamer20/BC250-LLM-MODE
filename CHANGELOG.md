@@ -39,6 +39,19 @@ versions are tagged in git.
   unit generation with stable current/installed-slot launch paths, unfamiliar
   unit/listener refusal, and uninstall preservation of models, credentials,
   and Open WebUI data.
+- Replaced the destructive Open WebUI stop/remove/recreate path with one typed
+  v0.11.1/amd64 container specification and candidate/rollback transaction.
+  It verifies the existing data mount before pull, creates a stopped bounded
+  candidate, tolerates a post-exit `conmon` stop error only after observing the
+  exited state, retains the old container until HTTP/provider/model/SSE checks
+  pass, and restores its exact name/running state on failure without ever
+  removing a volume.
+- Added an app-owned Open WebUI secret-key file, mode-0600 client credential
+  mount, private SELinux relabels, numeric file-size limits, no-autostart
+  policy, digest/architecture verification, and redacted status fields. The
+  pinned provider adapter uses Open WebUI's awaited Config API over stdin,
+  preserves unrelated providers, replaces only the app-owned key, and verifies
+  the selected model plus a real streamed completion ending in `[DONE]`.
 
 ### Catalog, WebUI, and desktop lifecycle
 

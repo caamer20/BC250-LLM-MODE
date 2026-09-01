@@ -131,6 +131,27 @@ Provider reconciliation is versioned to the pinned image and changes only the
 app-owned gateway provider. It preserves unrelated user providers and never
 logs or serializes keys in normal output.
 
+For pinned Open WebUI 0.11.1, the supported container environment does not
+implement `OPENAI_API_KEY_FROM_FILE`. The frozen adapter therefore sends a
+fixed, secret-free Python program over `podman exec -i` stdin. That program
+reads `/run/secrets/bc250-openwebui-client` inside the container and uses the
+vendor's awaited `open_webui.models.config.Config.get_many` and
+`Config.upsert` APIs for `openai.enable`, `openai.api_base_urls`,
+`openai.api_keys`, and `openai.api_configs`. It never issues raw SQL. The
+adapter refuses duplicate app-owned URLs, normalizes only list length, appends
+or updates only `http://host.containers.internal:9071/v1`, preserves every
+unrelated provider/config entry, restarts the application to reload persistent
+configuration, then verifies the credential match, expected model, real SSE
+content, and `[DONE]`. Any image/version contract change fails closed and
+requires a reviewed adapter revision.
+
+The Bazzite observation for the pinned image confirms a read-only root with a
+one-GiB `/tmp` tmpfs, two-GiB memory, four CPUs, 256 PIDs, and numeric
+1,073,741,824-byte soft/hard `RLIMIT_FSIZE`. The typed specification freezes
+those bounds, the image's amd64 manifest, `restart=no`, private SELinux `:Z`
+relabels for each approved host bind, and mode-0600 regular-file validation for
+both mounted secrets. It never emits an API key environment variable.
+
 ## 6. Decision D5 — current-boot dependency order
 
 The explicit integration operation owns this order:

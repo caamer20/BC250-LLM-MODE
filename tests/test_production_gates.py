@@ -177,7 +177,7 @@ def test_openwebui_image_is_pinned_not_mutable_main():
 def test_elevated_call_sites_frozen():
     """R1.3 guard: elevation is frozen at the audited count until the R5
     allowlisted helper replaces it (see docs/command_audit.md)."""
-    audited = 45
+    audited = 57
     total = 0
     for path in Path("bc250_llm_mode").rglob("*.py"):
         text = path.read_text(encoding="utf-8")
@@ -191,22 +191,28 @@ def test_elevated_call_sites_frozen():
     )
 
 
-def test_openwebui_create_uses_security_posture(monkeypatch):
+def test_openwebui_create_uses_security_posture(tmp_path):
     from bc250_llm_mode import openwebui
+    from bc250_llm_mode.openwebui_runtime import OpenWebUIContainerSpec
 
-    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
-    runner = RecordingRunner()
-    state = {"openwebui_container": openwebui.CONTAINER}
-    openwebui.install_open_webui(state, runner, credential_file="/tmp/gw-cred")
-    create = next(c for c in runner.commands if c[:2] == ["podman", "create"])
+    credential = tmp_path / "client"
+    secret = tmp_path / "webui-secret"
+    credential.write_text("x" * 32, encoding="utf-8")
+    secret.write_text("y" * 32, encoding="utf-8")
+    create = OpenWebUIContainerSpec(
+        name="bc250-openwebui-candidate-0123456789ab",
+        data_source=openwebui.DATA_VOLUME,
+        secret_key_file=str(secret),
+        client_credential_file=str(credential),
+    ).create_command()
     for flag in ("--security-opt", "no-new-privileges", "--cap-drop", "all",
                  "--memory", "--pids-limit", "--read-only", "--cpus",
-                 "--ulimit", "-p", "127.0.0.1:3000:8080"):
+                 "--ulimit", "--publish", "127.0.0.1:3000:8080"):
         assert flag in create, flag
     assert openwebui.IMAGE_REF in create
     assert ":main" not in create
     # credential rides a read-only bind mount, never in argv/labels
-    assert any("/run/secrets/gateway-cred" in x for x in create)
+    assert any("/run/secrets/bc250-openwebui-client" in x for x in create)
     assert "sk-pending" not in " ".join(create)
     # never a bare mutable tag as the identity
     assert not any(x.endswith(":v0.6.14") for x in create)

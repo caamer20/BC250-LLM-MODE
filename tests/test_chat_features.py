@@ -210,7 +210,7 @@ def test_recommend_models_never_suggests_non_fitting():
 def test_catalog_rows_shape_and_fit(tmp_path):
     from bc250_llm_mode.catalog import catalog_rows
 
-    rows = catalog_rows("gemma")
+    rows = catalog_rows("gemma-2-9b-it")
     assert len(rows) == 1
     row = rows[0]
     assert row["id"] == "gemma-2-9b-it"

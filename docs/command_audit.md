@@ -40,10 +40,16 @@ remain guarded by architecture tests plus the frozen elevation census.
 ## Regression guard
 
 `tests/test_production_gates.py::test_elevated_call_sites_frozen` freezes the
-`elevated(` call-site count at **45** (the audited value; +1 in Session 5C for
+`elevated(` call-site count at **57** (the audited value; +1 in Session 5C for
 the read-only `server.service_observation` `systemctl is-active` probe, which
 is elevation-wrapped like every other systemd call). Any new elevation must
 update this document and the guard together; R5 replaces them wholesale.
+
+The additional 12 reviewed call sites belong to EUF-2's package-owned gateway
+service lifecycle: atomic unit installation, daemon reload, disable/start/
+stop/restart, and exact owned-unit removal. They use fixed service names and
+validated absolute paths; no credential, client input, or source-checkout path
+enters their argv. The generated unit remains disabled at boot.
 
 ## 2026-08-28 — ADR 007 CachyOS addendum
 

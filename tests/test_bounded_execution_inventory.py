@@ -44,6 +44,9 @@ DISPOSITIONS = {
     # client is bounded by the typed GatewayPolicy timeouts (never timeout=None)
     # and is the ONLY bridge to the loopback backend (ADR 005 D3/D4).
     "gateway.py": "already_bounded",
+    # EUF-2 gateway entry point: fixed Podman argv, finite deadline, capped
+    # output, whole-process-group termination, and no shell.
+    "gateway_runtime.py": "already_bounded",
 }
 
 
@@ -131,6 +134,8 @@ FROZEN_BASELINE = {
                            "shell_kwargs": 0, "timeout_none": 0},
     "gateway.py": {"proc_calls": 0, "http_module": True,
                    "shell_kwargs": 0, "timeout_none": 0},
+    "gateway_runtime.py": {"proc_calls": 1, "http_module": False,
+                           "shell_kwargs": 0, "timeout_none": 0},
     "worker_service.py": {"proc_calls": 1, "http_module": False,
                           "shell_kwargs": 0, "timeout_none": 0},
 }

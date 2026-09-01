@@ -3,9 +3,10 @@
 The gateway secret NEVER touches SQLite/logs/argv/state. Only the NON-SECRET
 sha256 fingerprint is durable (migration 008 ``gateway_credentials`` singleton
 row), which makes rotation/revocation auditable and durable. The secret itself
-rides a 0600 profile file so the Open WebUI container can mount it read-only
-(``OPENAI_API_KEY_FROM_FILE``) and so the composition can route remote/container
-traffic through the gateway.
+rides a 0600 profile file so the Open WebUI container can mount it read-only;
+the pinned provider adapter reads that mount internally and never places the
+key in environment or argv. The same boundary routes remote/container traffic
+through the gateway.
 
 Data model (view fields this service refreshes):
     gateway_provisioned   - a credential has been provisioned (not revoked)
