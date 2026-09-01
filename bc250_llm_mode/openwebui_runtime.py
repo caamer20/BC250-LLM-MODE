@@ -280,9 +280,8 @@ def plan_provider_config(
 _PROVIDER_RECONCILE_SCRIPT = r'''
 import asyncio, json, os
 from pathlib import Path
-os.environ.setdefault(
-    "WEBUI_SECRET_KEY",
-    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip(),
+os.environ["WEBUI_SECRET_KEY"] = (
+    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip()
 )
 from open_webui.models.config import Config
 
@@ -359,9 +358,8 @@ asyncio.run(main())
 _PROVIDER_VERIFY_SCRIPT = r'''
 import asyncio, hmac, json, os, urllib.request
 from pathlib import Path
-os.environ.setdefault(
-    "WEBUI_SECRET_KEY",
-    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip(),
+os.environ["WEBUI_SECRET_KEY"] = (
+    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip()
 )
 from open_webui.models.config import Config
 
