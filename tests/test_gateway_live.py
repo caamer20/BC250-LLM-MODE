@@ -81,6 +81,24 @@ def test_live_gateway_full_path_over_real_sockets():
                             json={"stream": False, "messages": [{"role": "user", "content": "hi"}]},
                             headers={"Authorization": "Bearer wrong"})
         assert r.status_code == 401
+        assert r.headers["WWW-Authenticate"] == "Bearer"
+        assert len(r.headers["X-Request-ID"]) == 32
+        assert r.json()["error"]["code"] == "AUTH_INVALID"
+        assert len(backend.hits) == 0
+
+        with httpx.Client(timeout=5.0) as client:
+            missing = client.post(
+                f"{base}/v1/chat/completions", json={"messages": []})
+        assert missing.status_code == 401
+        assert missing.json()["error"]["code"] == "AUTH_MISSING"
+        assert missing.headers["WWW-Authenticate"] == "Bearer"
+
+        with httpx.Client(timeout=5.0) as client:
+            unsupported = client.post(
+                f"{base}/v1/responses", json={"input": "not forwarded"},
+                headers={"Authorization": "Bearer globally-scoped-secret"})
+        assert unsupported.status_code == 404
+        assert unsupported.json()["error"]["code"] == "ENDPOINT_UNSUPPORTED"
         assert len(backend.hits) == 0
 
         # 2. valid credential + allowed scope -> proxied 200 with backend reply
@@ -99,6 +117,7 @@ def test_live_gateway_full_path_over_real_sockets():
             r = client.get(f"{base}/runtime/update",
                            headers={"Authorization": "Bearer globally-scoped-secret"})
         assert r.status_code == 403
+        assert r.json()["error"]["code"] == "ENDPOINT_FORBIDDEN"
         assert len(backend.hits) == 1  # backend untouched
 
         # 4. models:list allowed
@@ -203,6 +222,8 @@ def test_live_gateway_oversize_body_refused_before_backend():
                          "Content-Type": "application/json"},
             )
         assert r.status_code == 413
+        assert r.json()["error"]["code"] == "REQUEST_TOO_LARGE"
+        assert r.json()["request_id"] == r.headers["X-Request-ID"]
         assert len(backend.hits) == 0
     finally:
         server.shutdown()

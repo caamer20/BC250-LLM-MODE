@@ -67,6 +67,16 @@ versions are tagged in git.
 - Persisted a bounded, redacted Open WebUI convergence receipt bound to the
   image, provider adapter, and selected model. Status immediately invalidates
   provider/model/stream readiness when any of those identities changes.
+- Added the EUF-5 closed problem-detail catalog for readiness, authentication,
+  authorization, compatibility, Open WebUI, network, streaming, and recovery
+  failures. Connections consumes the same fixed user messages and never paints
+  a blocked durable outcome as success.
+- Gateway errors are now OpenAI-shaped, redacted, and correlated by a bounded
+  `X-Request-ID`. Missing/invalid keys return 401 with `WWW-Authenticate`,
+  missing named-client scope returns 403, recognized unsupported inference
+  probes return authenticated 404 `ENDPOINT_UNSUPPORTED`, and arbitrary
+  management paths remain unproxied 403 denials. Backend exception text is no
+  longer reflected to clients.
 
 ### Catalog, WebUI, and desktop lifecycle
 

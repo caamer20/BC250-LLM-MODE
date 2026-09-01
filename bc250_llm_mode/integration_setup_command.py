@@ -15,6 +15,7 @@ from .operations.integration_setup import (
 )
 from .operations.model import OperationState
 from .operations.repositories import OperationRepository, json_loads_or_none
+from .problem_details import problem_detail
 
 
 @dataclass(frozen=True)
@@ -138,10 +139,12 @@ class IntegrationSetupCommandService:
             selected_id = self.id_provider()
         alias = str(baseline["state"].get("current_model") or "").strip()
         if not alias:
+            problem = problem_detail("MODEL_NOT_SELECTED")
             return IntegrationSetupOutcome(
                 None, "BLOCKED", detail={
-                    "reason_code": "MODEL_NOT_SELECTED",
-                    "safe_action": "Choose a model, then run connection setup again.",
+                    "reason_code": problem.code,
+                    "safe_action": problem.user_message,
+                    "problem": problem.to_dict(),
                 })
         with self.units.read() as conn:
             active_operations = [
@@ -149,9 +152,13 @@ class IntegrationSetupCommandService:
                 if item.operation_type is OPERATION_TYPE
             ]
         if active_operations:
+            problem = problem_detail("RECOVERY_REQUIRED")
             return IntegrationSetupOutcome(
                 active_operations[0].id, "BUSY", detail={
-                    "reason_code": "INTEGRATION_ALREADY_RUNNING"})
+                    "reason_code": "INTEGRATION_ALREADY_RUNNING",
+                    "safe_action": "Wait for the active connection setup in Activity.",
+                    "problem": problem.to_dict(),
+                })
         record = self.enqueue.enqueue(
             operation_type=OPERATION_TYPE,
             payload={
@@ -174,12 +181,23 @@ class IntegrationSetupCommandService:
         )
         execution = self.engine_factory().execute_one(record.id)
         if execution.kind == "SKIPPED_BUSY":
+            problem = problem_detail("RECOVERY_REQUIRED")
             return IntegrationSetupOutcome(
                 record.id, "BUSY", selected_id,
-                detail={"reason_code": "INTEGRATION_RESOURCE_BUSY"})
+                detail={
+                    "reason_code": "INTEGRATION_RESOURCE_BUSY",
+                    "safe_action": "Wait for the conflicting action in Activity, then retry.",
+                    "problem": problem.to_dict(),
+                })
         with self.units.read() as conn:
             final = OperationRepository(conn).require(record.id)
         if final.state is not OperationState.SUCCEEDED:
+            reason_code = final.error_code or final.result_code or "RECOVERY_REQUIRED"
+            problem = problem_detail(
+                reason_code if reason_code in {
+                    "CLIENT_TEST_FAILED", "RECOVERY_REQUIRED",
+                    "OPENWEBUI_START_FAILED", "OPENWEBUI_MODEL_MISSING",
+                } else "RECOVERY_REQUIRED")
             return IntegrationSetupOutcome(
                 record.id,
                 {
@@ -190,8 +208,10 @@ class IntegrationSetupCommandService:
                 }.get(final.state, "BUSY"),
                 selected_id,
                 detail={
-                    "reason_code": final.error_code or final.result_code,
+                    "reason_code": reason_code,
                     "data_changed": final.state is not OperationState.FAILED_SAFE,
+                    "safe_action": problem.user_message,
+                    "problem": problem.to_dict(),
                 },
             )
         snapshot = self.app.connections.snapshot(client_id=selected_id).to_dict()

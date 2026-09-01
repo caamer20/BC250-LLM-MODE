@@ -177,6 +177,25 @@ Implement one `gateway.py` module that:
 - Image changes are an explicit durable operation with verification/rollback,
   never a silent tag pull.
 
+### 3.6 D6 — stable protocol errors without expanding the API
+
+The EUF-5 gateway response contract is OpenAI-shaped and redacted. Every
+gateway-generated error contains a stable public code, a fixed user message,
+an OpenAI-compatible error type, and the same bounded request ID returned in
+`X-Request-ID`. Missing or rejected Bearer credentials return 401 plus
+`WWW-Authenticate: Bearer` using `AUTH_MISSING` or `AUTH_INVALID`.
+Authenticated clients lacking a capability receive 403 `SCOPE_NOT_GRANTED`.
+
+The recognized OpenAI inference probe paths `/v1/embeddings`,
+`/v1/completions`, and `/v1/responses` are not implemented and are never
+proxied. After authentication they return 404 `ENDPOINT_UNSUPPORTED`, allowing
+a client to distinguish incompatibility from authorization failure without
+creating a new capability. Unknown and management paths remain 403
+`ENDPOINT_FORBIDDEN` and are denied before proxying. Backend identity failure,
+transport failure, malformed input, bounds, and rate limits map to the closed
+problem catalog; raw exception text, backend error bodies, credentials,
+request content, paths, and host details are never reflected.
+
 ## 4. Mutable-tag disposition
 
 The plan (§16.1) requires explicit version spaces. For integration images

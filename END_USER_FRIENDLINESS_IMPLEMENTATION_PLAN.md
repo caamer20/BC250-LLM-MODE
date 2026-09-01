@@ -1,6 +1,6 @@
 # BC250 LLM MODE — End-User Friendliness Completion Implementation Plan
 
-**Status:** Execution in progress. EUF-0 through EUF-4 are developer-
+**Status:** Execution in progress. EUF-0 through EUF-5 are developer-
 implemented; later EUF milestones and all physical, security,
 human-acceptance, soak, publication, and release gates remain pending.
 Developer tests and live diagnostics on one BC250 do not constitute those

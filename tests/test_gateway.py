@@ -29,6 +29,10 @@ def _handle(policy, *, method="POST", path="/v1/chat/completions", body=b'{}',
                          backend_request=lambda: backend)
 
 
+def _error(body):
+    return json.loads(body)["error"]
+
+
 def test_health_is_credential_free_and_truthful():
     p = _policy(_store())  # no credential provisioned
     status, body, _ = _handle(p, method="GET", path="/health", token="")
@@ -45,9 +49,10 @@ def test_missing_or_wrong_credential_fails_closed():
     p = _policy(store)
     status, body, _ = _handle(p, token="wrong-secret")
     assert status == 401
-    assert json.loads(body)["error"] == "invalid credential"
+    assert _error(body)["code"] == "AUTH_INVALID"
+    assert json.loads(body)["request_id"] == "rid-1"
     status, body, _ = _handle(p, token="")
-    assert status == 401
+    assert status == 401 and _error(body)["code"] == "AUTH_MISSING"
 
 
 def test_management_endpoints_always_denied_even_with_credentials():
@@ -58,15 +63,19 @@ def test_management_endpoints_always_denied_even_with_credentials():
                  "/fs/rm", "/backup", "/systemctl", "/", "/management"):
         status, body, _ = _handle(p, path=path, token="super-secret")
         assert status == 403, path
-        assert json.loads(body)["error"] in ("management endpoint refused",)
+        assert _error(body)["code"] == "ENDPOINT_FORBIDDEN"
 
 
-def test_unknown_v1_endpoint_is_management_and_refused():
+def test_known_unsupported_inference_endpoint_is_explicit_after_auth():
     store = _store()
     store.provisioning_record("super-secret")
     p = _policy(store)
     status, body, _ = _handle(p, path="/v1/embeddings", token="super-secret")
-    assert status == 403
+    assert status == 404
+    assert _error(body)["code"] == "ENDPOINT_UNSUPPORTED"
+    status, body, _ = _handle(p, path="/v1/responses", token="")
+    assert status == 401
+    assert _error(body)["code"] == "AUTH_MISSING"
 
 
 def test_scope_gating_inference_stream_and_models():
@@ -79,10 +88,10 @@ def test_scope_gating_inference_stream_and_models():
     assert status == 200
     status, body, _ = _handle(
         p, body=b'{"stream": true}', token="super-secret")
-    assert status == 403 and b"stream" in body
+    assert status == 403 and _error(body)["code"] == "SCOPE_NOT_GRANTED"
     status, body, _ = _handle(
         p, method="GET", path="/v1/models", body=b'', token="super-secret")
-    assert status == 403 and b"models:list" in body
+    assert status == 403 and _error(body)["code"] == "SCOPE_NOT_GRANTED"
     # models:list only
     p2 = _policy(store, scopes=(g.SCOPE_MODELS_LIST,))
     status, body, _ = _handle(
@@ -97,7 +106,7 @@ def test_request_body_size_cap_denied_before_backend():
     huge = b"x" * (g.MAX_BODY_BYTES + 1)
     status, body, _ = _handle(p, body=huge, token="super-secret")
     assert status == 413
-    assert b"large" in body
+    assert _error(body)["code"] == "REQUEST_TOO_LARGE"
 
 
 def test_generation_and_context_bounds_refused():
@@ -106,9 +115,9 @@ def test_generation_and_context_bounds_refused():
     p = _policy(store)
     bad = _handle(p, body=json.dumps({"max_tokens": g.MAX_GENERATED_TOKENS + 1}).encode(),
                   token="super-secret")
-    assert bad[0] == 400 and b"max_tokens" in bad[1]
+    assert bad[0] == 400 and _error(bad[1])["code"] == "REQUEST_TOO_LARGE"
     bad2 = _handle(p, body=b'{"n_ctx": 999999}', token="super-secret")
-    assert bad2[0] == 400 and b"context" in bad2[1]
+    assert bad2[0] == 400 and _error(bad2[1])["code"] == "REQUEST_TOO_LARGE"
 
 
 def test_malformed_json_body_rejected():
@@ -116,7 +125,7 @@ def test_malformed_json_body_rejected():
     store.provisioning_record("super-secret")
     p = _policy(store)
     status, body, _ = _handle(p, body=b'{"stream": ', token="super-secret")
-    assert status == 400 and b"malformed" in body
+    assert status == 400 and _error(body)["code"] == "INVALID_REQUEST"
 
 
 def test_fail_closed_when_backend_identity_unreachable():
@@ -128,7 +137,7 @@ def test_fail_closed_when_backend_identity_unreachable():
     status, body, _ = server.handle(
         "rid", "c", "POST", "/v1/chat/completions", 128, b'{}', "super-secret",
         backend_request=lambda: (200, b'{"ok":1}'))
-    assert status == 503 and b"backend identity" in body
+    assert status == 503 and _error(body)["code"] == "GATEWAY_BACKEND_UNVERIFIED"
 
 
 def test_backend_forward_failure_maps_to_502_and_audits():
@@ -144,7 +153,8 @@ def test_backend_forward_failure_maps_to_502_and_audits():
     status, body, _ = server.handle(
         "rid", "c", "POST", "/v1/chat/completions", 128, b'{}', "super-secret",
         backend_request=boom)
-    assert status == 502 and b"conn refused" in body
+    assert status == 502 and _error(body)["code"] == "UPSTREAM_FAILED"
+    assert b"conn refused" not in body
 
 
 def test_oversize_backend_response_releases_slot_and_audits_failure():
@@ -171,7 +181,7 @@ def test_oversize_backend_response_releases_slot_and_audits_failure():
         backend_request=lambda: (200, b"too-large"),
     )
     assert status == 502
-    assert b"response too large" in body
+    assert _error(body)["code"] == "UPSTREAM_FAILED"
     assert rate._row("client-large").inflight == 0
     event = audit.snapshot()[-1]
     assert event.outcome == "backend"

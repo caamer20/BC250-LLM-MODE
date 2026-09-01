@@ -12,6 +12,7 @@ from tkinter import ttk
 
 from ..connection_setup import CLIENT_CARDS, instructions_for
 from ..presentation import format_timestamp
+from ..problem_details import problem_detail
 from .view_state import Confirmation, Notice
 
 
@@ -40,10 +41,8 @@ def connection_action_notice(result: Any, success_title: str) -> Notice:
     if not isinstance(detail, Mapping):
         detail = {}
     code = str(detail.get("reason_code") or status)
-    action = str(
-        detail.get("safe_action")
-        or "Open Activity for details, resolve the reported condition, and retry."
-    )
+    problem = problem_detail(code)
+    action = str(detail.get("safe_action") or problem.user_message)
     level = "warning" if status in {"BLOCKED", "BUSY", "CANCELLED"} else "error"
     return Notice(level, "Connection not ready", f"{code}. {action}")
 
@@ -90,29 +89,16 @@ def build_connections_view(
             "last_used_at": item.get("last_used_at"),
             "last_endpoint_class": item.get("last_endpoint_class"),
         })
-    problem_details = {
-        "MODEL_ABSENT": "Choose and install a model before connecting another device.",
-        "MODEL_STOPPED": "Start the selected model, then run the connection check.",
-        "MODEL_IDENTITY_MISMATCH": "Reconcile the running model before sharing it.",
-        "GATEWAY_NOT_INSTALLED": "Enable the authenticated gateway for this boot.",
-        "GATEWAY_STOPPED": "Start the authenticated gateway for this boot.",
-        "GATEWAY_CREDENTIAL_REQUIRED": "Create a credential for this device or app.",
-        "TAILSCALE_DISCONNECTED": "Connect this BC-250 to its private tailnet.",
-        "SERVE_MAPPING_MISSING": "Publish the reviewed private HTTPS mappings.",
-        "PUBLIC_FUNNEL_ENABLED": "Disable public Funnel exposure before continuing.",
-        "CLIENT_VERIFICATION_STALE": "Run the guided connection check again.",
-        "CLIENT_VERIFICATION_FAILED": "Review the failed check, fix it, and retry.",
-        "CLIENT_VERIFICATION_INVALIDATED": "A dependency changed; run the connection check again.",
-    }
     problem_code = str(readiness.get("primary_problem_code") or "")
     return ConnectionPageView(
         headline="Ready for another device" if ready else "Finish connection checks",
         detail=(
             "Use the exact values below. The raw model port and /api are not supported."
-            if ready else problem_details.get(
-                problem_code,
-                str(snapshot.get("next_action") or
-                    "Start the model, add a client, then run the guided test."),
+            if ready else (
+                problem_detail(problem_code).user_message
+                if problem_code
+                else str(snapshot.get("next_action") or
+                         "Start the model, add a client, then run the guided test.")
             )),
         ready=ready,
         model_alias=(

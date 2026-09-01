@@ -30,6 +30,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from .problem_details import openai_error, problem_detail
+
 # --- immutable identity / versioning (plan §16.1) -----------------------------
 GATEWAY_API_VERSION = 1
 
@@ -199,6 +201,8 @@ def classify_path(path: str) -> str:
         return SCOPE_MODELS_LIST
     if clean == "/v1/chat/completions":
         return SCOPE_INFERENCE_READ  # stream/non-stream further classified by body
+    if clean in {"/v1/embeddings", "/v1/completions", "/v1/responses"}:
+        return "unsupported-inference"
     # everything else — including the index and any runtime/thermal/ops/fs/
     # host/systemctl/backup/restore surface — is management and always refused.
     return "management"
@@ -224,6 +228,7 @@ class Decision:
     scope: str | None = None
     status: int = 200
     principal: str | None = None
+    problem_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -276,19 +281,16 @@ class GatewayPolicy:
         # 1. header size bound
         if header_bytes > MAX_HEADER_BYTES:
             return Decision(False, "malformed", "request headers too large",
-                            status=431)
+                            status=431, problem_code="REQUEST_HEADERS_TOO_LARGE")
         classification = classify_path(path)
         if classification == "health":
             # health is intentionally credential-free (gateway readiness only)
             return Decision(True, "ok", "health", scope=None, status=200)
         if classification == "management":
             return Decision(False, "denied", "management endpoint refused",
-                            scope=None, status=403)
-        # 2. size gate before parsing
-        if len(body) > MAX_BODY_BYTES:
-            return Decision(False, "denied", "request body too large",
-                            status=413)
-        # 3. credential.  Migration-011 stores authenticate to a named client
+                            scope=None, status=403,
+                            problem_code="ENDPOINT_FORBIDDEN")
+        # 2. credential.  Migration-011 stores authenticate to a named client
         # and its own scopes; the legacy singleton adapter remains supported
         # until its explicit compatibility surface is removed.
         identity = None
@@ -296,21 +298,37 @@ class GatewayPolicy:
         if callable(authenticate):
             identity = authenticate(presented_token)
             if identity is None:
-                return Decision(False, "denied", "invalid credential",
-                                status=401, principal="unauthenticated")
+                code = "AUTH_MISSING" if not presented_token else "AUTH_INVALID"
+                return Decision(False, "denied", "credential rejected",
+                                status=401, principal="unauthenticated",
+                                problem_code=code)
             granted = set(identity.scopes)
             principal = str(identity.client_id)
         else:
             if not self.store.is_valid(presented_token):
-                return Decision(False, "denied", "invalid credential",
-                                status=401)
+                code = "AUTH_MISSING" if not presented_token else "AUTH_INVALID"
+                return Decision(False, "denied", "credential rejected",
+                                status=401, problem_code=code)
             granted = self._allowed
             principal = None
+        if classification == "unsupported-inference":
+            return Decision(
+                False, "denied", "known inference endpoint is unsupported",
+                status=404, principal=principal,
+                problem_code="ENDPOINT_UNSUPPORTED",
+            )
+        # 3. size gate after authentication so malformed clients do not receive
+        # inference-surface details before proving an identity.
+        if len(body) > MAX_BODY_BYTES:
+            return Decision(False, "denied", "request body too large",
+                            status=413, principal=principal,
+                            problem_code="REQUEST_TOO_LARGE")
         # 4. scope
         required = _ScopeMatrix.required_scope(classification, body)
         if required not in granted:
             return Decision(False, "denied", f"scope not granted: {required}",
-                            scope=required, status=403, principal=principal)
+                            scope=required, status=403, principal=principal,
+                            problem_code="SCOPE_NOT_GRANTED")
         return Decision(True, "ok", "allowed", scope=required, status=200,
                         principal=principal)
 
@@ -330,20 +348,24 @@ def validate_body_bounds(body: bytes, ml) -> Decision:
         payload = json.loads(body)
     except (ValueError, TypeError):
         if body.strip():
-            return Decision(False, "malformed", "malformed JSON body", status=400)
+            return Decision(False, "malformed", "malformed JSON body", status=400,
+                            problem_code="INVALID_REQUEST")
         return Decision(True, "ok", "empty body", status=200)
     if not isinstance(payload, dict):
-        return Decision(False, "malformed", "body must be a JSON object", status=400)
+        return Decision(False, "malformed", "body must be a JSON object", status=400,
+                        problem_code="INVALID_REQUEST")
     # maximum context budget = max_tokens + up-to model's ctx; enforce combined cap
     max_tokens = payload.get("max_tokens")
     if isinstance(max_tokens, int) and max_tokens <= 0:
-        return Decision(False, "denied", "max_tokens must be positive", status=400)
+        return Decision(False, "denied", "max_tokens must be positive", status=400,
+                        problem_code="INVALID_REQUEST")
     if isinstance(max_tokens, int) and max_tokens > MAX_GENERATED_TOKENS:
         return Decision(False, "denied", "max_tokens exceeds gateway cap",
-                        status=400)
+                        status=400, problem_code="REQUEST_TOO_LARGE")
     context = payload.get("n_ctx") or payload.get("context_length")
     if isinstance(context, int) and context > MAX_CONTEXT_TOKENS:
-        return Decision(False, "denied", "context exceeds gateway cap", status=400)
+        return Decision(False, "denied", "context exceeds gateway cap", status=400,
+                        problem_code="REQUEST_TOO_LARGE")
     return Decision(True, "ok", "bounds ok", status=200)
 
 
@@ -498,6 +520,7 @@ class GatewayServer:
                     scope=scope,
                     status=bounds.status,
                     principal=principal,
+                    problem_code=bounds.problem_code,
                 )
         if not decision.allow:
             self.audit.record(
@@ -520,6 +543,7 @@ class GatewayServer:
                 scope=scope,
                 status=503,
                 principal=principal,
+                problem_code="GATEWAY_BACKEND_UNVERIFIED",
             )
             self.audit.record(
                 actor=principal,
@@ -540,6 +564,7 @@ class GatewayServer:
                 scope=scope,
                 status=429,
                 principal=principal,
+                problem_code="RATE_LIMITED",
             )
             self.audit.record(
                 actor=principal,
@@ -608,8 +633,11 @@ class GatewayServer:
         )
         decision = prepared.decision
         if not decision.allow:
-            reason = json.dumps({"error": decision.reason}).encode("utf-8")
-            return decision.status, reason, False
+            payload = openai_error(problem_detail(
+                decision.problem_code or "GATEWAY_INTERNAL",
+                request_id=request_id,
+            ))
+            return decision.status, json.dumps(payload).encode("utf-8"), False
         # health short-circuits: reports gateway readiness/redacted backend
         # identity, never proxies and never requires a credential.
         if classify_path(path) == "health":
@@ -620,24 +648,29 @@ class GatewayServer:
             }
             return 200, json.dumps(payload).encode("utf-8"), False
         response_status = 502
-        response_body = json.dumps({"error": "backend forward failed"}).encode(
-            "utf-8"
-        )
+        response_body = json.dumps(openai_error(problem_detail(
+            "UPSTREAM_FAILED", request_id=request_id,
+        ))).encode("utf-8")
         outcome = "backend"
         try:
             response_status, response_body = backend_request()
             if len(response_body) > self._max_response:
                 response_status = 502
-                response_body = json.dumps(
-                    {"error": "backend response too large"}
-                ).encode("utf-8")
+                response_body = json.dumps(openai_error(problem_detail(
+                    "UPSTREAM_FAILED", request_id=request_id,
+                ))).encode("utf-8")
+            elif response_status >= 400:
+                code = "UPSTREAM_FAILED" if response_status >= 500 else "INVALID_REQUEST"
+                outcome = "backend" if response_status >= 500 else "malformed"
+                response_body = json.dumps(openai_error(problem_detail(
+                    code, request_id=request_id,
+                ))).encode("utf-8")
             else:
                 outcome = "ok"
-        except Exception as exc:  # noqa: BLE001 - map to bounded 502
-            response_body = json.dumps(
-                {"error": "backend forward failed",
-                 "message": str(exc)[:200]}
-            ).encode("utf-8")
+        except Exception:  # noqa: BLE001 - map to bounded redacted 502
+            response_body = json.dumps(openai_error(problem_detail(
+                "UPSTREAM_FAILED", request_id=request_id,
+            ))).encode("utf-8")
         finally:
             self.finish_request(
                 prepared,
@@ -717,14 +750,6 @@ class _GatewayHandler:
         # snatch client by X-Forwarded-For peer or a stable integration label
         actor = headers.get("x-gateway-client") or headers.get("x-forwarded-for") or "unknown"
 
-        if len(body) > MAX_BODY_BYTES:
-            gate.audit.record(
-                actor=actor, scope="n/a", request_id=request_id, method=method,
-                path=path, outcome="malformed", status=413,
-            )
-            return 413, {"Content-Type": "application/json"}, json.dumps(
-                {"error": "request body too large"}).encode("utf-8")
-
         def backend_request() -> tuple[int, bytes]:
             # fail-closed identity already checked in handle(); here we proxy
             return gate.proxy_request(request_id, method, path, body, presented)
@@ -736,9 +761,12 @@ class _GatewayHandler:
         headers_out = {
             "Content-Type": "application/json",
             "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+            "X-Request-ID": request_id,
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "no-store",
         }
+        if status == 401:
+            headers_out["WWW-Authenticate"] = "Bearer"
         return status, headers_out, response_body
 
     def _route(self, request_id, actor, method, path, header_bytes, body,
@@ -849,17 +877,22 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
             presented,
         )
         if not prepared.decision.allow:
-            payload = json.dumps(
-                {"error": prepared.decision.reason}
-            ).encode("utf-8")
+            payload = json.dumps(openai_error(problem_detail(
+                prepared.decision.problem_code or "GATEWAY_INTERNAL",
+                request_id=request_id,
+            ))).encode("utf-8")
+            headers_out = {
+                "Content-Type": "application/json",
+                "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                "X-Request-ID": request_id,
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store",
+            }
+            if prepared.decision.status == 401:
+                headers_out["WWW-Authenticate"] = "Bearer"
             self._send_buffered(
                 prepared.decision.status,
-                {
-                    "Content-Type": "application/json",
-                    "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
-                    "X-Content-Type-Options": "nosniff",
-                    "Cache-Control": "no-store",
-                },
+                headers_out,
                 payload,
             )
             return
@@ -871,6 +904,26 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
             with gateway.open_backend_stream(
                 self.command, self.path, body
             ) as response:
+                if response.status_code >= 400:
+                    response_status = 502 if response.status_code >= 500 else 400
+                    outcome = "backend" if response.status_code >= 500 else "malformed"
+                    self._send_buffered(
+                        response_status,
+                        {
+                            "Content-Type": "application/json",
+                            "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                            "X-Request-ID": request_id,
+                            "X-Content-Type-Options": "nosniff",
+                            "Cache-Control": "no-store",
+                        },
+                        json.dumps(openai_error(problem_detail(
+                            "UPSTREAM_FAILED" if response.status_code >= 500
+                            else "INVALID_REQUEST",
+                            request_id=request_id,
+                        ))).encode("utf-8"),
+                    )
+                    headers_sent = True
+                    return
                 declared_length = int(response.headers.get("Content-Length") or 0)
                 if declared_length > gateway._max_response:
                     raise RuntimeError("backend stream response too large")
@@ -883,6 +936,7 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
                 self.send_header(
                     "X-Gateway-Api-Version", str(GATEWAY_API_VERSION)
                 )
+                self.send_header("X-Request-ID", request_id)
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("Cache-Control", "no-cache")
                 self.send_header("X-Accel-Buffering", "no")
@@ -904,15 +958,19 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
             outcome = "client_closed"
         except Exception:  # noqa: BLE001 - fail closed before headers are sent
             if not headers_sent:
+                response_status = 502
                 self._send_buffered(
                     502,
                     {
                         "Content-Type": "application/json",
                         "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                        "X-Request-ID": request_id,
                         "X-Content-Type-Options": "nosniff",
                         "Cache-Control": "no-store",
                     },
-                    json.dumps({"error": "backend forward failed"}).encode("utf-8"),
+                    json.dumps(openai_error(problem_detail(
+                        "UPSTREAM_FAILED", request_id=request_id,
+                    ))).encode("utf-8"),
                 )
         finally:
             gateway.finish_request(
@@ -942,9 +1000,19 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
                 headers=headers,
                 body=body,
             )
-        except Exception as exc:  # noqa: BLE001 - fail closed on any handler error
-            status, headers_out, payload = (502, {"Content-Type": "application/json"},
-                                            json.dumps({"error": "gateway internal"}).encode("utf-8"))
+        except Exception:  # noqa: BLE001 - fail closed with a redacted problem
+            request_id = new_request_id()
+            status = 502
+            headers_out = {
+                "Content-Type": "application/json",
+                "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                "X-Request-ID": request_id,
+                "X-Content-Type-Options": "nosniff",
+                "Cache-Control": "no-store",
+            }
+            payload = json.dumps(openai_error(problem_detail(
+                "GATEWAY_INTERNAL", request_id=request_id,
+            ))).encode("utf-8")
         self._send_buffered(status, headers_out, payload)
 
     do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = _run
