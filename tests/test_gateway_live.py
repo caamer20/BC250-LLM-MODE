@@ -12,6 +12,7 @@ from __future__ import annotations
 import http.server
 import json
 import threading
+import time
 
 import httpx
 
@@ -23,6 +24,7 @@ class _FakeBackend:
 
     def __init__(self) -> None:
         self.hits: list[tuple[str, str]] = []
+        self.authorization_headers: list[str | None] = []
         handler = type(
             "H",
             (http.server.BaseHTTPRequestHandler,),
@@ -34,6 +36,7 @@ class _FakeBackend:
             body = inst.rfile.read(length)
             sequence = (inst.client_address[0], inst.path, body)
             self.hits.append(sequence)
+            self.authorization_headers.append(inst.headers.get("Authorization"))
             payload = b'{"id":"cmpl-live","choices":[{"message":{"role":"assistant","content":"backend-reply"}}]}'
             inst.send_response(200)
             inst.send_header("Content-Type", "application/json")
@@ -89,6 +92,7 @@ def test_live_gateway_full_path_over_real_sockets():
         assert b"backend-reply" in r.content
         assert r.headers["X-Gateway-Api-Version"] == "1"
         assert len(backend.hits) == 1  # exactly one forward, backend got real payload
+        assert backend.authorization_headers == [None]
 
         # 3. management endpoint always refused even with a valid credential
         with httpx.Client(timeout=5.0) as client:
@@ -120,6 +124,71 @@ def test_live_gateway_full_path_over_real_sockets():
         server.shutdown()
         server.server_close()
         backend.shutdown()
+
+
+def test_live_gateway_passes_sse_through_without_buffering_as_json():
+    first_chunk_sent = threading.Event()
+    release_second_chunk = threading.Event()
+
+    class _StreamingBackend(http.server.BaseHTTPRequestHandler):
+        authorization_headers: list[str | None] = []
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            self.rfile.read(length)
+            self.authorization_headers.append(self.headers.get("Authorization"))
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(b'data: {"choices":[{"delta":{"content":"one"}}]}\n\n')
+            self.wfile.flush()
+            first_chunk_sent.set()
+            release_second_chunk.wait(timeout=2)
+            self.wfile.write(b"data: [DONE]\n\n")
+            self.wfile.flush()
+
+        def log_message(self, *_args):
+            return None
+
+    backend = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _StreamingBackend)
+    backend_thread = threading.Thread(target=backend.serve_forever, daemon=True)
+    backend_thread.start()
+    gate, server, port = _start_gateway(
+        f"http://127.0.0.1:{backend.server_address[1]}"
+    )
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            with client.stream(
+                "POST",
+                f"http://127.0.0.1:{port}/v1/chat/completions",
+                json={
+                    "stream": True,
+                    "messages": [{"role": "user", "content": "hi"}],
+                },
+                headers={"Authorization": "Bearer globally-scoped-secret"},
+            ) as response:
+                assert response.status_code == 200
+                assert response.headers["Content-Type"].startswith(
+                    "text/event-stream"
+                )
+                lines = response.iter_lines()
+                assert next(lines).startswith("data: ")
+                assert first_chunk_sent.is_set()
+                release_second_chunk.set()
+                assert any(line == "data: [DONE]" for line in lines)
+        deadline = time.monotonic() + 1
+        while gate.rate._row("unknown").inflight and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert gate.rate._row("unknown").inflight == 0
+        assert _StreamingBackend.authorization_headers == [None]
+    finally:
+        release_second_chunk.set()
+        server.shutdown()
+        server.server_close()
+        backend.shutdown()
+        backend.server_close()
+        backend_thread.join(timeout=2)
 
 
 def test_live_gateway_oversize_body_refused_before_backend():

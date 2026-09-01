@@ -26,6 +26,7 @@ import http.server
 import json
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
@@ -64,7 +65,7 @@ class AuditEvent:
     request_id: str
     method: str
     path: str
-    outcome: str        # ok | denied | malformed | rate_limited | concurrency | backend
+    outcome: str        # ok | denied | malformed | rate_limited | backend | client_closed
     status: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -223,6 +224,14 @@ class Decision:
     scope: str | None = None
     status: int = 200
     principal: str | None = None
+
+
+@dataclass(frozen=True)
+class _PreparedRequest:
+    decision: Decision
+    principal: str
+    scope: str | None
+    rate_acquired: bool = False
 
 
 class _ScopeMatrix:
@@ -453,6 +462,131 @@ class GatewayServer:
     def backend_ready(self) -> bool:
         return bool(self._report_backend())
 
+    def prepare_request(
+        self,
+        request_id: str,
+        client: str,
+        method: str,
+        path: str,
+        header_bytes: int,
+        body: bytes,
+        presented_token: str,
+    ) -> _PreparedRequest:
+        """Authorize, validate, and reserve one request slot.
+
+        Denials are audited here. An allowed non-health result with
+        ``rate_acquired`` set MUST be passed to :meth:`finish_request` exactly
+        once by the buffered or streaming adapter.
+        """
+        decision = self.policy.authorize(
+            request_id=request_id,
+            method=method,
+            path=path,
+            body=body,
+            header_bytes=header_bytes,
+            presented_token=presented_token,
+        )
+        scope = decision.scope
+        principal = decision.principal or client
+        if decision.outcome == "ok" and scope is not None:
+            bounds = validate_body_bounds(body, None)
+            if not bounds.allow:
+                decision = Decision(
+                    bounds.allow,
+                    bounds.outcome,
+                    bounds.reason,
+                    scope=scope,
+                    status=bounds.status,
+                    principal=principal,
+                )
+        if not decision.allow:
+            self.audit.record(
+                actor=principal,
+                scope=scope or "n/a",
+                request_id=request_id,
+                method=method,
+                path=path,
+                outcome=decision.outcome,
+                status=decision.status,
+            )
+            return _PreparedRequest(decision, principal, scope)
+        if classify_path(path) == "health":
+            return _PreparedRequest(decision, principal, scope)
+        if not self.backend_ready():
+            unavailable = Decision(
+                False,
+                "backend",
+                "gateway cannot reach the expected backend identity",
+                scope=scope,
+                status=503,
+                principal=principal,
+            )
+            self.audit.record(
+                actor=principal,
+                scope=scope or "n/a",
+                request_id=request_id,
+                method=method,
+                path=path,
+                outcome=unavailable.outcome,
+                status=unavailable.status,
+            )
+            return _PreparedRequest(unavailable, principal, scope)
+        ok, message = self.rate.check(principal)
+        if not ok:
+            limited = Decision(
+                False,
+                "rate_limited",
+                message,
+                scope=scope,
+                status=429,
+                principal=principal,
+            )
+            self.audit.record(
+                actor=principal,
+                scope=scope or "n/a",
+                request_id=request_id,
+                method=method,
+                path=path,
+                outcome=limited.outcome,
+                status=limited.status,
+            )
+            return _PreparedRequest(limited, principal, scope)
+        return _PreparedRequest(decision, principal, scope, rate_acquired=True)
+
+    def finish_request(
+        self,
+        prepared: _PreparedRequest,
+        *,
+        request_id: str,
+        method: str,
+        path: str,
+        outcome: str,
+        status: int,
+    ) -> None:
+        """Release a prepared request and record content-free outcome data."""
+        if prepared.rate_acquired:
+            self.rate.release(prepared.principal)
+        self.audit.record(
+            actor=prepared.principal,
+            scope=prepared.scope or "n/a",
+            request_id=request_id,
+            method=method,
+            path=path,
+            outcome=outcome,
+            status=status,
+        )
+        if (
+            prepared.scope is not None
+            and outcome == "ok"
+            and 200 <= status < 400
+        ):
+            try:
+                self.policy.record_use(prepared.principal, prepared.scope)
+            except Exception:
+                # Usage freshness is optional redacted evidence. It can never
+                # turn a successful inference request into a failure.
+                pass
+
     # -- request handling core (takes request bytes; returns (status, headers, body,
     #    stream)) so it can be driven both by the live HTTP handler and by tests.
     def handle(self, request_id: str, client: str, method: str, path: str,
@@ -463,26 +597,17 @@ class GatewayServer:
         Returns ``(status, body, stream)``. ``stream`` is advisory (the live
         handler uses SSE pass-through); tests consume non-stream bodies.
         """
-        decision = self.policy.authorize(
-            request_id=request_id, method=method, path=path, body=body,
-            header_bytes=header_bytes, presented_token=presented_token,
+        prepared = self.prepare_request(
+            request_id,
+            client,
+            method,
+            path,
+            header_bytes,
+            body,
+            presented_token,
         )
-        scope = decision.scope
-        principal = decision.principal or client
-        if decision.outcome == "ok" and scope is not None:
-            bounds = validate_body_bounds(body, None)
-            if not bounds.allow:
-                decision = Decision(
-                    bounds.allow, bounds.outcome, bounds.reason,
-                    scope=scope, status=bounds.status, principal=principal,
-                )
-        # management/unknown handled by authorize
+        decision = prepared.decision
         if not decision.allow:
-            self.audit.record(
-                actor=principal, scope=scope or "n/a", request_id=request_id,
-                method=method, path=path, outcome=decision.outcome,
-                status=decision.status,
-            )
             reason = json.dumps({"error": decision.reason}).encode("utf-8")
             return decision.status, reason, False
         # health short-circuits: reports gateway readiness/redacted backend
@@ -494,51 +619,35 @@ class GatewayServer:
                 "backend_identity": "verified" if self.backend_ready() else "unverified",
             }
             return 200, json.dumps(payload).encode("utf-8"), False
-        # fail closed: cannot reach the expected backend identity
-        if not self.backend_ready():
-            self.audit.record(
-                actor=principal, scope=scope or "n/a", request_id=request_id,
-                method=method, path=path, outcome="backend",
-                status=503,
-            )
-            return 503, json.dumps(
-                {"error": "gateway cannot reach the expected backend identity"}
-            ).encode("utf-8"), False
-        # rate-limit before touching the backend
-        ok, msg = self.rate.check(principal)
-        if not ok:
-            self.audit.record(
-                actor=principal, scope=scope or "n/a", request_id=request_id,
-                method=method, path=path, outcome="rate_limited", status=429,
-            )
-            return 429, json.dumps({"error": msg}).encode("utf-8"), False
+        response_status = 502
+        response_body = json.dumps({"error": "backend forward failed"}).encode(
+            "utf-8"
+        )
+        outcome = "backend"
         try:
-            status, response_body = backend_request()
+            response_status, response_body = backend_request()
+            if len(response_body) > self._max_response:
+                response_status = 502
+                response_body = json.dumps(
+                    {"error": "backend response too large"}
+                ).encode("utf-8")
+            else:
+                outcome = "ok"
         except Exception as exc:  # noqa: BLE001 - map to bounded 502
-            self.audit.record(
-                actor=principal, scope=scope or "n/a", request_id=request_id,
-                method=method, path=path, outcome="backend", status=502,
-            )
-            return 502, json.dumps(
+            response_body = json.dumps(
                 {"error": "backend forward failed",
                  "message": str(exc)[:200]}
-            ).encode("utf-8"), False
+            ).encode("utf-8")
         finally:
-            self.rate.release(principal)
-        if len(response_body) > self._max_response:
-            return 502, json.dumps({"error": "backend response too large"}).encode("utf-8"), False
-        self.audit.record(
-            actor=principal, scope=scope or "n/a", request_id=request_id,
-            method=method, path=path, outcome="ok", status=status,
-        )
-        if scope is not None and 200 <= status < 400:
-            try:
-                self.policy.record_use(principal, scope)
-            except Exception:
-                # Usage freshness is optional redacted evidence.  It can never
-                # turn a successful inference request into a failure.
-                pass
-        return status, response_body, parse_stream(body)
+            self.finish_request(
+                prepared,
+                request_id=request_id,
+                method=method,
+                path=path,
+                outcome=outcome,
+                status=response_status,
+            )
+        return response_status, response_body, parse_stream(body)
 
     # -- helper that builds the actual backend HTTP call (bounded) -----------------
     def proxy_request(self, request_id: str, method: str, path: str,
@@ -549,29 +658,34 @@ class GatewayServer:
         # identity check for the backend (bounded)
         with httpx.Client(timeout=_gateway_timeout()) as client:
             headers = {"Content-Type": "application/json"}
-            if presented_token:
-                headers["Authorization"] = f"Bearer {presented_token}"
             response = client.request(method, url, content=body, headers=headers)
             return response.status_code, response.content
 
-    # -- bounded SSE proxy used by the live handler ---------------------------------
-    def proxy_stream(self, method: str, path: str, body: bytes,
-                     presented_token: str):
+    @contextmanager
+    def open_backend_stream(self, method: str, path: str, body: bytes):
+        """Open one bounded upstream response without forwarding credentials."""
         import httpx
 
         url = f"{self.backend_base}{path.split('?')[0] if '?' in path else path}"
         with httpx.Client(timeout=_gateway_timeout()) as client:
-            headers = {"Content-Type": "application/json"}
-            if presented_token:
-                headers["Authorization"] = f"Bearer {presented_token}"
-            with client.stream(method, url, content=body, headers=headers) as response:
-                status = response.status_code
-                total = 0
-                for chunk in response.iter_bytes():
-                    total += len(chunk)
-                    if total > self._max_response:
-                        break
-                    yield status, chunk
+            with client.stream(
+                method,
+                url,
+                content=body,
+                headers={"Content-Type": "application/json"},
+            ) as response:
+                yield response
+
+    # -- bounded SSE proxy used by the live handler ---------------------------------
+    def proxy_stream(self, method: str, path: str, body: bytes,
+                     presented_token: str):
+        with self.open_backend_stream(method, path, body) as response:
+            total = 0
+            for chunk in response.iter_bytes():
+                total += len(chunk)
+                if total > self._max_response:
+                    break
+                yield response.status_code, chunk
 
 
 # --- live HTTP server -----------------------------------------------------------
@@ -697,20 +811,9 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
     def _headers_dict(self) -> dict[str, str]:
         return {k.lower(): v for k, v in self.headers.items()}
 
-    def _run(self) -> None:
-        gateway: "GatewayServer" = self.server.gateway  # type: ignore[attr-defined]
-        handler = _GatewayHandler(gateway)
-        body = self._read_body()
-        try:
-            status, headers_out, payload = handler.handle(
-                method=self.command,
-                path=self.path,
-                headers=self._headers_dict(),
-                body=body,
-            )
-        except Exception as exc:  # noqa: BLE001 - fail closed on any handler error
-            status, headers_out, payload = (502, {"Content-Type": "application/json"},
-                                            json.dumps({"error": "gateway internal"}).encode("utf-8"))
+    def _send_buffered(
+        self, status: int, headers_out: dict[str, str], payload: bytes
+    ) -> None:
         self.send_response(status)
         for key, value in headers_out.items():
             self.send_header(key, value)
@@ -718,6 +821,131 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(payload)
+
+    def _run_stream(
+        self,
+        gateway: "GatewayServer",
+        *,
+        body: bytes,
+        headers: dict[str, str],
+    ) -> None:
+        request_id = new_request_id()
+        header_bytes = sum(len(k) + len(v) + 2 for k, v in headers.items()) + 16
+        presented = headers.get("authorization") or ""
+        if presented.lower().startswith("bearer "):
+            presented = presented[7:].strip()
+        actor = (
+            headers.get("x-gateway-client")
+            or headers.get("x-forwarded-for")
+            or "unknown"
+        )
+        prepared = gateway.prepare_request(
+            request_id,
+            actor,
+            self.command,
+            self.path,
+            header_bytes,
+            body,
+            presented,
+        )
+        if not prepared.decision.allow:
+            payload = json.dumps(
+                {"error": prepared.decision.reason}
+            ).encode("utf-8")
+            self._send_buffered(
+                prepared.decision.status,
+                {
+                    "Content-Type": "application/json",
+                    "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                    "X-Content-Type-Options": "nosniff",
+                    "Cache-Control": "no-store",
+                },
+                payload,
+            )
+            return
+
+        response_status = 502
+        outcome = "backend"
+        headers_sent = False
+        try:
+            with gateway.open_backend_stream(
+                self.command, self.path, body
+            ) as response:
+                declared_length = int(response.headers.get("Content-Length") or 0)
+                if declared_length > gateway._max_response:
+                    raise RuntimeError("backend stream response too large")
+                response_status = response.status_code
+                self.send_response(response_status)
+                self.send_header(
+                    "Content-Type",
+                    response.headers.get("Content-Type", "text/event-stream"),
+                )
+                self.send_header(
+                    "X-Gateway-Api-Version", str(GATEWAY_API_VERSION)
+                )
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("X-Accel-Buffering", "no")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                headers_sent = True
+                total = 0
+                for chunk in response.iter_raw():
+                    total += len(chunk)
+                    if total > gateway._max_response:
+                        response_status = 502
+                        raise RuntimeError("backend stream response too large")
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                outcome = "ok" if 200 <= response_status < 400 else "backend"
+        except (BrokenPipeError, ConnectionResetError):
+            # The client disconnected.  The in-flight slot is still released;
+            # no prompt or partial completion is logged.
+            outcome = "client_closed"
+        except Exception:  # noqa: BLE001 - fail closed before headers are sent
+            if not headers_sent:
+                self._send_buffered(
+                    502,
+                    {
+                        "Content-Type": "application/json",
+                        "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                        "X-Content-Type-Options": "nosniff",
+                        "Cache-Control": "no-store",
+                    },
+                    json.dumps({"error": "backend forward failed"}).encode("utf-8"),
+                )
+        finally:
+            gateway.finish_request(
+                prepared,
+                request_id=request_id,
+                method=self.command,
+                path=self.path,
+                outcome=outcome,
+                status=response_status,
+            )
+
+    def _run(self) -> None:
+        gateway: "GatewayServer" = self.server.gateway  # type: ignore[attr-defined]
+        body = self._read_body()
+        headers = self._headers_dict()
+        if (
+            classify_path(self.path) == SCOPE_INFERENCE_READ
+            and parse_stream(body)
+        ):
+            self._run_stream(gateway, body=body, headers=headers)
+            return
+        handler = _GatewayHandler(gateway)
+        try:
+            status, headers_out, payload = handler.handle(
+                method=self.command,
+                path=self.path,
+                headers=headers,
+                body=body,
+            )
+        except Exception as exc:  # noqa: BLE001 - fail closed on any handler error
+            status, headers_out, payload = (502, {"Content-Type": "application/json"},
+                                            json.dumps({"error": "gateway internal"}).encode("utf-8"))
+        self._send_buffered(status, headers_out, payload)
 
     do_GET = do_POST = do_PUT = do_DELETE = do_HEAD = _run
     do_OPTIONS = _run

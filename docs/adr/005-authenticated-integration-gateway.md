@@ -9,6 +9,12 @@ terminates tailnet/container inference traffic before it reaches the raw
 llama.cpp backend, the scoped-credential model, the contained Open WebUI
 topology, and digest-pinned container identity.
 
+**EUF addendum:** ADR 014 completes the previously missing production runtime
+ownership, layered readiness, live SSE pass-through, and transactional Open
+WebUI lifecycle. Where process ownership/readiness details differ, ADR 014 is
+the later authority; this ADR's authentication and exposure boundaries remain
+unchanged.
+
 ---
 
 ## 0. Problem

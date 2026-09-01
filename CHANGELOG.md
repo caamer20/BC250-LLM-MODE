@@ -5,6 +5,20 @@ versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### End-user friendliness remediation
+
+- Added the EUF-0 through EUF-10 implementation plan and ADR 014, freezing
+  layered process/protocol/journey readiness, packaged current-boot gateway
+  ownership, transactional Open WebUI convergence, and exact-candidate
+  qualification without changing the tailnet-only or no-autostart boundaries.
+- Fixed the real gateway socket adapter to pass SSE through as
+  `text/event-stream` instead of buffering it as JSON. Buffered and streaming
+  calls now share authorization, bounds, backend-identity, rate, concurrency,
+  audit, and release logic; credentials are no longer forwarded to llama.cpp.
+- Added live-socket evidence for first-event delivery before upstream
+  completion, terminal `[DONE]`, exact slot release, and content-free audit,
+  plus oversized-response failure coverage.
+
 ### Catalog, WebUI, and desktop lifecycle
 
 - Fixed **System → Enter LLM Mode** so it explicitly confirms, closes the

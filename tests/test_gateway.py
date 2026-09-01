@@ -147,6 +147,37 @@ def test_backend_forward_failure_maps_to_502_and_audits():
     assert status == 502 and b"conn refused" in body
 
 
+def test_oversize_backend_response_releases_slot_and_audits_failure():
+    store = _store()
+    store.provisioning_record("super-secret")
+    audit = g.AuditLogger()
+    rate = g.RateLimiter()
+    server = g.GatewayServer(
+        _policy(store),
+        backend_base="http://127.0.0.1:9999",
+        should_report_backend=lambda: True,
+        audit=audit,
+        rate=rate,
+        max_response_body=4,
+    )
+    status, body, _ = server.handle(
+        "rid-large",
+        "client-large",
+        "POST",
+        "/v1/chat/completions",
+        128,
+        b'{"stream":false}',
+        "super-secret",
+        backend_request=lambda: (200, b"too-large"),
+    )
+    assert status == 502
+    assert b"response too large" in body
+    assert rate._row("client-large").inflight == 0
+    event = audit.snapshot()[-1]
+    assert event.outcome == "backend"
+    assert event.status == 502
+
+
 def test_rate_limit_denies_excess_clients():
     store = _store()
     store.provisioning_record("super-secret")
