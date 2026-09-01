@@ -178,6 +178,35 @@ def test_runtime_owns_exactly_loopback_and_observed_bridge_listeners(tmp_path):
     assert created == [("127.0.0.1", 9071), ("10.89.0.1", 9071)]
 
 
+def test_runtime_uses_installer_observation_without_podman_inside_sandbox(tmp_path):
+    app_dir = tmp_path / "profile"
+    app_dir.mkdir()
+    initialize_and_close(app_dir / "state.db")
+    observed = parse_bridge_inspect(_network())
+    stop = threading.Event()
+    stop.set()
+    created = []
+
+    class Server:
+        def serve_forever(self, **_kwargs):
+            return None
+        def shutdown(self):
+            return None
+        def server_close(self):
+            return None
+
+    assert run_gateway_runtime(
+        app_dir=app_dir,
+        expected_network_identity=observed.identity,
+        expected_bridge=observed,
+        bridge_observer=lambda: pytest.fail("Podman must not run in the service sandbox"),
+        stop_event=stop,
+        server_factory=lambda _gateway, *, host, port: (
+            created.append((host, port)) or Server()),
+    ) == 0
+    assert created == [("127.0.0.1", 9071), ("10.89.0.1", 9071)]
+
+
 def test_runtime_refuses_changed_bridge_before_binding(tmp_path):
     app_dir = tmp_path / "profile"
     app_dir.mkdir()

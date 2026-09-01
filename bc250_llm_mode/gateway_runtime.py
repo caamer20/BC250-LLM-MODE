@@ -284,6 +284,7 @@ def run_gateway_runtime(
     app_dir: Path,
     expected_network_identity: str,
     bridge_observer: Callable[[], BridgeObservation] = discover_bridge,
+    expected_bridge: BridgeObservation | None = None,
     stop_event: threading.Event | None = None,
     server_factory: Callable[..., Any] = make_gateway_socket_server,
 ) -> int:
@@ -291,7 +292,13 @@ def run_gateway_runtime(
     paths.validate()
     if not paths.database_path.is_file() or paths.database_path.is_symlink():
         raise GatewayRuntimeError("The appliance database is unavailable.")
-    bridge = bridge_observer()
+    # The packaged service captures a bounded Podman observation before it
+    # enters its ProtectSystem=strict sandbox.  Rootful Podman takes write
+    # locks even for `network inspect`, so repeating that command inside the
+    # service would require granting the HTTP process write access to the
+    # container store.  Binding the captured gateway still fails closed if
+    # that address is no longer present.
+    bridge = expected_bridge or bridge_observer()
     if bridge.identity != expected_network_identity:
         raise GatewayRuntimeError("The managed Open WebUI bridge identity changed.")
     units = UnitOfWorkFactory(paths.database_path)
@@ -354,6 +361,10 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="bc250-gateway-runtime")
     parser.add_argument("--app-dir", required=True, type=Path)
     parser.add_argument("--expected-network-identity", required=True)
+    parser.add_argument("--expected-network")
+    parser.add_argument("--expected-driver")
+    parser.add_argument("--expected-subnet")
+    parser.add_argument("--expected-gateway")
     return parser
 
 
@@ -362,9 +373,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     identity = str(args.expected_network_identity)
     if not identity.startswith("sha256:") or len(identity) != 71:
         raise GatewayRuntimeError("The expected bridge identity is invalid.")
+    bridge_values = (
+        args.expected_network, args.expected_driver,
+        args.expected_subnet, args.expected_gateway,
+    )
+    expected_bridge = None
+    if any(value is not None for value in bridge_values):
+        if not all(value is not None for value in bridge_values):
+            raise GatewayRuntimeError("The expected bridge observation is incomplete.")
+        expected_bridge = parse_bridge_inspect(json.dumps([{
+            "name": args.expected_network,
+            "driver": args.expected_driver,
+            "subnets": [{
+                "subnet": args.expected_subnet,
+                "gateway": args.expected_gateway,
+            }],
+        }]))
+        if expected_bridge.identity != identity:
+            raise GatewayRuntimeError("The expected bridge identity is inconsistent.")
     return run_gateway_runtime(
         app_dir=args.app_dir,
         expected_network_identity=identity,
+        expected_bridge=expected_bridge,
     )
 
 

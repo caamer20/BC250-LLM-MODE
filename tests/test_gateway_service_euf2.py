@@ -98,7 +98,8 @@ def world(tmp_path, monkeypatch):
 def test_unit_and_launcher_are_current_boot_only_secret_free_and_stable(world):
     paths, _runner, service = world
     launcher = render_gateway_launcher(
-        paths=paths, expected_network_identity=IDENTITY)
+        paths=paths, expected_network_identity=IDENTITY,
+        expected_bridge=_bridge())
     unit = render_gateway_unit(paths=paths, launcher=service.launcher_path)
 
     assert unit.startswith(GATEWAY_UNIT_MARKER)
@@ -113,6 +114,9 @@ def test_unit_and_launcher_are_current_boot_only_secret_free_and_stable(world):
     assert f'ExecStart="/bin/sh" "{service.launcher_path}"' in unit
     assert f'ExecStart="{service.launcher_path}"' not in unit
     assert "gateway_runtime" in launcher
+    assert "--expected-network bc250-openwebui" in launcher
+    assert "--expected-subnet 10.89.0.0/24" in launcher
+    assert "--expected-gateway 10.89.0.1" in launcher
     assert str(paths.application_current_link / "venv/bin/python") in launcher
     assert str(paths.app_dir / "app-venv/bin/python") in launcher
     assert "BC250_LLM_MODE" not in launcher

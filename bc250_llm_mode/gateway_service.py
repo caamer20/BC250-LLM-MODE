@@ -67,6 +67,7 @@ def _safe_unit_arg(value: str | Path) -> str:
 
 def render_gateway_launcher(
     *, paths: AppPaths, expected_network_identity: str,
+    expected_bridge: BridgeObservation | None = None,
 ) -> str:
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_network_identity):
         raise ValueError("invalid expected network identity")
@@ -74,6 +75,16 @@ def render_gateway_launcher(
     installed_python = paths.app_dir / "app-venv/bin/python"
     app_dir = _safe_unit_arg(paths.app_dir)
     identity = expected_network_identity
+    bridge_args = ""
+    if expected_bridge is not None:
+        if expected_bridge.identity != identity:
+            raise ValueError("bridge observation does not match expected identity")
+        bridge_args = (
+            f" --expected-network {expected_bridge.network}"
+            f" --expected-driver {expected_bridge.driver}"
+            f" --expected-subnet {expected_bridge.subnet}"
+            f" --expected-gateway {expected_bridge.gateway}"
+        )
     # Both interpreter candidates are stable installation paths.  No source
     # checkout, credential, eval, or environment lookup enters this launcher.
     return "\n".join((
@@ -81,10 +92,10 @@ def render_gateway_launcher(
         "set -eu",
         f"if [ -x {_safe_unit_arg(current_python)} ]; then",
         f"  exec {_safe_unit_arg(current_python)} -m bc250_llm_mode.gateway_runtime "
-        f"--app-dir {app_dir} --expected-network-identity {identity}",
+        f"--app-dir {app_dir} --expected-network-identity {identity}{bridge_args}",
         "fi",
         f"exec {_safe_unit_arg(installed_python)} -m bc250_llm_mode.gateway_runtime "
-        f"--app-dir {app_dir} --expected-network-identity {identity}",
+        f"--app-dir {app_dir} --expected-network-identity {identity}{bridge_args}",
         "",
     ))
 
@@ -282,7 +293,8 @@ class GatewayService:
                 str(self.unit_path), str(self.launcher_path), None, "unobserved",
                 False, True, None, "GATEWAY_BRIDGE_UNAVAILABLE")
         launcher = render_gateway_launcher(
-            paths=self.paths, expected_network_identity=bridge.identity)
+            paths=self.paths, expected_network_identity=bridge.identity,
+            expected_bridge=bridge)
         unit = render_gateway_unit(
             paths=self.paths, launcher=self.launcher_path)
         try:
@@ -325,7 +337,8 @@ class GatewayService:
     def install(self, runner: CommandRunner) -> dict[str, Any]:
         bridge = self._bridge_observer()
         launcher = render_gateway_launcher(
-            paths=self.paths, expected_network_identity=bridge.identity)
+            paths=self.paths, expected_network_identity=bridge.identity,
+            expected_bridge=bridge)
         unit = render_gateway_unit(paths=self.paths, launcher=self.launcher_path)
         existing = self._read_unit()
         identity = self._existing_identity(existing, unit)
