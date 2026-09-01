@@ -236,7 +236,30 @@ remain authoritative for timeout, compensation, and terminal state. Physical
 evidence may motivate a later reviewed ADR revision, but no deadline may become
 unbounded or invisible.
 
-## 10. Exit criteria
+## 10. Decision D7 — one offline client compatibility contract
+
+`bc250-openai-compatible-v1`, schema 1, is the sole published model-client
+capability matrix. It owns the gateway route vocabulary, Connections and Help
+rows, CLI `connections capabilities` output, versioned client cards,
+human-readable documentation, and secret-free `compatibility.json` support
+metadata. The contract is bundled and never fetched from an online service.
+
+The supported routes are authenticated `GET /v1/models` plus JSON and real SSE
+`POST /v1/chat/completions`. Tool calling is conditional on exact model,
+runtime, request-shape, and client-version evidence. Embeddings and legacy
+completions are unsupported; Responses is deferred; Open WebUI `/api/...`
+belongs only to the browser application. Known unsupported inference routes
+return an authenticated OpenAI-shaped 404 rather than a bare 403. Private and
+unknown management routes remain denied.
+
+Client card schema 2 records exact field names, automatic probe paths, Base URL
+rule, transport requirement, evidence level, and optional tested version. A
+card cannot require an unsupported capability or claim a tested version while
+remaining example-only. At this checkpoint only pinned Open WebUI 0.11.1 names
+a third-party version. PocketPal and Python remain example-only; no card claims
+hardware-tested status.
+
+## 11. Exit criteria
 
 - Buffered and SSE live-socket tests prove the shared policy, bounded streaming,
   first-event delivery, terminal event, exact slot release, and content-free

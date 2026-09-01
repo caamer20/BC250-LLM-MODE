@@ -10,6 +10,10 @@ from typing import Any, Mapping
 import tkinter as tk
 from tkinter import ttk
 
+from ..client_compatibility import (
+    CLIENT_COMPATIBILITY_SCHEMA_VERSION,
+    capability_display_rows,
+)
 from ..connection_setup import CLIENT_CARDS, instructions_for
 from ..presentation import format_timestamp
 from ..problem_details import problem_detail
@@ -149,6 +153,28 @@ class ConnectionsPage(ttk.Frame):
         ttk.Label(endpoints, textvariable=self._model_value).pack(anchor="w", pady=(3, 0))
         self._endpoint_rows = ttk.Frame(endpoints)
         self._endpoint_rows.pack(fill="x")
+
+        compatibility = ttk.LabelFrame(
+            left,
+            text=f"Supported model API · contract v{CLIENT_COMPATIBILITY_SCHEMA_VERSION}",
+            padding=7,
+        )
+        compatibility.pack(fill="x", pady=(7, 0))
+        ttk.Label(
+            compatibility,
+            text=(
+                "Enter the displayed Base URL ending once in /v1. Open WebUI "
+                "/api routes are browser-only; apps requiring embeddings, "
+                "legacy completions, or Responses are not compatible yet."
+            ),
+            wraplength=500,
+        ).pack(anchor="w", fill="x", pady=(0, 3))
+        for endpoint, status, summary in capability_display_rows():
+            ttk.Label(
+                compatibility,
+                text=f"{status.upper()} · {endpoint} — {summary}",
+                wraplength=500,
+            ).pack(anchor="w", fill="x")
 
         checks = ttk.LabelFrame(left, text="Guided checks", padding=7)
         checks.pack(fill="x", pady=(7, 0))

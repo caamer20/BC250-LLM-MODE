@@ -14,7 +14,8 @@ remains available as an optional client with the same lifecycle semantics.
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
 
 Detailed guides: [end-user guide](docs/end-user-guide.md),
-[operator guide](docs/operator-guide.md), and
+[operator guide](docs/operator-guide.md),
+[model API compatibility](docs/client-api-compatibility.md), and
 [accessibility and privacy](docs/accessibility-privacy.md). Candidate-bound
 journey and resource qualification uses the deliberately pending
 [EXP-8 worksheet](docs/appliance-experience-physical-qualification.md).
@@ -394,6 +395,16 @@ not inferred from health alone. Bundled setup cards currently label Open WebUI,
 generic OpenAI, curl, and SSE as **protocol-tested** and PocketPal/Python as
 **example-only** until the exact-candidate physical checklist in
 `docs/connection-physical-qualification.md` passes.
+
+The offline `bc250-openai-compatible-v1` matrix supports authenticated
+`GET /v1/models` and JSON/SSE `POST /v1/chat/completions`. Tools are
+conditional on exact evidence. Embeddings and legacy completions are
+unsupported; Responses is deferred; Open WebUI `/api/...` is a browser route,
+not a model-client API. Inspect the same contract used by the gateway and GUI:
+
+```bash
+bc250-llm-mode connections capabilities
+```
 
 Use the Tailnet HTTPS control in System, or:
 

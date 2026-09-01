@@ -112,11 +112,19 @@ Models endpoint:  https://<node>.<tailnet>.ts.net:10000/v1/models
 Chat endpoint:    https://<node>.<tailnet>.ts.net:10000/v1/chat/completions
 ```
 
-There is no `/api` endpoint. In PocketPal or another OpenAI-compatible client,
-enter the exact Base URL, one-time API key, and public model alias shown by
-Connections. Save the key when it appears; it disappears after 30 seconds and
-cannot be revealed again. Create separate client records so one phone can be
-revoked without interrupting another. Public Tailscale Funnel remains off.
+There is no `/api` **model-client** endpoint. Open WebUI owns browser `/api`
+routes, but PocketPal and other model clients must use the exact `/v1` Base URL,
+one-time API key, and public model alias shown by Connections. Save the key when
+it appears; it disappears after 30 seconds and cannot be revealed again. Create
+separate client records so one phone can be revoked without interrupting
+another. Public Tailscale Funnel remains off.
+
+The initial contract supports `/v1/models` and JSON or streaming
+`/v1/chat/completions`. Embeddings and legacy completions are unsupported,
+Responses is deferred, and tools require exact model/runtime/client evidence.
+Connections and Help show the complete offline matrix. The same JSON is
+available with `bc250-llm-mode connections capabilities`; see
+`docs/client-api-compatibility.md` for the reviewed human-readable copy.
 
 Physical PocketPal and Open WebUI qualification remains pending for the exact
 candidate even though the protocol fixtures pass in development.

@@ -197,7 +197,12 @@ def test_manifest_records_per_file_digests_and_policy(world):
     assert payload["generated_at"] == FIXED_NOW
     names = {f["path"] for f in payload["files"]}
     assert {"home.json", "doctor.json", "settings.json",
-            "operations.json"} <= names
+            "operations.json", "compatibility.json"} <= names
+    compatibility = json.loads(
+        (world.output / "compatibility.json").read_text(encoding="utf-8")
+    )
+    assert compatibility["profile"] == "bc250-openai-compatible-v1"
+    assert len(compatibility["capabilities"]) == 8
     for record in payload["files"]:
         assert len(record["sha256"]) == 64
     policy = payload["redaction_policy"]

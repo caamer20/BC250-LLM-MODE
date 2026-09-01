@@ -13,6 +13,8 @@ device addresses, user labels, or screenshots containing secrets.
 
 - [ ] Record candidate commit, package version/digest, host profile, GPU/driver,
       12/4 UMA split, client name/version, phone OS, and Tailscale versions.
+- [ ] Record the bundled compatibility schema/profile and the client card's
+      evidence level; never upgrade example-only to hardware-tested early.
 - [ ] Confirm the model server reports a safe public alias (no filesystem path).
 - [ ] Create a dedicated client in Connections and save its one-time key
       outside the evidence packet.
@@ -26,6 +28,9 @@ device addresses, user labels, or screenshots containing secrets.
 - [ ] A minimal streaming chat produces at least one SSE event by the deadline.
 - [ ] Wrong/missing key fails with 401/403.
 - [ ] Record only terminal classification, timing, and client version.
+- [ ] If the client automatically probes embeddings, legacy completions, or
+      Responses, confirm the stable unsupported explanation appears before
+      deciding whether this client can complete setup.
 
 ## Open WebUI
 
@@ -34,6 +39,8 @@ device addresses, user labels, or screenshots containing secrets.
       non-secret configuration fact.
 - [ ] Minimal chat succeeds through the authenticated gateway.
 - [ ] Management/unknown gateway paths remain denied.
+- [ ] Open WebUI browser `/api` works only at its browser origin and is never
+      offered as the model Base URL.
 
 ## Generic OpenAI and raw SSE
 
@@ -43,6 +50,10 @@ device addresses, user labels, or screenshots containing secrets.
       valid `data:` event; response content is discarded and not recorded.
 - [ ] Funnel is disabled and both Serve targets match the reviewed loopback
       Open WebUI/gateway targets.
+- [ ] Missing key, invalid key, revoked key, missing scope, wrong model,
+      duplicated `/v1`, embeddings, legacy completions, Responses, model
+      restart, and gateway restart each produce the reviewed result without
+      leaking response content or credentials.
 
 ## Independent revocation and emergency stop
 

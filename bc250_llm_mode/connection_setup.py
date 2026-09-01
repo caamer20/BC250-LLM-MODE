@@ -21,6 +21,14 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
 from .appliance_readiness import build_appliance_readiness
+from .client_compatibility import (
+    CLIENT_CARDS,
+    CLIENT_CARD_SCHEMA_VERSION,
+    OPENWEBUI_GATEWAY_BASE_URL,
+    ClientCard,
+    capability_contract,
+    client_card_contract,
+)
 from .connection_credentials import (
     CLIENT_SCOPES,
     ConnectionAccessRepository,
@@ -33,7 +41,6 @@ from .legacy_import import utcnow
 
 
 CONNECTION_SNAPSHOT_SCHEMA_VERSION = 1
-CLIENT_CARD_SCHEMA_VERSION = 1
 PROBE_SCHEMA_VERSION = 1
 LOCAL_GATEWAY_BASE_URL = "http://127.0.0.1:9071/v1"
 MAX_PROBE_BODY_BYTES = 64 * 1024
@@ -44,70 +51,9 @@ _SECRET_DIRECTORY = "connection-secrets"
 _LEGACY_SECRET_FILENAME = "gateway-credential"
 
 
-@dataclass(frozen=True)
-class ClientCard:
-    card_id: str
-    title: str
-    credential_kind: str
-    support_level: str
-    support_evidence: str
-    field_labels: tuple[str, ...]
-    streaming: str
-    timeout_seconds: int
-    notes: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        value = asdict(self)
-        value["schema_version"] = CLIENT_CARD_SCHEMA_VERSION
-        value["field_labels"] = list(self.field_labels)
-        value["notes"] = list(self.notes)
-        return value
-
-
-# These are reviewed, bundled records.  Hardware-tested is intentionally not
-# claimed until exact-candidate second-device evidence exists.
-CLIENT_CARDS = (
-    ClientCard(
-        "openwebui", "Open WebUI", "openwebui", "protocol-tested",
-        "Gateway protocol and container configuration fixtures",
-        ("Base URL", "API Key", "Model"), "Enabled", 120,
-        ("Use the OpenAI-compatible connection, not an /api URL.",),
-    ),
-    ClientCard(
-        "pocketpal", "PocketPal", "pocketpal", "example-only",
-        "Physical phone qualification is pending for this candidate",
-        ("Base URL", "API Key", "Model", "Streaming", "Timeout"),
-        "Enabled", 120,
-        ("The phone must be connected to the same tailnet.",),
-    ),
-    ClientCard(
-        "openai", "OpenAI-compatible app", "openai", "protocol-tested",
-        "OpenAI-compatible request/response fixtures",
-        ("Base URL", "API Key", "Model", "Streaming", "Timeout"),
-        "Enabled", 120,
-    ),
-    ClientCard(
-        "curl", "curl", "curl", "protocol-tested",
-        "Bounded HTTP models and chat fixtures",
-        ("Base URL", "Authorization", "Model"), "Optional", 20,
-    ),
-    ClientCard(
-        "python", "Python OpenAI client", "openai", "example-only",
-        "Example configuration; SDK-version qualification is pending",
-        ("base_url", "api_key", "model", "timeout"), "Enabled", 120,
-    ),
-    ClientCard(
-        "sse", "Raw SSE diagnostic", "sse", "protocol-tested",
-        "One-event bounded SSE fixture",
-        ("Base URL", "Authorization", "Model", "stream"), "Required", 20,
-    ),
-)
-_CARD_BY_ID = {card.card_id: card for card in CLIENT_CARDS}
-
-
 def client_card(card_id: str) -> ClientCard:
     try:
-        return _CARD_BY_ID[str(card_id).strip().lower()]
+        return client_card_contract(card_id)
     except KeyError as exc:
         raise ConnectionCredentialError("unknown connection client card") from exc
 
@@ -1128,19 +1074,32 @@ def instructions_for(
 ) -> dict[str, Any]:
     card = client_card(card_id)
     alias = _public_alias({"public_alias": public_alias})
-    base_url = urls.get("base_url")
+    base_url = (
+        OPENWEBUI_GATEWAY_BASE_URL
+        if card.card_id == "openwebui" else urls.get("base_url")
+    )
     available = bool(base_url and alias)
+    field_values = {
+        "Base URL": base_url,
+        "API Key": "Use the one-time key for this client",
+        "Authorization": "Bearer <this client's one-time API key>",
+        "Model": alias,
+        "Streaming": card.streaming,
+        "Timeout": f"{card.timeout_seconds} seconds",
+        "base_url": base_url,
+        "api_key": "Use the one-time key for this client",
+        "model": alias,
+        "timeout": float(card.timeout_seconds),
+        "stream": True,
+    }
     return {
         "schema_version": CLIENT_CARD_SCHEMA_VERSION,
         "card": card.to_dict(),
+        "api_contract": capability_contract(),
         "available": available,
         "values": {
-            "Base URL": base_url,
-            "API Key": "Use the one-time key for this client",
-            "Model": alias,
-            "Streaming": card.streaming,
-            "Timeout": f"{card.timeout_seconds} seconds",
+            label: field_values[label] for label in card.field_labels
         },
         "unavailable_reason": None if available else (
-            "A Tailscale DNS endpoint and observed public model alias are required."),
+            "The required private endpoint and observed public model alias are unavailable."),
     }

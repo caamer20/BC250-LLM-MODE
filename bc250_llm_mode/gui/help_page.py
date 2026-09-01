@@ -7,6 +7,10 @@ from typing import Any
 import tkinter as tk
 from tkinter import filedialog, ttk
 
+from ..client_compatibility import (
+    CLIENT_COMPATIBILITY_SCHEMA_VERSION,
+    capability_display_rows,
+)
 from ..message_catalog import glossary_entries
 from .view_state import Notice
 
@@ -44,6 +48,28 @@ class HelpPage(ttk.Frame):
             ),
             wraplength=720,
         ).pack(anchor="w")
+        compatibility = ttk.LabelFrame(
+            self,
+            text=f"Offline model API compatibility · v{CLIENT_COMPATIBILITY_SCHEMA_VERSION}",
+            padding=7,
+        )
+        compatibility.pack(fill="x", pady=(8, 0))
+        compatibility_text = "\n".join(
+            f"{status.upper()} · {endpoint} — {summary}"
+            for endpoint, status, summary in capability_display_rows()
+        )
+        ttk.Label(
+            compatibility, text=compatibility_text,
+            wraplength=720, justify="left",
+        ).pack(anchor="w", fill="x")
+        ttk.Label(
+            compatibility,
+            text=(
+                "Use the displayed /v1 Base URL and a separate named key. "
+                "Open WebUI /api is a browser route, not a model API."
+            ),
+            wraplength=720, justify="left",
+        ).pack(anchor="w", fill="x", pady=(3, 0))
         self.result_var = tk.StringVar(value="Run checks for a bounded diagnostic summary.")
         ttk.Label(self, textvariable=self.result_var, wraplength=720, justify="left").pack(anchor="w", fill="x", pady=8)
         actions = ttk.Frame(self)

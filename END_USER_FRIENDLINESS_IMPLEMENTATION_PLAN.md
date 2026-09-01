@@ -1,6 +1,6 @@
 # BC250 LLM MODE — End-User Friendliness Completion Implementation Plan
 
-**Status:** Execution in progress. EUF-0 through EUF-8 are developer-
+**Status:** Execution in progress. EUF-0 through EUF-9 are developer-
 implemented; later EUF milestones and all physical, security,
 human-acceptance, soak, publication, and release gates remain pending.
 Developer tests and live diagnostics on one BC250 do not constitute those
@@ -826,6 +826,18 @@ Do not add broad compatibility endpoints merely to suppress a client error.
 Add `/v1/responses`, tools, embeddings, or legacy completions only under a
 separate bounded implementation slice with explicit model/runtime semantics,
 resource limits, security review, and real-client tests.
+
+**Developer implementation checkpoint:** the offline
+`bc250-openai-compatible-v1` schema-1 matrix now drives gateway route
+classification, Connections, Help, `connections capabilities`, client-card
+instructions, documentation, and redacted support metadata. Client cards are
+schema 2 and record exact fields, auto-probe paths, Base URL rule, private
+transport, evidence level, and optional tested version. Only pinned Open WebUI
+0.11.1 claims a third-party version; PocketPal/Python remain example-only and
+no hardware-tested status is claimed. Drift tests freeze the eight reviewed
+capability rows and prove unsupported inference paths receive a stable
+explanation rather than being broadly proxied. Real-client and physical-host
+qualification remains pending.
 
 ### Acceptance
 

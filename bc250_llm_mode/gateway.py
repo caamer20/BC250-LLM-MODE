@@ -30,6 +30,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from .client_compatibility import gateway_route_classification
 from .problem_details import openai_error, problem_detail
 
 # --- immutable identity / versioning (plan §16.1) -----------------------------
@@ -197,15 +198,9 @@ def classify_path(path: str) -> str:
     clean = path.split("?", 1)[0].rstrip("/") or "/"
     if clean == "/health":
         return "health"
-    if clean == "/v1/models":
-        return SCOPE_MODELS_LIST
-    if clean == "/v1/chat/completions":
-        return SCOPE_INFERENCE_READ  # stream/non-stream further classified by body
-    if clean in {"/v1/embeddings", "/v1/completions", "/v1/responses"}:
-        return "unsupported-inference"
-    # everything else — including the index and any runtime/thermal/ops/fs/
-    # host/systemctl/backup/restore surface — is management and always refused.
-    return "management"
+    # The public/unsupported route vocabulary is owned by the offline client
+    # compatibility contract. Everything else remains private management.
+    return gateway_route_classification(clean)
 
 
 def parse_stream(request_body: bytes) -> bool:

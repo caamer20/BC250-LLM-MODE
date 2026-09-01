@@ -108,6 +108,17 @@ versions are tagged in git.
   deadlines. Expiry produces the stable redacted
   `OPERATION_DEADLINE_EXCEEDED` recovery problem without rewriting durable
   operation state.
+- Added the offline EUF-9 `bc250-openai-compatible-v1` contract as the single
+  source for gateway classification, Connections, Help,
+  `connections capabilities`, client instructions, documentation, and
+  redacted support metadata. Its eight rows distinguish supported models and
+  JSON/SSE chat, conditional tools, unsupported embeddings/legacy
+  completions, deferred Responses, and browser-only Open WebUI `/api` routes.
+- Upgraded local client cards to schema 2 with exact fields, automatic probe
+  paths, Base URL rules, transport requirements, evidence level, and optional
+  tested version. Only pinned Open WebUI 0.11.1 names a third-party version;
+  PocketPal/Python remain example-only and no hardware-tested evidence is
+  claimed.
 
 ### Catalog, WebUI, and desktop lifecycle
 

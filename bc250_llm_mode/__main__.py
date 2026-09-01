@@ -200,6 +200,8 @@ def _parser() -> argparse.ArgumentParser:
     connection_sub = connections.add_subparsers(
         dest="connection_action", required=True)
     connection_sub.add_parser("status", help="Show the guided connection snapshot")
+    connection_sub.add_parser(
+        "capabilities", help="Show the versioned supported API/client matrix")
     connection_sub.add_parser("clients", help="List redacted client metadata")
     add_client = connection_sub.add_parser(
         "add-client", help="Create a client and reveal its API key once")
@@ -1110,12 +1112,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "connections":
+        from .client_compatibility import capability_contract
         from .connection_setup import CLIENT_SCOPES, instructions_for
 
         action = args.connection_action
         credentials = application.connection_credentials
         if action == "status":
             print(json.dumps(application.connections.snapshot().to_dict(), indent=2))
+            return 0
+        if action == "capabilities":
+            print(json.dumps(capability_contract(), indent=2))
             return 0
         if action == "clients":
             print(json.dumps({

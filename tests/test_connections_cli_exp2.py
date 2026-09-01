@@ -32,6 +32,7 @@ def world(tmp_path, monkeypatch):
 def test_parser_accepts_all_planned_connections_commands():
     parse = entry._parser().parse_args
     assert parse(("connections", "status")).connection_action == "status"
+    assert parse(("connections", "capabilities")).connection_action == "capabilities"
     assert parse(("connections", "clients")).connection_action == "clients"
     add = parse(("connections", "add-client", "--label", "Phone", "--type", "pocketpal"))
     assert add.label == "Phone" and add.client_type == "pocketpal"
@@ -86,6 +87,11 @@ def test_status_clients_and_instructions_are_redacted(world, monkeypatch, capsys
     assert guide["values"]["Base URL"].endswith(":10000/v1")
     assert guide["values"]["Model"] == "defiant-fable-q5"
     assert "secret" not in json.dumps(guide).lower()
+
+    assert entry.cli(("connections", "capabilities")) == 0
+    contract = json.loads(capsys.readouterr().out)
+    assert contract["profile"] == "bc250-openai-compatible-v1"
+    assert len(contract["capabilities"]) == 8
 
 
 def test_test_command_uses_same_snapshot_and_probe_service(world, capsys):

@@ -271,6 +271,9 @@ class SupportBundleService:
         if self._readiness is not None:
             emit("readiness.json", self._dump(
                 self._readiness_report(), redactor))
+        # Static, versioned, secret-free API/client compatibility metadata.
+        from .client_compatibility import capability_contract
+        emit("compatibility.json", self._dump(capability_contract(), redactor))
         # 3) disposable host-platform observations (never durable truth).
         if self._platform is not None:
             emit("platform.json", self._dump(self._platform.status(), redactor))
