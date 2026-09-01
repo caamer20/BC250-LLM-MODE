@@ -100,6 +100,14 @@ def render_gateway_unit(
         account = pwd.getpwuid(owner_uid)
         identity = f"User={account.pw_name}\nGroup={account.pw_gid}\n"
     app_dir = _safe_unit_arg(paths.app_dir)
+    # Execute the app-owned launcher through the distribution shell.  On
+    # SELinux-enforcing immutable hosts (including physical Bazzite), a
+    # correctly-mode-0700 file below /root can still be labelled user_home_t
+    # and rejected as a direct systemd ExecStart target with 203/EXEC.  The
+    # shell itself has a trusted executable label and reads the bounded,
+    # app-owned launcher; no environment lookup or command interpolation is
+    # introduced.
+    shell = _safe_unit_arg("/bin/sh")
     return f"""{GATEWAY_UNIT_MARKER}
 # Schema={GATEWAY_SERVICE_SCHEMA_VERSION}
 [Unit]
@@ -110,7 +118,7 @@ StartLimitBurst=3
 
 [Service]
 Type=simple
-{identity}ExecStart={_safe_unit_arg(launcher)}
+{identity}ExecStart={shell} {_safe_unit_arg(launcher)}
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=10

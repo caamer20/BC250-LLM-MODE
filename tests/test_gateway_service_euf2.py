@@ -110,6 +110,8 @@ def test_unit_and_launcher_are_current_boot_only_secret_free_and_stable(world):
     assert "credential" not in unit.lower()
     assert "api_key" not in unit.lower()
     assert "Authorization" not in unit
+    assert f'ExecStart="/bin/sh" "{service.launcher_path}"' in unit
+    assert f'ExecStart="{service.launcher_path}"' not in unit
     assert "gateway_runtime" in launcher
     assert str(paths.application_current_link / "venv/bin/python") in launcher
     assert str(paths.app_dir / "app-venv/bin/python") in launcher
