@@ -406,7 +406,7 @@ body = json.dumps({
     "model": model,
     "messages": [{"role": "user", "content": "Reply with OK."}],
     "stream": True,
-    "max_tokens": 8,
+    "max_tokens": 64,
 }).encode("utf-8")
 request = urllib.request.Request(
     URL + "/chat/completions", data=body, method="POST",
@@ -428,7 +428,10 @@ with urllib.request.urlopen(request, timeout=30) as response:
         frame = json.loads(value)
         for choice in frame.get("choices", []):
             delta = choice.get("delta", {}) if isinstance(choice, dict) else {}
-            if isinstance(delta.get("content"), str) and delta["content"]:
+            if any(
+                isinstance(delta.get(field), str) and delta[field]
+                for field in ("content", "reasoning_content")
+            ):
                 saw_content = True
 if not (saw_data and saw_done and saw_content):
     raise RuntimeError("stream verification did not complete")
