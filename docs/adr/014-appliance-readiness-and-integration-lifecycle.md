@@ -103,6 +103,15 @@ An exact recognized diagnostic unit may be migrated transactionally. An
 unfamiliar unit or listener on the managed port is never overwritten or
 removed.
 
+The physical live repair observed on 2026-09-01 is frozen by full byte
+identity, not its filename: unit SHA-256
+`93189f4531e60fcae7752183979cb97ec281d7eaff7947ece73fe972cd049a97`
+and runner SHA-256
+`96365758dec9fd81c66545e20b8c69da2d39b66dbe3c0bbfb1ec618b4bc48f71`.
+Only those exact bytes may use the diagnostic migration path. The canonical
+service must establish both listeners and answer bounded health before the
+exact runner is removed. A mismatch is retained for support review.
+
 ## 5. Decision D4 — Open WebUI converges transactionally
 
 Open WebUI has one validated container specification: immutable image digest,

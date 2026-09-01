@@ -402,6 +402,23 @@ bc250-llm-mode serve start
 bc250-llm-mode serve status
 ```
 
+The authenticated gateway is a package-owned, current-boot systemd service.
+It is never enabled for boot and listens only on `127.0.0.1:9071` plus the
+observed gateway address of the private `bc250-openwebui` Podman bridge. Open
+WebUI and sharing acquire it automatically. Operator-level inspection and
+control use the same composed service:
+
+```bash
+bc250-llm-mode gateway service plan
+bc250-llm-mode gateway service status
+bc250-llm-mode gateway service start
+bc250-llm-mode gateway service stop
+```
+
+`status` distinguishes service activity, both required listeners, protocol
+health, and verified backend identity. An unfamiliar unit or port-9071
+listener is reported and left unchanged.
+
 Enabling sharing starts the selected model and Open WebUI, removes any public Funnel rules on the two managed ports, and creates tailnet-only HTTPS proxies. Disabling sharing removes only those proxies; it does not stop the local model or delete data. Because the machine intentionally returns to desktop with no LLM after reboot, the HTTPS proxy configuration may remain present while the backend is offline until the user starts a model again.
 
 The API uses the standard llama.cpp/OpenAI-compatible routes. There is no raw `/api` route; use `/v1/models` and `/v1/chat/completions`.

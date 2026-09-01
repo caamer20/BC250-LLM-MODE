@@ -77,6 +77,7 @@ class Application:
     operation_query: Any = None
     operation_commands: Any = None
     gateway: Any = None
+    gateway_service: Any = None
     connections: Any = None
     connection_credentials: Any = None
     connection_probes: Any = None
@@ -777,17 +778,24 @@ class Application:
         application.gateway = GatewayCredentialService(
             units, application.paths.app_dir
         )
+        from .gateway_service import GatewayService
+
+        application.gateway_service = GatewayService(application.paths)
         application.connection_credentials = ConnectionCredentialCommandService(
             units, application.paths.app_dir
         )
         application.openwebui = OpenWebUIService(
             units, gateway=application.gateway,
-            connection_credentials=application.connection_credentials)
+            connection_credentials=application.connection_credentials,
+            gateway_service=application.gateway_service)
         application.sharing = SharingService(
             units, gateway=application.gateway,
-            connection_credentials=application.connection_credentials)
+            connection_credentials=application.connection_credentials,
+            gateway_service=application.gateway_service,
+            openwebui_service=application.openwebui)
         application.preferences = UserPreferencesService(units)
-        application.maintenance = MaintenanceService(units)
+        application.maintenance = MaintenanceService(
+            units, gateway_service=application.gateway_service)
         from .optimization_service import OptimizationService
 
         application.optimizations = OptimizationService(units)
@@ -830,6 +838,7 @@ class Application:
             openwebui=application.openwebui,
             tailscale=application.tailscale,
             sharing=application.sharing,
+            gateway_service=application.gateway_service,
         )
         from .appliance_readiness import ApplianceReadinessQueryService
 

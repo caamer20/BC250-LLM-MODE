@@ -29,6 +29,16 @@ versions are tagged in git.
   with dead HTTP, a gateway credential without a listener, a mismatched model,
   or stale client verification can no longer render as ready; optional remote
   integrations do not block native Chat.
+- Added the EUF-2 package-owned gateway runtime and generated systemd service.
+  It resolves and identity-binds the dedicated Podman bridge, listens only on
+  loopback plus that RFC1918 bridge address, uses the named-client store,
+  verifies the selected backend model, remains disabled at boot, and stops
+  after its last explicit current-boot consumer releases it.
+- Added `gateway service plan|install|status|start|stop|restart|remove`, exact
+  byte-identity migration for the 2026-09-01 live-repair unit/runner, hardened
+  unit generation with stable current/installed-slot launch paths, unfamiliar
+  unit/listener refusal, and uninstall preservation of models, credentials,
+  and Open WebUI data.
 
 ### Catalog, WebUI, and desktop lifecycle
 

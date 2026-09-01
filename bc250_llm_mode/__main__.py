@@ -181,10 +181,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     sharing.add_argument("action", choices=("start", "stop", "restart", "status"))
     gateway = sub.add_parser(
-        "gateway", help="Manage the authenticated integration gateway credential (ADR 005 D3)"
+        "gateway", help="Manage gateway credentials and the current-boot runtime"
     )
     gateway.add_argument(
-        "action", choices=("status", "provision", "rotate", "revoke", "verify")
+        "action", choices=("status", "provision", "rotate", "revoke", "verify", "service")
+    )
+    gateway.add_argument(
+        "service_action", nargs="?",
+        choices=("plan", "install", "status", "start", "stop", "restart", "remove"),
     )
     gateway.add_argument(
         "--secret", help="Use an explicit secret (test/tooling only; prefer generated)"
@@ -1044,6 +1048,24 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, indent=2))
         return 0
     if args.command == "gateway":
+        if args.action == "service":
+            if args.service_action is None:
+                raise ValueError("gateway service requires an action")
+            if args.service_action not in {"plan", "status"}:
+                require_acknowledgment(state)
+            service = application.gateway_service
+            service_actions = {
+                "plan": lambda: service.plan().to_dict(),
+                "install": lambda: service.install(runner),
+                "status": lambda: service.status(runner),
+                "start": lambda: service.acquire("client", runner),
+                "stop": lambda: service.release("client", runner),
+                "restart": lambda: service.restart(runner),
+                "remove": lambda: service.remove(runner),
+            }
+            result = service_actions[args.service_action]()
+            print(json.dumps(result, indent=2))
+            return 0
         if args.action in {"provision", "rotate", "revoke"}:
             require_acknowledgment(state)
         svc = application.gateway

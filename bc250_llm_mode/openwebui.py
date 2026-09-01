@@ -70,6 +70,16 @@ def _ensure_network(state: dict[str, Any], runner: CommandRunner) -> None:
         ])
 
 
+def ensure_open_webui_network(
+    state: dict[str, Any], runner: CommandRunner,
+) -> dict[str, Any]:
+    """Ensure only the managed bridge before starting its dependants."""
+    if not shutil.which("podman"):
+        raise RuntimeError("Podman is required for the Open WebUI private network.")
+    _ensure_network(state, runner)
+    return {"network": NETWORK, "created_or_present": True}
+
+
 def _container_topology(
     state: dict[str, Any], runner: CommandRunner, container: str
 ) -> str:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from typing import Any
+from typing import Any, Callable
 
 from .logging_utils import CommandRunner
 from .openwebui import GATEWAY_PORT, start_open_webui
@@ -131,7 +131,13 @@ def https_sharing_status(state: dict[str, Any], runner: CommandRunner) -> dict[s
     }
 
 
-def start_https_sharing(state: dict[str, Any], runner: CommandRunner) -> dict[str, Any]:
+def start_https_sharing(
+    state: dict[str, Any],
+    runner: CommandRunner,
+    *,
+    ensure_gateway: Callable[[], Any] | None = None,
+    start_webui: Callable[[], Any] | None = None,
+) -> dict[str, Any]:
     cli = _tailscale_cli()
     tail = tailscale_status(runner)
     if not tail.get("daemon_active"):
@@ -153,7 +159,12 @@ def start_https_sharing(state: dict[str, Any], runner: CommandRunner) -> dict[st
     # A sharing start is an explicit request for usable endpoints, so ensure
     # both backends are live before publishing them.
     start_service(state, runner)
-    start_open_webui(state, runner)
+    if ensure_gateway is not None:
+        ensure_gateway()
+    if start_webui is not None:
+        start_webui()
+    else:
+        start_open_webui(state, runner)
 
     webui_port = int(state.get("https_webui_port", WEBUI_HTTPS_PORT))
     api_port = int(state.get("https_api_port", API_HTTPS_PORT))

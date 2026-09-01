@@ -83,6 +83,7 @@ def test_host_mode_service_methods_reach_real_modules(tmp_path, monkeypatch):
     application = _composed(tmp_path)
     view = dict(application.read_model())
     runner = QuietRunner()
+
     calls = []
 
     monkeypatch.setattr(
@@ -147,6 +148,32 @@ def test_openwebui_and_sharing_methods_reach_adapters(tmp_path, monkeypatch):
     view = dict(application.read_model())
     runner = QuietRunner()
 
+    class GatewayRuntime:
+        def __init__(self):
+            self.consumers = set()
+
+        def status(self, _runner):
+            return {
+                "unit_owned": True,
+                "current_boot_consumers": sorted(self.consumers),
+            }
+
+        def acquire(self, consumer, _runner):
+            self.consumers.add(consumer)
+            return self.status(_runner)
+
+        def release(self, consumer, _runner):
+            self.consumers.discard(consumer)
+            return self.status(_runner)
+
+    gateway_runtime = GatewayRuntime()
+    application.openwebui._gateway_service = gateway_runtime
+    application.sharing._gateway_service = gateway_runtime
+    monkeypatch.setattr(
+        openwebui, "ensure_open_webui_network",
+        lambda st, rn: {"network": "bc250-openwebui"},
+    )
+
     monkeypatch.setattr(openwebui, "install_open_webui", lambda st, rn: {"installed": True})
     monkeypatch.setattr(openwebui, "start_open_webui", lambda st, rn: {"running": True})
     monkeypatch.setattr(openwebui, "stop_open_webui", lambda st, rn: {"running": False})
@@ -161,7 +188,9 @@ def test_openwebui_and_sharing_methods_reach_adapters(tmp_path, monkeypatch):
     assert application.openwebui.stop(view, runner) == {"running": False}
     assert application.openwebui.status(view, runner) == {"running": False}
 
-    monkeypatch.setattr(sharing, "start_https_sharing", lambda st, rn: {"available": True})
+    monkeypatch.setattr(
+        sharing, "start_https_sharing",
+        lambda st, rn, **_kwargs: {"available": True})
     monkeypatch.setattr(sharing, "stop_https_sharing", lambda st, rn: {"available": False})
     assert application.sharing.start(view, runner) == {"available": True}
     assert application.sharing.stop(view, runner) == {"available": False}

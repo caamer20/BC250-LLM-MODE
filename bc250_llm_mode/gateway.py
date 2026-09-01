@@ -958,7 +958,16 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
 def make_gateway_socket_server(gateway: "GatewayServer", *, host: str = "127.0.0.1",
                                port: int = 0) -> "http.server.ThreadingHTTPServer":
     """Bind a real loopback socket server wired to the gateway (exit gate)."""
-    server_cls = type("GatewayHTTPServer", (http.server.ThreadingHTTPServer,), {})
+    server_cls = type(
+        "GatewayHTTPServer",
+        (http.server.ThreadingHTTPServer,),
+        {
+            "daemon_threads": True,
+            "block_on_close": False,
+            "request_queue_size": 16,
+            "allow_reuse_address": True,
+        },
+    )
     server = server_cls((host, port), _SocketHandler)
     server.gateway = gateway  # type: ignore[attr-defined]
     return server

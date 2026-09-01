@@ -110,6 +110,21 @@ Funnel remains off. New or rotated keys are shown only in an interactive TTY or
 the time-bounded GUI view. `disable-all` remains available when the model is
 unhealthy.
 
+The gateway runtime is installed disabled and is owned only for the current
+boot by explicit client, Open WebUI, or sharing actions. Inspect it with:
+
+```bash
+bc250-llm-mode gateway service plan
+bc250-llm-mode gateway service status
+```
+
+The expected listeners are exactly loopback `127.0.0.1:9071` and the observed
+RFC1918 gateway of the dedicated `bc250-openwebui` bridge. `plan` refuses an
+absent, host, or ambiguous bridge, an unfamiliar unit, or an existing unowned
+listener. Do not replace that refusal with a wildcard bind or a hard-coded
+bridge address. Starting the service never enables it for the next boot and
+never starts the model through a systemd dependency.
+
 ## Runtime and application updates
 
 `llamacpp update` changes the inference runtime through its durable build,

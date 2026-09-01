@@ -864,6 +864,7 @@ class ConnectionSetupQueryService:
         openwebui: Any,
         tailscale: Any,
         sharing: Any,
+        gateway_service: Any = None,
         transport: ProbeTransport | None = None,
         clock: Callable[[], str] = utcnow,
     ) -> None:
@@ -875,6 +876,7 @@ class ConnectionSetupQueryService:
         self._openwebui = openwebui
         self._tailscale = tailscale
         self._sharing = sharing
+        self._gateway_service = gateway_service
         self._transport = transport or BoundedHTTPProbeTransport()
         self._clock = clock
 
@@ -910,19 +912,26 @@ class ConnectionSetupQueryService:
             ),
         }
 
-    def _gateway_observation(self) -> dict[str, Any]:
+    def _gateway_observation(self, runner: Any) -> dict[str, Any]:
         response = self._safe_request(
             method="GET", url="http://127.0.0.1:9071/health", token=None)
         payload = response.json_value if isinstance(response.json_value, dict) else {}
         readiness = self._credentials.readiness()
+        service = (
+            self._safe_status(lambda: self._gateway_service.status(runner))
+            if self._gateway_service is not None else {}
+        )
         return {
             **readiness,
-            "service_installed": response.status != 0,
-            "service_active": response.status != 0,
-            "listeners_ready": response.status == 200,
+            "service_installed": bool(
+                service.get("installed", response.status != 0)),
+            "service_active": bool(service.get("active", response.status != 0)),
+            "listeners_ready": bool(
+                service.get("listeners_complete", response.status == 200)),
             "backend_identity_verified": bool(
-                response.status == 200
-                and payload.get("backend_identity") == "verified"),
+                service.get("backend_identity_verified", (
+                    response.status == 200
+                    and payload.get("backend_identity") == "verified"))),
             "healthy": bool(
                 response.status == 200
                 and payload.get("status") == "ready"
@@ -1000,7 +1009,7 @@ class ConnectionSetupQueryService:
         state = dict(self._state_supplier())
         runner = self._runner_factory()
         model = self._model_observation(state, runner)
-        gateway = self._gateway_observation()
+        gateway = self._gateway_observation(runner)
         # sharing.py's compatibility checks consume transient gateway fields;
         # this changes only the disposable state dictionary.
         state.update(

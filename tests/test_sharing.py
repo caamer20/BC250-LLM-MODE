@@ -114,6 +114,22 @@ def test_start_sharing_starts_backends_and_replaces_funnel(monkeypatch):
     assert not any("127.0.0.1:8080" in " ".join(c) for c in commands)
 
 
+def test_composed_start_orders_model_gateway_then_webui(monkeypatch):
+    patch_tailnet(monkeypatch)
+    order = []
+    monkeypatch.setattr(
+        sharing, "start_service", lambda *_args: order.append("model"))
+    runner = FakeRunner(configured())
+
+    sharing.start_https_sharing(
+        verified_state(), runner,
+        ensure_gateway=lambda: order.append("gateway"),
+        start_webui=lambda: order.append("openwebui"),
+    )
+
+    assert order == ["model", "gateway", "openwebui"]
+
+
 def test_start_sharing_refuses_when_gateway_unverified(monkeypatch):
     patch_tailnet(monkeypatch)
     runner = FakeRunner(configured())

@@ -327,16 +327,36 @@ class SetupService:
 class SharingService:
     """Desired sharing mode and observed Tailscale/Serve state."""
 
-    def __init__(self, units, *, gateway=None, connection_credentials=None) -> None:
+    def __init__(self, units, *, gateway=None, connection_credentials=None,
+                 gateway_service=None, openwebui_service=None) -> None:
         self._units = units
         self._gateway = gateway
         self._connection_credentials = connection_credentials
+        self._gateway_service = gateway_service
+        self._openwebui_service = openwebui_service
 
     def _refresh_gateway(self, view: dict[str, Any]) -> None:
         if self._gateway is not None:
             self._gateway.write_state_fields(view)
         if self._connection_credentials is not None:
             self._connection_credentials.write_state_fields(view)
+
+    def _gateway_consumer_present(self, runner) -> bool:
+        if self._gateway_service is None:
+            return False
+        try:
+            status = self._gateway_service.status(runner)
+        except Exception:
+            return False
+        return "sharing" in status.get("current_boot_consumers", ())
+
+    def _release_gateway(self, runner) -> None:
+        if self._gateway_service is None:
+            return
+        status = self._gateway_service.status(runner)
+        if status.get("unit_owned") and "sharing" in status.get(
+            "current_boot_consumers", ()):
+            self._gateway_service.release("sharing", runner)
 
     def start(self, view, runner) -> Any:
         from .sharing import start_https_sharing
@@ -351,7 +371,24 @@ class SharingService:
                 expected_revision=int(access["revision"]))
             self._refresh_gateway(view)
         before = dict(view)
-        result = start_https_sharing(view, runner)
+        gateway_was_acquired = self._gateway_consumer_present(runner)
+        try:
+            result = start_https_sharing(
+                view,
+                runner,
+                ensure_gateway=(
+                    (lambda: self._gateway_service.acquire("sharing", runner))
+                    if self._gateway_service is not None else None
+                ),
+                start_webui=(
+                    (lambda: self._openwebui_service.start(view, runner))
+                    if self._openwebui_service is not None else None
+                ),
+            )
+        except BaseException:
+            if not gateway_was_acquired:
+                self._release_gateway(runner)
+            raise
         persist_state_diff(self._units, before, view)
         return result
 
@@ -360,6 +397,7 @@ class SharingService:
 
         before = dict(view)
         result = stop_https_sharing(view, runner)
+        self._release_gateway(runner)
         persist_state_diff(self._units, before, view)
         return result
 
@@ -369,6 +407,7 @@ class SharingService:
         before = dict(view)
         view["https_sharing_enabled"] = False
         result = stop_https_sharing(view, runner)
+        self._release_gateway(runner)
         persist_state_diff(self._units, before, view)
         return result
 
@@ -455,13 +494,18 @@ class UserPreferencesService:
 class MaintenanceService:
     """Uninstall/desktop-safe teardown with exact destructive targets."""
 
-    def __init__(self, units) -> None:
+    def __init__(self, units, *, gateway_service=None) -> None:
         self._units = units
+        self._gateway_service = gateway_service
 
     def uninstall(self, view, runner, *, remove_container=False,
                   remove_models=False):
         from .uninstall import uninstall
 
+        if self._gateway_service is not None:
+            gateway = self._gateway_service.status(runner)
+            if gateway.get("unit_owned"):
+                self._gateway_service.remove(runner)
         before = dict(view)
         result = uninstall(
             view, runner,
@@ -1120,11 +1164,12 @@ class OpenWebUIService:
     """
 
     def __init__(self, units, gateway=None, secret_file_dir=None,
-                 connection_credentials=None) -> None:
+                 connection_credentials=None, gateway_service=None) -> None:
         self._units = units
         self._gateway = gateway
         self._secret_file_dir = secret_file_dir
         self._connection_credentials = connection_credentials
+        self._gateway_service = gateway_service
 
     def _refresh_gateway(self, view: dict[str, Any]) -> None:
         if self._gateway is not None:
@@ -1132,24 +1177,57 @@ class OpenWebUIService:
         if self._connection_credentials is not None:
             self._connection_credentials.write_state_fields(view)
 
+    def _acquire_gateway(self, runner) -> bool:
+        if self._gateway_service is None:
+            return False
+        try:
+            before = self._gateway_service.status(runner)
+            already = "openwebui" in before.get("current_boot_consumers", ())
+        except Exception:
+            already = False
+        self._gateway_service.acquire("openwebui", runner)
+        return not already
+
+    def _release_gateway(self, runner) -> None:
+        if self._gateway_service is None:
+            return
+        status = self._gateway_service.status(runner)
+        if status.get("unit_owned") and "openwebui" in status.get(
+            "current_boot_consumers", ()):
+            self._gateway_service.release("openwebui", runner)
+
     def install(self, view, runner) -> Any:
-        from .openwebui import install_open_webui
+        from .openwebui import ensure_open_webui_network, install_open_webui
 
         # Refresh durable gateway fields into the snapshot so the container
         # resolves the scoped credential file via state (ADR 005 D3); the module
         # call stays (state, runner) for the adapter contract.
         self._refresh_gateway(view)
+        ensure_open_webui_network(view, runner)
+        acquired = self._acquire_gateway(runner)
         before = dict(view)
-        result = install_open_webui(view, runner)
+        try:
+            result = install_open_webui(view, runner)
+        except BaseException:
+            if acquired:
+                self._release_gateway(runner)
+            raise
         persist_state_diff(self._units, before, view)
         return result
 
     def start(self, view, runner) -> Any:
-        from .openwebui import start_open_webui
+        from .openwebui import ensure_open_webui_network, start_open_webui
 
         self._refresh_gateway(view)
+        ensure_open_webui_network(view, runner)
+        acquired = self._acquire_gateway(runner)
         before = dict(view)
-        result = start_open_webui(view, runner)
+        try:
+            result = start_open_webui(view, runner)
+        except BaseException:
+            if acquired:
+                self._release_gateway(runner)
+            raise
         persist_state_diff(self._units, before, view)
         return result
 
@@ -1158,15 +1236,23 @@ class OpenWebUIService:
 
         before = dict(view)
         result = stop_open_webui(view, runner)
+        self._release_gateway(runner)
         persist_state_diff(self._units, before, view)
         return result
 
     def restart(self, view, runner) -> Any:
-        from .openwebui import restart_open_webui
+        from .openwebui import ensure_open_webui_network, restart_open_webui
 
         self._refresh_gateway(view)
+        ensure_open_webui_network(view, runner)
+        acquired = self._acquire_gateway(runner)
         before = dict(view)
-        result = restart_open_webui(view, runner)
+        try:
+            result = restart_open_webui(view, runner)
+        except BaseException:
+            if acquired:
+                self._release_gateway(runner)
+            raise
         persist_state_diff(self._units, before, view)
         return result
 

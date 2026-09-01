@@ -57,6 +57,8 @@ def test_parser_accepts_the_gateway_surface():
     assert parse(("gateway", "rotate", "--secret", "s")).secret == "s"
     assert parse(("gateway", "revoke")).action == "revoke"
     assert parse(("gateway", "verify")).action == "verify"
+    service = parse(("gateway", "service", "status"))
+    assert (service.action, service.service_action) == ("service", "status")
     with pytest.raises(SystemExit):
         parse(("gateway", "bogus-action"))
 
