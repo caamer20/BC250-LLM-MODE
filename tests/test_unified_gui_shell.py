@@ -37,7 +37,18 @@ def test_management_window_constructs_with_persistent_regions(tmp_path):
     assert "notice_bar" in assigned
     assert "drawer" in assigned
     assert "_refresh_coordinator" in assigned
-    assert len(assigned["_nav_buttons"]) == 10
+    assert len(assigned["_nav_buttons"]) == 5
+    assert tuple(assigned["_nav_buttons"]) == (
+        Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS, Route.MORE)
+
+
+def test_more_navigation_keeps_secondary_pages_in_the_one_window(tmp_path):
+    window = ApplicationWindow(_application(tmp_path), management=True)
+    window.navigate(Route.MORE)
+    assert window._route is Route.MORE
+    assert window._page.__class__.__name__ == "MorePage"
+    window.navigate(Route.ACTIVITY)
+    assert window._route is Route.ACTIVITY
 
 
 def test_activity_navigation_is_in_window(tmp_path):

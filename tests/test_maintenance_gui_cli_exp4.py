@@ -20,7 +20,7 @@ from bc250_llm_mode.gui.maintenance_page import (  # noqa: E402
     MaintenancePage,
     build_maintenance_view,
 )
-from bc250_llm_mode.gui.routes import PRIMARY_ROUTES, Route  # noqa: E402
+from bc250_llm_mode.gui.routes import MANAGEMENT_ROUTES, Route  # noqa: E402
 from bc250_llm_mode.gui.shell import ApplicationWindow  # noqa: E402
 from bc250_llm_mode.maintenance_center import (  # noqa: E402
     MaintenanceCenterQueryService,
@@ -95,7 +95,7 @@ def test_home_surfaces_maintenance_before_chat_but_not_before_safety():
     assert build_home_view(home, maintenance).primary.code == "thermal"
 
 
-def test_maintenance_is_one_window_primary_route(tmp_path):
+def test_maintenance_is_one_window_secondary_route(tmp_path):
     application = Application.compose(AppPaths.temporary(tmp_path))
     state = application.read_model()
     application.commit_settings_changes(
@@ -103,7 +103,7 @@ def test_maintenance_is_one_window_primary_route(tmp_path):
     )
     window = ApplicationWindow(application, management=True)
     try:
-        assert Route.MAINTENANCE in PRIMARY_ROUTES
+        assert Route.MAINTENANCE in MANAGEMENT_ROUTES
         window.navigate(Route.MAINTENANCE)
         assert window._route is Route.MAINTENANCE
         assert isinstance(window._page, MaintenancePage)

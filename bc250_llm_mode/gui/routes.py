@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import StrEnum
 
 
@@ -15,6 +16,7 @@ class Route(StrEnum):
     SETTINGS = "settings"
     HELP = "help"
     CONNECTIONS = "connections"
+    MORE = "more"
     PROFILES = "profiles"
     MAINTENANCE = "maintenance"
     REPAIR = "maintenance/repair"
@@ -24,14 +26,52 @@ class Route(StrEnum):
 PRIMARY_ROUTES = (
     Route.HOME,
     Route.MODELS,
-    Route.PROFILES,
     Route.CHAT,
     Route.CONNECTIONS,
+    Route.MORE,
+)
+
+MORE_ROUTES = (
     Route.ACTIVITY,
     Route.MAINTENANCE,
     Route.SYSTEM,
     Route.SETTINGS,
     Route.HELP,
+)
+
+
+@dataclass(frozen=True)
+class MoreDestination:
+    route: Route
+    title: str
+    summary: str
+
+
+MORE_DESTINATIONS = (
+    MoreDestination(
+        Route.ACTIVITY, "Activity",
+        "See running work, completed operations, and recovery details."),
+    MoreDestination(
+        Route.MAINTENANCE, "Maintenance",
+        "Review prioritized checks, guided repair, cleanup, and updates."),
+    MoreDestination(
+        Route.SYSTEM, "System",
+        "Inspect current-boot services, sharing, thermals, and host mode."),
+    MoreDestination(
+        Route.SETTINGS, "Settings",
+        "Adjust appearance, notifications, privacy, and saved preferences."),
+    MoreDestination(
+        Route.HELP, "Help",
+        "Open the quick start, connection guidance, and offline glossary."),
+)
+
+if tuple(item.route for item in MORE_DESTINATIONS) != MORE_ROUTES:
+    raise RuntimeError("More destination inventory drifted from the route contract")
+
+MANAGEMENT_ROUTES = (
+    *PRIMARY_ROUTES,
+    Route.PROFILES,
+    *MORE_ROUTES,
 )
 
 SAFE_EXTERNAL_ROUTES = frozenset(Route)
@@ -81,4 +121,4 @@ def parse_route(value: str | Route) -> Route:
 def available_routes(*, setup_complete: bool, operational: bool = True) -> tuple[Route, ...]:
     if not operational or not setup_complete:
         return (Route.SETUP,)
-    return PRIMARY_ROUTES
+    return MANAGEMENT_ROUTES

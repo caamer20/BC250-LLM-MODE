@@ -77,6 +77,14 @@ versions are tagged in git.
   probes return authenticated 404 `ENDPOINT_UNSUPPORTED`, and arbitrary
   management paths remain unproxied 403 denials. Backend exception text is no
   longer reflected to clients.
+- Reduced the persistent navigation to five choices: Home, Models, Chat,
+  Connections, and More. More keeps Activity, Maintenance, System, Settings,
+  and Help in the same window, while Profiles remains available as an advanced
+  destination and every prior route remains reachable by deep link and the
+  bounded command palette.
+- Refocused Home on exactly five outcome cards—Model, Chat, Connections,
+  Safety, and Maintenance—while preserving the existing safety/recovery-first
+  primary-action policy and contextual links to detailed owners.
 
 ### Catalog, WebUI, and desktop lifecycle
 

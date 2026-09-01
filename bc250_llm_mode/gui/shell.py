@@ -49,9 +49,7 @@ class ApplicationWindow(SetupWindow):
             Route.HOME: "Home", Route.MODELS: "Models",
             Route.PROFILES: "Profiles", Route.CHAT: "Chat",
             Route.CONNECTIONS: "Connections",
-            Route.ACTIVITY: "Activity", Route.MAINTENANCE: "Maintenance",
-            Route.SYSTEM: "System",
-            Route.SETTINGS: "Settings", Route.HELP: "Help",
+            Route.MORE: "More",
         }
         for route in PRIMARY_ROUTES:
             button = ttk.Button(self._nav, text=labels[route], command=lambda item=route: self.navigate(item))
@@ -81,7 +79,7 @@ class ApplicationWindow(SetupWindow):
         self.drawer = BottomDrawer(self._outer)
         self._update_navigation()
         self.protocol("WM_DELETE_WINDOW", self.request_close)
-        for index, route in enumerate(PRIMARY_ROUTES[:9], 1):
+        for index, route in enumerate(PRIMARY_ROUTES, 1):
             self.bind(
                 f"<Control-Key-{index}>",
                 lambda _event, target=route: self._shortcut_route(target),
@@ -209,6 +207,15 @@ class ApplicationWindow(SetupWindow):
             from .connections_page import ConnectionsPage
 
             self._page = ConnectionsPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
+        if target is Route.MORE:
+            self.heading.configure(text="More")
+            from .more_page import MorePage
+
+            self._page = MorePage(self.content, self)
             self._page.mount()
             self._page.enter(context)
             self.heading.focus_set()

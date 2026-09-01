@@ -97,6 +97,7 @@ def build_home_view(
         if isinstance(readiness, Mapping) else ""
     )
 
+    priority_maintenance = _maintenance_item(maintenance)
     if _health(thermal) in {"BLOCKED", "RECOVERY_REQUIRED", "REPAIR_REQUIRED"}:
         headline = "Cooling required"
         explanation = "A thermal safety latch blocks model work until the hardware is cool and explicitly reset."
@@ -113,10 +114,10 @@ def build_home_view(
         headline = "Work is in progress"
         explanation = "One durable operation owns the appliance resources it needs."
         primary = PrimaryAction("activity", "View activity", Route.ACTIVITY.value, explanation)
-    elif (maintenance_item := _maintenance_item(maintenance)) is not None:
-        headline = str(maintenance_item.get("title") or "Maintenance needs attention")
+    elif priority_maintenance is not None:
+        headline = str(priority_maintenance.get("title") or "Maintenance needs attention")
         explanation = str(
-            maintenance_item.get("impact")
+            priority_maintenance.get("impact")
             or "Review the prioritized maintenance evidence before starting more model work."
         )
         primary = PrimaryAction(
@@ -187,29 +188,50 @@ def build_home_view(
         remote_state = _health(integrations)
         remote_stale = bool(integrations.get("stale"))
         remote_age = str(integrations.get("as_of") or "") or None
+    if native_ready:
+        chat_state = "READY"
+        chat_summary = "A current local completion is verified."
+    else:
+        chat_state = _health(inference)
+        chat_summary = evidence(inference)
+    if priority_maintenance is not None:
+        priority = int(priority_maintenance.get("priority") or 9)
+        maintenance_state = "BLOCKED" if priority <= 3 else "DEGRADED"
+        maintenance_summary = str(
+            priority_maintenance.get("title")
+            or priority_maintenance.get("impact")
+            or "A maintenance item needs review.")
+    elif _health(operations) not in {"READY", "UNAVAILABLE"}:
+        maintenance_state = _health(operations)
+        maintenance_summary = evidence(operations)
+    elif _health(storage) not in {"READY", "UNAVAILABLE"}:
+        maintenance_state = _health(storage)
+        maintenance_summary = storage_summary
+    else:
+        maintenance_state = "READY"
+        maintenance_summary = f"No prioritized items · {storage_summary}"
     cards = (
         HomeCardView(
-            "model", "Model & inference",
-            _health(inference) if _health(model) == "READY" else _health(model),
-            f"{model_name} · {evidence(inference)}",
-            bool(model.get("stale") or inference.get("stale")),
-            str(inference.get("as_of") or model.get("as_of") or "") or None,
+            "model", "Model", _health(model), model_name,
+            bool(model.get("stale")),
+            str(model.get("as_of") or "") or None,
         ),
         HomeCardView(
-            "thermal", "Temperature & memory", _health(thermal), evidence(thermal),
+            "chat", "Chat", chat_state, chat_summary,
+            bool(inference.get("stale")), str(inference.get("as_of") or "") or None,
+        ),
+        HomeCardView(
+            "connections", "Connections", remote_state, remote_summary,
+            remote_stale, remote_age,
+        ),
+        HomeCardView(
+            "safety", "Safety", _health(thermal), evidence(thermal),
             bool(thermal.get("stale")), str(thermal.get("as_of") or "") or None,
         ),
         HomeCardView(
-            "operations", "Active work", _health(operations), evidence(operations),
-            bool(operations.get("stale")), str(operations.get("as_of") or "") or None,
-        ),
-        HomeCardView(
-            "storage", "Storage", _health(storage), storage_summary,
-            bool(storage.get("stale")), str(storage.get("as_of") or "") or None,
-        ),
-        HomeCardView(
-            "remote", "Remote access", remote_state, remote_summary,
-            remote_stale, remote_age,
+            "maintenance", "Maintenance", maintenance_state, maintenance_summary,
+            bool(operations.get("stale") or storage.get("stale")),
+            str(operations.get("as_of") or storage.get("as_of") or "") or None,
         ),
     )
     shortcuts = (
@@ -240,7 +262,9 @@ class HomePage(ttk.Frame):
         self._cards = ttk.Frame(self)
         self._cards.pack(fill="x")
         self._card_vars: dict[str, tuple[tk.StringVar, tk.StringVar]] = {}
-        for index, key in enumerate(("model", "thermal", "operations", "storage", "remote")):
+        for index, key in enumerate((
+            "model", "chat", "connections", "safety", "maintenance",
+        )):
             frame = ttk.LabelFrame(self._cards, text="", padding=7)
             frame.grid(row=index // 3, column=index % 3, sticky="nsew", padx=3, pady=3)
             state_var = tk.StringVar(value="Checking")

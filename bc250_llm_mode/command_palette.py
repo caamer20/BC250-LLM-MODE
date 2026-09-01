@@ -70,6 +70,7 @@ def palette_commands(
         ("open-profiles", "Open Profiles", "Preview named context and concurrency workloads.", "profiles", ("context", "slots", "users", "performance")),
         ("open-chat", "Open Chat", "Use the bounded native chat with the active model.", "chat", ("conversation", "prompt")),
         ("open-connections", "Open Connections", "Set up Open WebUI, PocketPal, or another authenticated client.", "connections", ("endpoint", "phone", "api", "credential")),
+        ("open-more", "Open More", "Browse Activity, Maintenance, System, Settings, and Help.", "more", ("tools", "details", "advanced")),
         ("open-activity", "Open Activity", "Review durable operations, progress, and recovery evidence.", "activity", ("operation", "recovery", "history")),
         ("open-maintenance", "Open Maintenance", "Review the prioritized maintenance inbox.", "maintenance", ("health", "storage", "notification")),
         ("open-system", "Open System", "Manage model, Open WebUI, Tailscale, sharing, and host mode.", "system", ("service", "desktop", "llm")),

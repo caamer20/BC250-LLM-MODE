@@ -35,7 +35,7 @@ def test_concrete_window_has_no_legacy_mixin_hierarchy_or_step_export():
 def test_required_unified_gui_modules_are_present():
     required = {
         "activity.py", "app.py", "chat_page.py", "connections_page.py", "help_page.py",
-        "home_page.py", "models_page.py", "refresh.py", "routes.py",
+        "home_page.py", "models_page.py", "more_page.py", "refresh.py", "routes.py",
         "settings_page.py", "setup_forms.py", "setup_page.py", "shell.py",
         "system_page.py", "tasks.py", "theme.py", "view_state.py",
         "widgets.py",

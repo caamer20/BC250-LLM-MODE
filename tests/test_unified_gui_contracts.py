@@ -7,6 +7,8 @@ import pytest
 
 from bc250_llm_mode.gui.refresh import RefreshCoordinator
 from bc250_llm_mode.gui.routes import (
+    MANAGEMENT_ROUTES,
+    MORE_ROUTES,
     PRIMARY_ROUTES,
     Route,
     SETUP_CHAPTERS,
@@ -29,7 +31,12 @@ def test_every_setup_stage_maps_to_one_of_five_chapters():
 
 def test_routes_are_closed_and_setup_gates_navigation():
     assert available_routes(setup_complete=False) == (Route.SETUP,)
-    assert available_routes(setup_complete=True) == PRIMARY_ROUTES
+    assert PRIMARY_ROUTES == (
+        Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS, Route.MORE)
+    assert MORE_ROUTES == (
+        Route.ACTIVITY, Route.MAINTENANCE, Route.SYSTEM,
+        Route.SETTINGS, Route.HELP)
+    assert available_routes(setup_complete=True) == MANAGEMENT_ROUTES
     assert parse_route("models") is Route.MODELS
     with pytest.raises(ValueError):
         parse_route("run-any-shell-command")

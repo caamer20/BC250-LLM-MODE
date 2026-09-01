@@ -98,7 +98,7 @@ def test_connections_is_a_primary_one_window_route(tmp_path):
         window.navigate(Route.CONNECTIONS)
         assert window._route is Route.CONNECTIONS
         assert isinstance(window._page, ConnectionsPage)
-        assert len(window._nav_buttons) == 10
+        assert len(window._nav_buttons) == 5
     finally:
         window.destroy()
 

@@ -70,9 +70,11 @@ def test_home_stale_evidence_never_renders_ready_and_is_compact():
     assert view.primary.code != "chat"
     assert len(view.cards) == 5
     assert len(view.shortcuts) <= 4
-    model_card = next(card for card in view.cards if card.key == "model")
-    assert model_card.stale is True
-    assert model_card.state == "STALE"
+    chat_card = next(card for card in view.cards if card.key == "chat")
+    assert chat_card.stale is True
+    assert chat_card.state == "STALE"
+    assert tuple(card.key for card in view.cards) == (
+        "model", "chat", "connections", "safety", "maintenance")
 
 
 def test_home_composed_readiness_can_demote_legacy_green_state():

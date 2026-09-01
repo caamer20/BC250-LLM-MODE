@@ -17,7 +17,7 @@ from bc250_llm_mode.gui.profiles_page import (  # noqa: E402
     ProfilesPage,
     build_profiles_view,
 )
-from bc250_llm_mode.gui.routes import PRIMARY_ROUTES, Route  # noqa: E402
+from bc250_llm_mode.gui.routes import MANAGEMENT_ROUTES, Route  # noqa: E402
 from bc250_llm_mode.gui.shell import ApplicationWindow  # noqa: E402
 from bc250_llm_mode.paths import AppPaths  # noqa: E402
 
@@ -53,11 +53,11 @@ def test_profiles_view_caps_rows_suggestions_and_copies_inputs():
 def test_profiles_is_a_primary_route_in_the_same_window(tmp_path):
     window = ApplicationWindow(_application(tmp_path), management=True)
     try:
-        assert Route.PROFILES in PRIMARY_ROUTES
+        assert Route.PROFILES in MANAGEMENT_ROUTES
         window.navigate(Route.PROFILES)
         assert window._route is Route.PROFILES
         assert isinstance(window._page, ProfilesPage)
-        assert len(window._nav_buttons) == 10
+        assert len(window._nav_buttons) == 5
     finally:
         window.destroy()
 
