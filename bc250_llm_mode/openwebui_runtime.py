@@ -278,8 +278,12 @@ def plan_provider_config(
 # credential, prompt, completion, host path, or user data.  The adapter is tied
 # to Open WebUI 0.11.1's awaited Config.get_many/Config.upsert contract.
 _PROVIDER_RECONCILE_SCRIPT = r'''
-import asyncio, json
+import asyncio, json, os
 from pathlib import Path
+os.environ.setdefault(
+    "WEBUI_SECRET_KEY",
+    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip(),
+)
 from open_webui.models.config import Config
 
 URL = "http://host.containers.internal:9071/v1"
@@ -353,8 +357,12 @@ asyncio.run(main())
 
 
 _PROVIDER_VERIFY_SCRIPT = r'''
-import asyncio, hmac, json, urllib.request
+import asyncio, hmac, json, os, urllib.request
 from pathlib import Path
+os.environ.setdefault(
+    "WEBUI_SECRET_KEY",
+    Path("/app/backend/.webui_secret_key").read_text(encoding="utf-8").strip(),
+)
 from open_webui.models.config import Config
 
 URL = "http://host.containers.internal:9071/v1"
