@@ -66,6 +66,7 @@ def system_card_views(
     runtime: Mapping[str, Any],
     backups: int,
     platform_label: str,
+    readiness: Mapping[str, Any] | None = None,
 ) -> tuple[ServiceCardView, ...]:
     cards = home.get("cards") if isinstance(home.get("cards"), Mapping) else {}
     thermal = cards.get("thermal") if isinstance(cards.get("thermal"), Mapping) else {}
@@ -83,6 +84,24 @@ def system_card_views(
             tailnet_addresses if isinstance(tailnet_addresses, (list, tuple)) else ()
         ) if ":" not in str(address)
     ), "")
+    readiness_components = (
+        readiness.get("components")
+        if isinstance(readiness, Mapping)
+        and isinstance(readiness.get("components"), Mapping) else {}
+    )
+
+    def observed_state(component_id: str, fallback: str) -> str:
+        component = readiness_components.get(component_id)
+        if isinstance(component, Mapping):
+            return str(component.get("state") or fallback)
+        return fallback
+
+    def observed_summary(component_id: str) -> str:
+        component = readiness_components.get(component_id)
+        return (
+            str(component.get("summary") or "")
+            if isinstance(component, Mapping) else ""
+        )
     webui_detail = f"Local: {local_webui_url} (this BC250 only)."
     if webui_shared and tailnet_webui_url:
         webui_detail += f" Tailnet HTTPS: {tailnet_webui_url}"
@@ -96,7 +115,9 @@ def system_card_views(
     )
     return (
         ServiceCardView(
-            "server", "Model server", "Service active" if server_active else "Stopped",
+            "server", "Model server", observed_state(
+                "model", "Service active" if server_active else "Stopped"),
+            observed_summary("model") or
             "Single-owner llama.cpp service; model auto-start remains off for reboot.",
             "stop-server" if server_active else "start-server",
             "Stop" if server_active else "Start current model",
@@ -104,20 +125,26 @@ def system_card_views(
             "Restart" if server_active else None,
         ),
         ServiceCardView(
-            "webui", "Web interface", "Running" if webui_running else (
+            "webui", "Web interface", observed_state("openwebui", "Running" if webui_running else (
                 "Installed" if webui.get("installed") else "Not installed"
-            ),
-            webui_detail,
+            )),
+            ((observed_summary("openwebui") + " ") if observed_summary("openwebui") else "")
+            + webui_detail,
             "stop-webui" if webui_running else "start-webui" if webui.get("installed") else "install-webui",
             "Stop" if webui_running else "Start" if webui.get("installed") else "Install",
             "update-webui" if webui.get("installed") else None,
             "Update pinned Open WebUI" if webui.get("installed") else None,
         ),
         ServiceCardView(
-            "remote", "Remote access", "Connected" if tailscale.get("connected") else (
+            "remote", "Remote access", (
+                "READY" if isinstance(readiness, Mapping)
+                and readiness.get("remote_client_ready") else
+                observed_state("client_verification", "Connected" if tailscale.get("connected") else (
                 "Daemon ready" if daemon else "Off"
-            ),
+            ))),
             (
+                ((observed_summary("client_verification") + " ")
+                 if observed_summary("client_verification") else "") +
                 f"Tailscale daemon {'active' if daemon else 'stopped'} · "
                 f"IP {tailnet_ip or 'not assigned'} · HTTPS sharing "
                 f"{'on' if sharing_on else 'off'}."
@@ -219,12 +246,16 @@ class SystemPage(ttk.Frame):
             sharing = safe(
                 lambda: self.application.sharing.status(state, runner), {}
             )
+            readiness = safe(
+                lambda: self.application.readiness.snapshot(
+                    target_journey="remote_client").to_dict(), {})
             runtime = self.application.runtime_lifecycle.status()
             backups = self.application.backup.list_backups()
             return system_card_views(
                 home=home, server=server, webui=webui, tailscale=tailscale,
                 sharing=sharing, runtime=runtime, backups=len(backups),
                 platform_label=self.application.platform.profile.label,
+                readiness=readiness,
             )
 
         def apply(cards) -> None:

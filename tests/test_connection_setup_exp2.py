@@ -280,6 +280,8 @@ def test_composed_query_snapshot_is_live_bounded_and_read_only(world):
             if url.endswith(":9071/health"):
                 return ProbeHTTPResponse(200, {
                     "status": "ready", "backend_identity": "verified"})
+            if url == "http://127.0.0.1:3000/":
+                return ProbeHTTPResponse(200)
             raise AssertionError(url)
 
     class Model:
@@ -313,6 +315,9 @@ def test_composed_query_snapshot_is_live_bounded_and_read_only(world):
     after = units.database_path.read_bytes()
     assert snapshot.model["public_alias"] == "defiant-fable-q5"
     assert snapshot.gateway["ready_clients"] == 1
+    assert snapshot.openwebui["http_ready"] is True
+    assert snapshot.openwebui["expected_model_visible"] is False
+    assert snapshot.readiness["openwebui_ready"] is False
     assert snapshot.urls["base_url"] == "https://bazzite.tail2168f.ts.net:10000/v1"
     assert snapshot.ready is False  # mandatory auth probes have not run
     assert snapshot.next_action == "Run the authorized local connection test."

@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Protocol
 
+from .appliance_readiness import build_appliance_readiness
 from .connection_credentials import (
     CLIENT_SCOPES,
     ConnectionAccessRepository,
@@ -162,6 +163,7 @@ class ConnectionSnapshot:
     urls: dict[str, Any]
     probes: dict[str, Any]
     checks: tuple[dict[str, Any], ...]
+    readiness: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)
@@ -221,16 +223,70 @@ def build_connection_snapshot(
     )
     failed = next((item for item in checks if not item["passed"]), None)
     ready = failed is None
-    safe_model = {**model, "public_alias": alias}
+    safe_model = {
+        **model,
+        "public_alias": alias,
+        "service_active": bool(model.get("service_active", model_ok)),
+        "observed_at": model.get("observed_at") or generated_at,
+    }
     safe_model.pop("path", None)
     safe_model.pop("model_path", None)
     safe_gateway = {
         "healthy": bool(gateway.get("healthy")),
         "enabled": bool(gateway.get("enabled")),
+        "service_installed": bool(
+            gateway.get("service_installed", gateway.get("healthy"))),
+        "service_active": bool(
+            gateway.get("service_active", gateway.get("healthy"))),
+        "listeners_ready": bool(
+            gateway.get("listeners_ready", gateway.get("healthy"))),
+        "backend_identity_verified": bool(
+            gateway.get("backend_identity_verified", gateway.get("healthy"))),
+        "authenticated_sse_verified": bool(
+            gateway.get("authenticated_sse_verified")),
         "active_clients": int(gateway.get("active_clients", 0)),
         "ready_clients": int(gateway.get("ready_clients", 0)),
         "supported_paths": ["/health", "/v1/models", "/v1/chat/completions"],
     }
+    readiness = build_appliance_readiness(
+        generated_at=generated_at,
+        target_journey="remote_client",
+        model={
+            "installed": alias is not None,
+            "service_active": bool(model.get("service_active", model_ok)),
+            "protocol_ready": model_ok,
+            "expected_identity": model.get("expected_identity") or alias,
+            "observed_identity": model.get("observed_identity") or alias,
+            "identity_matches": model.get("identity_matches", True),
+            "observed_at": model.get("observed_at") or generated_at,
+        },
+        gateway={
+            **safe_gateway,
+            "credential_metadata_ready": credential_ok,
+            "observed_at": gateway.get("observed_at") or generated_at,
+        },
+        openwebui={
+            **openwebui,
+            "observed_at": openwebui.get("observed_at") or generated_at,
+        },
+        tailscale={
+            **tailscale,
+            "observed_at": tailscale.get("observed_at") or generated_at,
+        },
+        serve={
+            "mappings_exact": mappings_ok,
+            "funnel_disabled": funnel_ok,
+            "public_funnel": sharing.get("public_funnel"),
+            "observed_at": sharing.get("observed_at") or generated_at,
+        },
+        client_verification={
+            **probe_state,
+            "observed_at": probe_state.get("observed_at") or generated_at,
+            "dependency_identity": probe_state.get("dependency_identity"),
+            "verified_dependency_identity": probe_state.get(
+                "verified_dependency_identity"),
+        },
+    )
     return ConnectionSnapshot(
         schema_version=CONNECTION_SNAPSHOT_SCHEMA_VERSION,
         generated_at=generated_at,
@@ -255,6 +311,7 @@ def build_connection_snapshot(
         urls=urls,
         probes=probe_state,
         checks=checks,
+        readiness=readiness.to_dict(),
     )
 
 
@@ -843,6 +900,14 @@ class ConnectionSetupQueryService:
             "healthy": bool(service.get("active") and response.status == 200 and alias),
             "service_active": bool(service.get("active")),
             "public_alias": alias,
+            "expected_identity": state.get("current_model") or alias,
+            "observed_identity": alias,
+            "identity_matches": bool(
+                alias and (
+                    not state.get("current_model")
+                    or state.get("current_model") == alias
+                )
+            ),
         }
 
     def _gateway_observation(self) -> dict[str, Any]:
@@ -852,10 +917,42 @@ class ConnectionSetupQueryService:
         readiness = self._credentials.readiness()
         return {
             **readiness,
+            "service_installed": response.status != 0,
+            "service_active": response.status != 0,
+            "listeners_ready": response.status == 200,
+            "backend_identity_verified": bool(
+                response.status == 200
+                and payload.get("backend_identity") == "verified"),
             "healthy": bool(
                 response.status == 200
                 and payload.get("status") == "ready"
                 and payload.get("backend_identity") == "verified"),
+        }
+
+    def _openwebui_observation(
+        self, state: dict[str, Any], runner: Any,
+    ) -> dict[str, Any]:
+        status = self._safe_status(lambda: self._openwebui.status(state, runner))
+        response = (
+            self._safe_request(
+                method="GET", url="http://127.0.0.1:3000/", token=None)
+            if status.get("running") else ProbeHTTPResponse(0)
+        )
+        provider_configured = bool(
+            status.get("backend_route") == "gateway"
+            and status.get("gateway_state") == "verified"
+        )
+        return {
+            "installed": bool(status.get("installed")),
+            "running": bool(status.get("running")),
+            "digest_verified": bool(status.get("digest_verified")),
+            "http_ready": 200 <= response.status < 400,
+            "provider_configured": provider_configured,
+            # These stronger claims require an explicit reconciliation/probe;
+            # container state and an HTML response cannot prove either one.
+            "expected_model_visible": bool(status.get("expected_model_visible")),
+            "end_to_end_verified": bool(status.get("end_to_end_verified")),
+            "container_identity": status.get("image_identity"),
         }
 
     def _safe_request(self, **kwargs: Any) -> ProbeHTTPResponse:
@@ -913,17 +1010,12 @@ class ConnectionSetupQueryService:
                 "verified" if gateway["ready_clients"] > 0 and gateway["enabled"]
                 else "unverified"),
         )
-        openwebui = self._safe_status(lambda: self._openwebui.status(state, runner))
+        openwebui = self._openwebui_observation(state, runner)
         tailscale = self._safe_status(lambda: self._tailscale.status(runner))
         sharing = self._safe_status(lambda: self._sharing.status(state, runner))
         return build_connection_snapshot(
             generated_at=self._clock(), model=model, gateway=gateway,
-            openwebui={
-                "installed": bool(openwebui.get("installed")),
-                "running": bool(openwebui.get("running")),
-                "healthy": bool(openwebui.get("running")
-                                and openwebui.get("digest_verified")),
-            },
+            openwebui=openwebui,
             tailscale=tailscale, sharing=sharing,
             probes=self._probe_freshness(client_id),
         )

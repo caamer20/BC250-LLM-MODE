@@ -60,6 +60,20 @@ def test_connections_view_has_exact_values_and_bounded_redacted_clients():
     assert "/root/models" not in blob
 
 
+def test_connections_never_uses_legacy_green_when_journey_is_not_verified():
+    snapshot = _snapshot()
+    snapshot["readiness"] = {
+        "remote_client_ready": False,
+        "primary_problem_code": "CLIENT_VERIFICATION_STALE",
+    }
+
+    view = build_connections_view(snapshot, [])
+
+    assert view.ready is False
+    assert view.headline == "Finish connection checks"
+    assert view.detail == "Run the guided connection check again."
+
+
 def test_connections_is_a_primary_one_window_route(tmp_path):
     application = _application(tmp_path)
     window = ApplicationWindow(application, management=True)

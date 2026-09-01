@@ -209,6 +209,7 @@ class SupportBundleService:
         doctor: Any = None,
         platform: Any = None,
         notifications: Any = None,
+        readiness: Any = None,
         clock: Callable[[], str] | None = None,
         redact_model_filenames: bool = True,
     ) -> None:
@@ -218,8 +219,13 @@ class SupportBundleService:
         self._doctor = doctor
         self._platform = platform
         self._notifications = notifications
+        self._readiness = readiness
         self._clock = clock or _utcnow
         self._redact_model_filenames = redact_model_filenames
+
+    def attach_readiness_source(self, readiness: Any) -> None:
+        """Attach the composed query source after application composition."""
+        self._readiness = readiness
 
     # --- public API ------------------------------------------------------------
 
@@ -262,6 +268,9 @@ class SupportBundleService:
         emit("home.json", self._dump(self._home_snapshot(), redactor))
         # 2) doctor report.
         emit("doctor.json", self._dump(self._doctor_report(), redactor))
+        if self._readiness is not None:
+            emit("readiness.json", self._dump(
+                self._readiness_report(), redactor))
         # 3) disposable host-platform observations (never durable truth).
         if self._platform is not None:
             emit("platform.json", self._dump(self._platform.status(), redactor))
@@ -415,6 +424,16 @@ class SupportBundleService:
             return self._doctor.run().to_dict()
         from .doctor import DoctorService
         return DoctorService(self._units, self._paths).run().to_dict()
+
+    def _readiness_report(self) -> dict[str, Any]:
+        try:
+            return self._readiness.snapshot(
+                target_journey="native_chat").to_dict()
+        except Exception:  # noqa: BLE001 - never retain arbitrary exception text
+            return {
+                "overall_state": "UNKNOWN",
+                "primary_problem_code": "READINESS_OBSERVATION_UNAVAILABLE",
+            }
 
     def _settings(self, redactor: Redactor) -> dict[str, Any]:
         try:

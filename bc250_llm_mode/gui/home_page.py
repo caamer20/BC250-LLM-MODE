@@ -71,6 +71,7 @@ def _maintenance_item(snapshot: Mapping[str, Any] | None) -> Mapping[str, Any] |
 def build_home_view(
     snapshot: Mapping[str, Any],
     maintenance: Mapping[str, Any] | None = None,
+    readiness: Mapping[str, Any] | None = None,
 ) -> HomeView:
     """Choose one safety-first next action and five bounded health cards."""
     identity = _card(snapshot, "identity")
@@ -86,6 +87,15 @@ def build_home_view(
     operation_summary = operations.get("summary")
     if not isinstance(operation_summary, Mapping):
         operation_summary = {}
+    native_ready = (
+        bool(readiness.get("native_chat_ready"))
+        if isinstance(readiness, Mapping) else
+        (_health(model) == "READY" and _health(inference) == "READY")
+    )
+    readiness_problem = (
+        str(readiness.get("primary_problem_code") or "")
+        if isinstance(readiness, Mapping) else ""
+    )
 
     if _health(thermal) in {"BLOCKED", "RECOVERY_REQUIRED", "REPAIR_REQUIRED"}:
         headline = "Cooling required"
@@ -115,10 +125,14 @@ def build_home_view(
             Route.MAINTENANCE.value,
             explanation,
         )
-    elif _health(model) == "READY" and _health(inference) == "READY":
+    elif native_ready:
         headline = f"Ready to chat with {model_name}"
-        explanation = "The selected artifact and a current inference probe are verified."
+        explanation = "The selected model identity and a current local completion are verified."
         primary = PrimaryAction("chat", "Start chatting", Route.CHAT.value, explanation)
+    elif readiness_problem == "NATIVE_CHAT_UNVERIFIED":
+        headline = f"Check {model_name} before chatting"
+        explanation = "The model protocol is ready, but its completion evidence is missing or stale."
+        primary = PrimaryAction("checks", "Run checks", Route.SYSTEM.value, explanation)
     elif _health(model) == "READY" and _health(runtime) == "READY":
         headline = f"{model_name} is ready but stopped"
         explanation = "The model and runtime are verified; start them when you are ready."
@@ -143,12 +157,36 @@ def build_home_view(
         f"{format_bytes(available)} available"
         if isinstance(available, (int, float)) else evidence(storage)
     )
-    gateway = integrations.get("gateway")
-    remote_summary = (
-        "Authenticated gateway ready"
-        if isinstance(gateway, Mapping) and gateway.get("verified")
-        else evidence(integrations)
+    readiness_components = (
+        readiness.get("components")
+        if isinstance(readiness, Mapping)
+        and isinstance(readiness.get("components"), Mapping) else {}
     )
+    remote_component = (
+        readiness_components.get("client_verification")
+        if isinstance(readiness_components.get("client_verification"), Mapping)
+        else None
+    )
+    gateway = integrations.get("gateway")
+    if remote_component is not None:
+        remote_summary = str(remote_component.get("summary") or "Remote access is not verified.")
+        remote_state = (
+            "READY" if readiness.get("remote_client_ready")
+            else str(remote_component.get("state") or "UNKNOWN")
+        )
+        remote_stale = remote_component.get("problem_code") in {
+            "CLIENT_VERIFICATION_STALE", "CLIENT_VERIFICATION_INVALIDATED"
+        }
+        remote_age = str(remote_component.get("observed_at") or "") or None
+    else:
+        remote_summary = (
+            "Authenticated gateway ready"
+            if isinstance(gateway, Mapping) and gateway.get("verified")
+            else evidence(integrations)
+        )
+        remote_state = _health(integrations)
+        remote_stale = bool(integrations.get("stale"))
+        remote_age = str(integrations.get("as_of") or "") or None
     cards = (
         HomeCardView(
             "model", "Model & inference",
@@ -170,8 +208,8 @@ def build_home_view(
             bool(storage.get("stale")), str(storage.get("as_of") or "") or None,
         ),
         HomeCardView(
-            "remote", "Remote access", _health(integrations), remote_summary,
-            bool(integrations.get("stale")), str(integrations.get("as_of") or "") or None,
+            "remote", "Remote access", remote_state, remote_summary,
+            remote_stale, remote_age,
         ),
     )
     shortcuts = (
@@ -244,6 +282,8 @@ class HomePage(ttk.Frame):
                 lambda: (
                     self.application.home.snapshot().to_dict(),
                     self.application.maintenance_snapshot.snapshot().to_dict(),
+                    self.application.readiness.snapshot(
+                        target_journey="native_chat").to_dict(),
                 ),
                 self._apply_snapshot,
             )
@@ -254,16 +294,22 @@ class HomePage(ttk.Frame):
         if self._disposed:
             return
         if isinstance(snapshot, tuple):
-            home_source, maintenance_source = snapshot
+            home_source = snapshot[0]
+            maintenance_source = snapshot[1] if len(snapshot) > 1 else None
+            readiness_source = snapshot[2] if len(snapshot) > 2 else None
         else:
-            home_source, maintenance_source = snapshot, None
+            home_source, maintenance_source, readiness_source = snapshot, None, None
         source = dict(home_source)
         maintenance = (
             dict(maintenance_source)
             if isinstance(maintenance_source, Mapping)
             else None
         )
-        view = build_home_view(source, maintenance)
+        readiness = (
+            dict(readiness_source)
+            if isinstance(readiness_source, Mapping) else None
+        )
+        view = build_home_view(source, maintenance, readiness)
         self._view = view
         self._headline.set(view.headline)
         self._explanation.set(view.explanation)

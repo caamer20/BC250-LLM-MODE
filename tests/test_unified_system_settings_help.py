@@ -131,6 +131,35 @@ def test_system_cards_offer_one_primary_service_direction():
     assert {card.key: card for card in console}["host"].primary_code == "desktop"
 
 
+def test_system_cards_show_protocol_truth_instead_of_process_only():
+    cards = system_card_views(
+        home={"cards": {"thermal": {"health": {"state": "READY"}}}},
+        server={"active": True},
+        webui={"installed": True, "running": True},
+        tailscale={"daemon_active": True, "connected": True},
+        sharing={}, runtime={}, backups=0, platform_label="Bazzite",
+        readiness={
+            "remote_client_ready": False,
+            "components": {
+                "model": {"state": "READY", "summary": "Model protocol ready."},
+                "openwebui": {
+                    "state": "DEGRADED",
+                    "summary": "Container active but HTTP unavailable.",
+                },
+                "client_verification": {
+                    "state": "BLOCKED",
+                    "summary": "Gateway dependency stopped.",
+                },
+            },
+        },
+    )
+    by_key = {card.key: card for card in cards}
+
+    assert by_key["webui"].state == "DEGRADED"
+    assert "HTTP unavailable" in by_key["webui"].detail
+    assert by_key["remote"].state == "BLOCKED"
+
+
 def test_log_tail_service_is_closed_bounded_and_missing_safe(tmp_path):
     paths = AppPaths.temporary(tmp_path)
     paths.ensure_directories()

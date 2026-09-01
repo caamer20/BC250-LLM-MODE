@@ -108,9 +108,16 @@ class MaintenanceCheckService:
         checks = connection_dict.get("checks") or []
         sharing = connection_dict.get("sharing")
         sharing = sharing if isinstance(sharing, dict) else {}
+        readiness = connection_dict.get("readiness")
+        readiness = readiness if isinstance(readiness, dict) else {}
         connection_payload = {
             "available": connection_ok,
-            "ready": bool(connection_dict.get("ready")),
+            "ready": bool(
+                readiness.get("remote_client_ready")
+                if readiness else connection_dict.get("ready")),
+            "readiness_state": str(
+                readiness.get("overall_state") or "UNKNOWN"),
+            "problem_code": readiness.get("primary_problem_code"),
             "failed_checks": [
                 str(item.get("id")) for item in checks[:16]
                 if isinstance(item, dict)
@@ -180,6 +187,7 @@ class MaintenanceCheckService:
             },
             "notification_outcomes": list(notifications or ()),
             "snapshot": snapshot,
+            "readiness": readiness,
         }
 
 

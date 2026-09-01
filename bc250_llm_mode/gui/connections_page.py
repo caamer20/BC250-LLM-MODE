@@ -33,7 +33,14 @@ class ConnectionPageView:
 def build_connections_view(
     snapshot: Mapping[str, Any], clients: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]
 ) -> ConnectionPageView:
-    ready = bool(snapshot.get("ready"))
+    readiness = (
+        snapshot.get("readiness")
+        if isinstance(snapshot.get("readiness"), Mapping) else {}
+    )
+    ready = bool(
+        readiness.get("remote_client_ready")
+        if readiness else snapshot.get("ready")
+    )
     model = snapshot.get("model") if isinstance(snapshot.get("model"), Mapping) else {}
     urls = snapshot.get("urls") if isinstance(snapshot.get("urls"), Mapping) else {}
     checks_source = snapshot.get("checks")
@@ -65,12 +72,30 @@ def build_connections_view(
             "last_used_at": item.get("last_used_at"),
             "last_endpoint_class": item.get("last_endpoint_class"),
         })
+    problem_details = {
+        "MODEL_ABSENT": "Choose and install a model before connecting another device.",
+        "MODEL_STOPPED": "Start the selected model, then run the connection check.",
+        "MODEL_IDENTITY_MISMATCH": "Reconcile the running model before sharing it.",
+        "GATEWAY_NOT_INSTALLED": "Enable the authenticated gateway for this boot.",
+        "GATEWAY_STOPPED": "Start the authenticated gateway for this boot.",
+        "GATEWAY_CREDENTIAL_REQUIRED": "Create a credential for this device or app.",
+        "TAILSCALE_DISCONNECTED": "Connect this BC-250 to its private tailnet.",
+        "SERVE_MAPPING_MISSING": "Publish the reviewed private HTTPS mappings.",
+        "PUBLIC_FUNNEL_ENABLED": "Disable public Funnel exposure before continuing.",
+        "CLIENT_VERIFICATION_STALE": "Run the guided connection check again.",
+        "CLIENT_VERIFICATION_FAILED": "Review the failed check, fix it, and retry.",
+        "CLIENT_VERIFICATION_INVALIDATED": "A dependency changed; run the connection check again.",
+    }
+    problem_code = str(readiness.get("primary_problem_code") or "")
     return ConnectionPageView(
         headline="Ready for another device" if ready else "Finish connection checks",
         detail=(
             "Use the exact values below. The raw model port and /api are not supported."
-            if ready else str(snapshot.get("next_action") or
-                              "Start the model, add a client, then run the guided test.")),
+            if ready else problem_details.get(
+                problem_code,
+                str(snapshot.get("next_action") or
+                    "Start the model, add a client, then run the guided test."),
+            )),
         ready=ready,
         model_alias=(
             str(model.get("public_alias")) if model.get("public_alias") else None),

@@ -75,6 +75,19 @@ def test_home_stale_evidence_never_renders_ready_and_is_compact():
     assert model_card.state == "STALE"
 
 
+def test_home_composed_readiness_can_demote_legacy_green_state():
+    readiness = {
+        "native_chat_ready": False,
+        "primary_problem_code": "NATIVE_CHAT_UNVERIFIED",
+        "components": {},
+    }
+
+    view = build_home_view(_home(), readiness=readiness)
+
+    assert view.primary.code == "checks"
+    assert view.headline.startswith("Check ")
+
+
 def test_home_refresh_reuses_shortcut_widgets_instead_of_recreating_them():
     class Shell:
         def request_observation(self, _work, _apply):
@@ -336,4 +349,3 @@ def test_gui4_pages_import_no_host_infrastructure_and_replace_home_mount():
     shell = Path("bc250_llm_mode/gui/shell.py").read_text(encoding="utf-8")
     assert "DashboardMixin._complete(self)" not in shell
     assert "HomePage" in shell and "ModelsPage" in shell
-

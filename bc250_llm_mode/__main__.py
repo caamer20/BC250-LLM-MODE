@@ -801,6 +801,8 @@ def main(argv: list[str] | None = None) -> int:
         result["openwebui"] = open_webui_status(state, quiet_runner)
         result["tailscale"] = tailscale_status(quiet_runner)
         result["https_sharing"] = https_sharing_status(state, quiet_runner)
+        result["readiness"] = application.readiness.snapshot(
+            target_journey="native_chat").to_dict()
         if result["llm_service"].get("active"):
             try:
                 result["server"] = health_check(state, timeout=3)
@@ -838,6 +840,8 @@ def main(argv: list[str] | None = None) -> int:
             report["openwebui"] = open_webui_status(state, quiet_runner)
             report["tailscale"] = tailscale_status(quiet_runner)
             report["https_sharing"] = https_sharing_status(state, quiet_runner)
+            report["readiness"] = application.readiness.snapshot(
+                target_journey="native_chat").to_dict()
         except (OSError, RuntimeError, ValueError) as exc:
             report["services_error"] = str(exc)
         try:
@@ -1214,7 +1218,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if outcome.ok else 1
     if args.command == "home":
         # P5 §11.1: query-only snapshot; identical source for CLI/GUI/bundle.
-        print(json.dumps(application.home.snapshot().to_dict(), indent=2))
+        result = application.home.snapshot().to_dict()
+        result["readiness"] = application.readiness.snapshot(
+            target_journey="native_chat").to_dict()
+        print(json.dumps(result, indent=2))
         return 0
     if args.command == "privacy":
         print(json.dumps(application.privacy.snapshot().to_dict(), indent=2))
@@ -1270,6 +1277,7 @@ def main(argv: list[str] | None = None) -> int:
             application.units, application.paths,
             home=application.home, doctor=application.doctor,
             platform=application.platform,
+            readiness=application.readiness,
             redact_model_filenames=not args.keep_model_filenames,
         )
         manifest = service.build(args.output)

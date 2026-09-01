@@ -831,6 +831,14 @@ class Application:
             tailscale=application.tailscale,
             sharing=application.sharing,
         )
+        from .appliance_readiness import ApplianceReadinessQueryService
+
+        application.readiness = ApplianceReadinessQueryService(
+            home=application.home,
+            connections=application.connections,
+        )
+        application.doctor.attach_readiness_source(application.readiness)
+        application.support_bundle.attach_readiness_source(application.readiness)
         from .maintenance_checks import MaintenanceCheckService
         from .thermals import read_gpu_temperature
 

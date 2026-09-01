@@ -149,15 +149,19 @@ class DoctorReport:
     findings: tuple[Finding, ...]
     overall: str
     worst_ids: tuple[str, ...] = field(default_factory=tuple)
+    readiness: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        value = {
             "schema_version": self.schema_version,
             "generated_at": self.generated_at,
             "overall": self.overall,
             "worst_ids": list(self.worst_ids),
             "findings": [f.to_dict() for f in self.findings],
         }
+        if self.readiness is not None:
+            value["readiness"] = self.readiness
+        return value
 
 
 def _compose(findings: list[Finding], generated_at: str) -> DoctorReport:
@@ -191,12 +195,18 @@ class DoctorService:
         clock: Callable[[], str] | None = None,
         inference_probe: Callable[[], dict[str, Any]] | None = None,
         file_digest: Callable[[Any], str | None] | None = None,
+        readiness: Any = None,
     ) -> None:
         self._units = units
         self._paths = paths
         self._clock = clock or _utcnow
         self._inference_probe = inference_probe
         self._file_digest = file_digest or _file_sha256
+        self._readiness = readiness
+
+    def attach_readiness_source(self, readiness: Any) -> None:
+        """Composition hook; does not mutate durable appliance state."""
+        self._readiness = readiness
 
     # --- entry point ----------------------------------------------------------
 
@@ -226,7 +236,25 @@ class DoctorService:
         findings.extend(self._check_topology(settings))
         findings.extend(self._check_storage())
         findings.extend(self._check_inference())
-        return _compose(findings, generated_at)
+        report = _compose(findings, generated_at)
+        if self._readiness is None:
+            return report
+        try:
+            readiness = self._readiness.snapshot(
+                target_journey="native_chat").to_dict()
+        except Exception:  # noqa: BLE001 - readiness is UNKNOWN, not exception text
+            readiness = {
+                "overall_state": "UNKNOWN",
+                "primary_problem_code": "READINESS_OBSERVATION_UNAVAILABLE",
+            }
+        return DoctorReport(
+            schema_version=report.schema_version,
+            generated_at=report.generated_at,
+            findings=report.findings,
+            overall=report.overall,
+            worst_ids=report.worst_ids,
+            readiness=readiness,
+        )
 
     # --- checks ---------------------------------------------------------------
 

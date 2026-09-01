@@ -18,6 +18,17 @@ versions are tagged in git.
 - Added live-socket evidence for first-event delivery before upstream
   completion, terminal `[DONE]`, exact slot release, and content-free audit,
   plus oversized-response failure coverage.
+- Added the EUF-1 query-only appliance readiness projection with the closed
+  `ABSENT`/`STOPPED`/`STARTING`/`READY`/`DEGRADED`/`BLOCKED`/`UNKNOWN`
+  vocabulary. Model, gateway, Open WebUI, Tailscale, Serve, and client status
+  now expose process, protocol, and journey truth separately with bounded
+  freshness and dependency-identity invalidation.
+- Migrated Home, Connections, System, Maintenance checks, Doctor, CLI status,
+  and support-bundle metadata to consume the shared readiness projection while
+  retaining the prior snapshot fields for compatibility. A running container
+  with dead HTTP, a gateway credential without a listener, a mismatched model,
+  or stale client verification can no longer render as ready; optional remote
+  integrations do not block native Chat.
 
 ### Catalog, WebUI, and desktop lifecycle
 
