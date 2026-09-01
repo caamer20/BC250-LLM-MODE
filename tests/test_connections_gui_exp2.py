@@ -14,6 +14,7 @@ from bc250_llm_mode.gui.connections_page import (  # noqa: E402
     MAX_VISIBLE_CLIENTS,
     ConnectionsPage,
     build_connections_view,
+    connection_action_notice,
 )
 from bc250_llm_mode.gui.routes import PRIMARY_ROUTES, Route  # noqa: E402
 from bc250_llm_mode.gui.shell import ApplicationWindow  # noqa: E402
@@ -72,6 +73,21 @@ def test_connections_never_uses_legacy_green_when_journey_is_not_verified():
     assert view.ready is False
     assert view.headline == "Finish connection checks"
     assert view.detail == "Run the guided connection check again."
+
+
+def test_guided_outcome_never_paints_blocked_or_failed_as_success():
+    class Outcome:
+        ok = False
+        status = "BLOCKED"
+        detail = {
+            "reason_code": "MODEL_NOT_SELECTED",
+            "safe_action": "Choose a model and retry.",
+        }
+
+    notice = connection_action_notice(Outcome(), "Connection ready")
+    assert notice.level == "warning"
+    assert notice.title == "Connection not ready"
+    assert "MODEL_NOT_SELECTED" in notice.message
 
 
 def test_connections_is_a_primary_one_window_route(tmp_path):

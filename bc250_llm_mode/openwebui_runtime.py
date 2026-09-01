@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -49,6 +50,7 @@ OPENWEBUI_STOP_TIMEOUT_SECONDS = 15.0
 OPENWEBUI_INSPECT_MAX_BYTES = 256 * 1024
 OPENWEBUI_PROVIDER_OUTPUT_MAX_BYTES = 16 * 1024
 OPENWEBUI_SECRET_BYTES = 48
+OPENWEBUI_RECEIPT_FILENAME = "openwebui-runtime.json"
 OPENWEBUI_LABEL_OWNER = "io.bc250-llm-mode.owner"
 OPENWEBUI_LABEL_SPEC = "io.bc250-llm-mode.openwebui-spec"
 OPENWEBUI_LABEL_ROLE = "io.bc250-llm-mode.role"
@@ -761,6 +763,27 @@ class OpenWebUITransaction:
                     deadline_seconds=OPENWEBUI_STOP_TIMEOUT_SECONDS,
                     monotonic=self.monotonic, sleeper=self.sleeper,
                 )
+            receipt = {
+                "schema_version": OPENWEBUI_SPEC_VERSION,
+                "transaction_id": self.transaction_id,
+                "container": OPENWEBUI_CONTAINER,
+                "image": OPENWEBUI_IMAGE,
+                "architecture": OPENWEBUI_ARCHITECTURE,
+                "data_source": data_source,
+                "provider_adapter": OPENWEBUI_PROVIDER_ADAPTER_VERSION,
+                "provider_ready": True,
+                "expected_model": expected_model,
+                "expected_model_visible": True,
+                "stream_ready": True,
+                "verified_at": datetime.now(timezone.utc).isoformat(),
+            }
+            atomic_write_bytes(
+                self.paths.app_dir / OPENWEBUI_RECEIPT_FILENAME,
+                json.dumps(
+                    receipt, sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8"),
+                mode=0o600,
+            )
             return OpenWebUITransactionResult(
                 transaction_id=self.transaction_id,
                 container=OPENWEBUI_CONTAINER,

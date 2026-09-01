@@ -15,6 +15,7 @@ from bc250_llm_mode.openwebui_runtime import (
     OPENWEBUI_LEGACY_CONTAINER,
     OPENWEBUI_LEGACY_DATA_BIND,
     OPENWEBUI_PROVIDER_ADAPTER_VERSION,
+    OPENWEBUI_RECEIPT_FILENAME,
     OpenWebUIContainerSpec,
     OpenWebUIProviderAdapter,
     OpenWebUIRuntimeError,
@@ -235,6 +236,13 @@ def test_transaction_keeps_old_until_candidate_fully_verifies(tmp_path):
     assert runner.commands.index(create) < rename_old < rename_new < remove_old
     assert not any("--volumes" in command or "-v" in command[:2]
                    for command in runner.commands if command[:2] == ["podman", "rm"])
+    receipt = json.loads(
+        (AppPaths.temporary(tmp_path).app_dir / OPENWEBUI_RECEIPT_FILENAME)
+        .read_text(encoding="utf-8"))
+    assert receipt["expected_model"] == "qwen38-9b"
+    assert receipt["provider_ready"] is True
+    assert receipt["stream_ready"] is True
+    assert "secret" not in json.dumps(receipt).lower()
 
 
 @pytest.mark.parametrize("failure", ["reconcile", "model", "stream"])

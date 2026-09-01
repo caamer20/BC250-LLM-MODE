@@ -423,8 +423,9 @@ class ConnectionCredentialCommandService:
         label: str,
         client_kind: str,
         scopes: Iterable[str] = CLIENT_SCOPES,
+        client_id: str | None = None,
     ) -> CredentialCommandResult:
-        client_id = self._id_provider()
+        client_id = client_id or self._id_provider()
         secret = self._secret_provider()
         path = self._path(client_id, 1)
         self._publish_secret(path, secret)
@@ -438,6 +439,98 @@ class ConnectionCredentialCommandService:
             self._unlink(path)
             raise
         return CredentialCommandResult("created", self._redacted(record), secret)
+
+    def ensure_client(
+        self,
+        *,
+        client_id: str,
+        label: str,
+        client_kind: str,
+        scopes: Iterable[str] = CLIENT_SCOPES,
+    ) -> CredentialCommandResult:
+        """Idempotently create one operation-owned client identity.
+
+        A process death may leave the mode-0600 generation-1 file published
+        before its metadata transaction. Recovery adopts that exact file by
+        fingerprint; it never generates a second credential for the same
+        durable client id.
+        """
+        from .connection_credentials import (
+            normalize_kind,
+            normalize_label,
+            normalize_scopes,
+            validate_client_id,
+        )
+
+        client_id = validate_client_id(client_id)
+        label = normalize_label(label)
+        client_kind = normalize_kind(client_kind)
+        scopes = normalize_scopes(scopes)
+        self._ensure_secret_dir()
+        with self._units.read() as conn:
+            existing = ConnectionClientRepository(conn).get(client_id)
+        if existing is not None:
+            if (
+                existing.revoked_at is not None
+                or existing.label != label
+                or existing.client_kind != client_kind
+                or existing.scopes != scopes
+                or self._read_secret(existing) is None
+            ):
+                raise ConnectionCredentialError(
+                    "the requested client identity already exists with different state")
+            return CredentialCommandResult(
+                "reused", self._redacted(existing), None)
+
+        path = self._path(client_id, 1)
+        created_file = False
+        if path.exists():
+            # Read the orphan without relying on a fingerprint that is not yet
+            # durable, then adopt its exact bytes below.
+            try:
+                info = path.lstat()
+                raw = path.read_bytes()
+            except OSError as exc:
+                raise ConnectionCredentialError(
+                    "operation-owned client file could not be recovered") from exc
+            if (
+                path.is_symlink() or not stat.S_ISREG(info.st_mode)
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or not (8 <= len(raw) <= MAX_SECRET_LEN)
+            ):
+                raise ConnectionCredentialError(
+                    "operation-owned client file failed recovery validation")
+            try:
+                secret = raw.decode("utf-8", "strict").strip()
+            except UnicodeDecodeError as exc:
+                raise ConnectionCredentialError(
+                    "operation-owned client file is not valid text") from exc
+            if not (8 <= len(secret) <= MAX_SECRET_LEN):
+                raise ConnectionCredentialError(
+                    "operation-owned client file has invalid content length")
+        else:
+            secret = self._secret_provider()
+            self._publish_secret(path, secret)
+            created_file = True
+        try:
+            with self._units.begin() as conn:
+                record = ConnectionClientRepository(conn, clock=self._clock).create(
+                    client_id=client_id, label=label, client_kind=client_kind,
+                    scopes=scopes, fingerprint=fingerprint_of(secret),
+                )
+        except BaseException:
+            # A fresh file is removed on ordinary failure. An adopted orphan is
+            # retained so a retry sees the same external effect identity.
+            if created_file:
+                self._unlink(path)
+            raise
+        return CredentialCommandResult(
+            "created", self._redacted(record), secret if created_file else None)
+
+    def client(self, client_id: str) -> dict[str, Any] | None:
+        with self._units.read() as conn:
+            record = ConnectionClientRepository(conn).get(client_id)
+        return self._redacted(record) if record is not None else None
 
     def rotate_client(
         self,

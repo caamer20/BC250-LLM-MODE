@@ -52,6 +52,21 @@ versions are tagged in git.
   pinned provider adapter uses Open WebUI's awaited Config API over stdin,
   preserves unrelated providers, replaces only the app-owned key, and verifies
   the selected model plus a real streamed completion ending in `[DONE]`.
+- Added the durable `INTEGRATION_SETUP v1` connection assistant with the fixed
+  model → gateway → Open WebUI → private Serve → client-verification order.
+  It snapshots pre-effect state, owns a shared exclusion set, recovers an
+  interrupted credential publication by exact file identity, and compensates
+  only clients and current-boot services created by that operation.
+- Connections now begins with Open WebUI, phone/tablet, desktop app, or
+  developer intent; creates separate named credentials; runs required blocked
+  and authorized models/SSE probes; shows the new external key only once; and
+  never labels a blocked or rolled-back outcome as success. The legacy shared
+  key can be retired only after both the named Open WebUI and an external
+  replacement have independent positive evidence and an exact typed
+  confirmation.
+- Persisted a bounded, redacted Open WebUI convergence receipt bound to the
+  image, provider adapter, and selected model. Status immediately invalidates
+  provider/model/stream readiness when any of those identities changes.
 
 ### Catalog, WebUI, and desktop lifecycle
 

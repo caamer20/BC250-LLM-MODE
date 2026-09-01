@@ -81,6 +81,8 @@ class Application:
     connections: Any = None
     connection_credentials: Any = None
     connection_probes: Any = None
+    integration_setup: Any = None
+    integration_setup_host: Any = None
     workload_profiles: Any = None
     workload_profile_commands: Any = None
     performance_coach: Any = None
@@ -652,6 +654,19 @@ class Application:
             application.application_update_host
         ))
 
+        # EUF-4: the one guided connection journey is a recoverable durable
+        # operation. The adapter resolves services lazily because the frozen
+        # registry is constructed before those side-effect owners below.
+        from .integration_setup_adapter import IntegrationSetupHostAdapter
+        from .operations.integration_setup import (
+            build_integration_setup_workflow,
+        )
+
+        application.integration_setup_host = IntegrationSetupHostAdapter(
+            application)
+        registry.register(build_integration_setup_workflow(
+            application.integration_setup_host))
+
         # ONE freeze point for ALL durable workflows; exactly one
         # enqueue service and one engine factory are ever constructed.
         frozen_registry = registry.freeze()
@@ -839,6 +854,14 @@ class Application:
             tailscale=application.tailscale,
             sharing=application.sharing,
             gateway_service=application.gateway_service,
+        )
+        from .integration_setup_command import IntegrationSetupCommandService
+
+        application.integration_setup = IntegrationSetupCommandService(
+            application=application,
+            units=units,
+            enqueue=enqueue,
+            engine_factory=engine_factory,
         )
         from .appliance_readiness import ApplianceReadinessQueryService
 

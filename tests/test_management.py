@@ -84,6 +84,48 @@ def test_openwebui_status_and_lifecycle(monkeypatch):
     assert any(command[:3] == ["podman", "stop", "--time"] for command, _ in runner.commands)
 
 
+def test_openwebui_status_requires_receipt_bound_to_current_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(openwebui.shutil, "which", lambda name: "/usr/bin/podman")
+    networks = json.dumps({openwebui.NETWORK: {}})
+    outputs = {
+        ("podman", "container", "exists", openwebui.CONTAINER): (0, ""),
+        ("podman", "inspect", "--format", "{{.State.Status}}", openwebui.CONTAINER):
+            (0, "running\n"),
+        ("podman", "inspect", "--format", "{{json .NetworkSettings.Networks}}", openwebui.CONTAINER):
+            (0, networks + "\n"),
+        ("podman", "inspect", "--format",
+         "{{index .Config.Labels \"io.bc250-llm-mode.openwebui-spec\"}}",
+         openwebui.CONTAINER): (0, f"{openwebui.OPENWEBUI_SPEC_VERSION}\n"),
+        ("podman", "inspect", "--format", "{{json .Mounts}}", openwebui.CONTAINER):
+            (0, _named_data_mount()),
+        _diginspect_tuple()[0]: _diginspect_tuple()[1],
+    }
+    receipt = {
+        "schema_version": openwebui.OPENWEBUI_SPEC_VERSION,
+        "container": openwebui.CONTAINER,
+        "image": openwebui.IMAGE_REF,
+        "provider_adapter": openwebui.OPENWEBUI_PROVIDER_ADAPTER_VERSION,
+        "expected_model": "qwen38-9b",
+        "provider_ready": True,
+        "expected_model_visible": True,
+        "stream_ready": True,
+    }
+    (tmp_path / openwebui.OPENWEBUI_RECEIPT_FILENAME).write_text(
+        json.dumps(receipt), encoding="utf-8")
+    state = {
+        "app_dir": str(tmp_path), "current_model": "qwen38-9b",
+        "gateway_provisioned": True,
+    }
+    status = openwebui.open_webui_status(state, FakeRunner(outputs))
+    assert status["end_to_end_verified"] is True
+
+    state["current_model"] = "different-model"
+    stale = openwebui.open_webui_status(state, FakeRunner(outputs))
+    assert stale["provider_ready"] is False
+    assert stale["expected_model_visible"] is False
+    assert stale["end_to_end_verified"] is False
+
+
 def _diginspect_tuple():
     return (
         ("podman", "image", "inspect", openwebui.IMAGE_REF,

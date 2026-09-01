@@ -227,6 +227,21 @@ def _parser() -> argparse.ArgumentParser:
     connection_test = connection_sub.add_parser(
         "test", help="Run bounded positive and required negative endpoint probes")
     connection_test.add_argument("client_id")
+    connection_setup = connection_sub.add_parser(
+        "setup", help="Run the complete guided private connection journey")
+    connection_setup.add_argument(
+        "--intent", required=True,
+        choices=("openwebui", "phone", "desktop", "developer"))
+    connection_setup.add_argument("--label", default="Connected app")
+    connection_setup.add_argument("--client-id")
+    connection_setup.add_argument(
+        "--local-only", action="store_true",
+        help="Verify local gateway access without publishing Tailscale Serve")
+    connection_sub.add_parser(
+        "legacy-status", help="Check whether the displayed legacy shared key can be retired")
+    retire_legacy = connection_sub.add_parser(
+        "retire-legacy", help="Explicitly revoke the replaced legacy shared key")
+    retire_legacy.add_argument("--confirm", required=True)
     profiles = sub.add_parser(
         "profiles", help="Preview and apply outcome-oriented workload profiles"
     )
@@ -1126,12 +1141,41 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(json.dumps(result.to_dict(), indent=2))
             return 0 if result.passed else 1
+        if action == "legacy-status":
+            print(json.dumps(application.integration_setup.legacy_status(), indent=2))
+            return 0
 
         require_acknowledgment(state)
-        if action in {"add-client", "rotate-client"} and not sys.stderr.isatty():
+        setup_creates_external = (
+            action == "setup" and args.intent != "openwebui" and not args.client_id)
+        if (
+            action in {"add-client", "rotate-client"} or setup_creates_external
+        ) and not sys.stderr.isatty():
             raise RuntimeError(
-                "Creating or rotating a client requires an interactive terminal "
+                "Creating a client whose key must be revealed requires an interactive terminal "
                 "so the API key can be shown exactly once.")
+        if action == "setup":
+            intent = {
+                "openwebui": "OPENWEBUI",
+                "phone": "PHONE_TABLET",
+                "desktop": "DESKTOP_APP",
+                "developer": "DEVELOPER",
+            }[args.intent]
+            outcome = application.integration_setup.start(
+                intent=intent,
+                label=args.label,
+                client_id=args.client_id,
+                require_tailnet=not args.local_only,
+                requested_by="cli",
+            )
+            print(json.dumps(outcome.to_dict(), indent=2))
+            if outcome.secret is not None:
+                print("API key (shown once):", outcome.secret, file=sys.stderr)
+            return 0 if outcome.ok else 1
+        if action == "retire-legacy":
+            print(json.dumps(application.integration_setup.retire_legacy(
+                confirmation=args.confirm), indent=2))
+            return 0
         if action == "add-client":
             result = credentials.add_client(
                 label=args.label, client_kind=args.client_type,

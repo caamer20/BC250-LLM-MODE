@@ -25,6 +25,7 @@ from .openwebui_runtime import (
     OPENWEBUI_LEGACY_DATA_BIND,
     OPENWEBUI_NETWORK,
     OPENWEBUI_PROVIDER_ADAPTER_VERSION,
+    OPENWEBUI_RECEIPT_FILENAME,
     OPENWEBUI_SPEC_VERSION,
     OpenWebUIContainerSpec,
     OpenWebUIRuntimeError,
@@ -204,9 +205,23 @@ def open_webui_status(
         "verified": False, "detail": "not installed",
     }
     gateway_provisioned = bool(state.get("gateway_provisioned"))
-    provider_ready = bool(state.get("openwebui_provider_ready"))
-    expected_model_visible = bool(state.get("openwebui_expected_model_visible"))
-    stream_ready = bool(state.get("openwebui_stream_ready"))
+    receipt = _read_runtime_receipt(state)
+    expected = None
+    try:
+        expected = _expected_model(state)
+    except OpenWebUIRuntimeError:
+        pass
+    receipt_matches = bool(
+        receipt.get("schema_version") == OPENWEBUI_SPEC_VERSION
+        and receipt.get("container") == CONTAINER
+        and receipt.get("image") == IMAGE_REF
+        and receipt.get("provider_adapter") == OPENWEBUI_PROVIDER_ADAPTER_VERSION
+        and receipt.get("expected_model") == expected
+    )
+    provider_ready = bool(receipt_matches and receipt.get("provider_ready"))
+    expected_model_visible = bool(
+        receipt_matches and receipt.get("expected_model_visible"))
+    stream_ready = bool(receipt_matches and receipt.get("stream_ready"))
     spec_verified = (
         spec_version == OPENWEBUI_SPEC_VERSION
         and topology == "contained"
@@ -230,6 +245,7 @@ def open_webui_status(
         "provider_ready": provider_ready,
         "expected_model_visible": expected_model_visible,
         "stream_ready": stream_ready,
+        "end_to_end_verified": stream_ready,
         "digest_verified": digest["verified"],
         "digest": IMAGE_DIGEST_SHA256,
         "architecture": IMAGE_ARCHITECTURE,
@@ -244,6 +260,21 @@ def open_webui_status(
 def _paths(state: dict[str, Any]) -> AppPaths:
     value = state.get("app_dir")
     return AppPaths.from_app_dir(value) if value else AppPaths.for_home()
+
+
+def _read_runtime_receipt(state: dict[str, Any]) -> dict[str, Any]:
+    path = _paths(state).app_dir / OPENWEBUI_RECEIPT_FILENAME
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return {}
+    if len(raw) > 16 * 1024:
+        return {}
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
 
 
 def _expected_model(state: dict[str, Any]) -> str:

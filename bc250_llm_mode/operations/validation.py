@@ -56,6 +56,7 @@ KNOWN_REQUEST_VERSIONS: dict[OperationType, int] = {
     OperationType.PROFILE_CALIBRATE: 1,
     OperationType.STORAGE_CLEANUP: 1,
     OperationType.APPLICATION_UPDATE: 1,
+    OperationType.INTEGRATION_SETUP: 1,
 }
 
 EVENT_LEVELS = ("debug", "info", "warn", "error")

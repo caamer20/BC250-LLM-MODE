@@ -30,6 +30,24 @@ class ConnectionPageView:
     clients: tuple[dict[str, Any], ...]
 
 
+def connection_action_notice(result: Any, success_title: str) -> Notice:
+    """Translate a command outcome without ever painting failure as success."""
+    status = getattr(result, "status", None)
+    if status is None or getattr(result, "ok", True):
+        return Notice(
+            "success", success_title, "Connection state was refreshed.")
+    detail = getattr(result, "detail", {})
+    if not isinstance(detail, Mapping):
+        detail = {}
+    code = str(detail.get("reason_code") or status)
+    action = str(
+        detail.get("safe_action")
+        or "Open Activity for details, resolve the reported condition, and retry."
+    )
+    level = "warning" if status in {"BLOCKED", "BUSY", "CANCELLED"} else "error"
+    return Notice(level, "Connection not ready", f"{code}. {action}")
+
+
 def build_connections_view(
     snapshot: Mapping[str, Any], clients: list[Mapping[str, Any]] | tuple[Mapping[str, Any], ...]
 ) -> ConnectionPageView:
@@ -118,6 +136,7 @@ class ConnectionsPage(ttk.Frame):
         self._clients: dict[str, dict[str, Any]] = {}
         self._secret_deadline: float | None = None
         self._copied_secret = False
+        self._legacy: dict[str, Any] = {}
 
         self._headline = tk.StringVar(value="Loading connection status…")
         self._detail = tk.StringVar(value="")
@@ -174,7 +193,26 @@ class ConnectionsPage(ttk.Frame):
         ttk.Button(actions, text="Revoke selected", command=self._confirm_revoke).pack(side="left", padx=4)
         ttk.Button(actions, text="Test selected", command=self._test).pack(side="left")
 
-        add = ttk.LabelFrame(right, text="Add a device or app", padding=7)
+        guided = ttk.LabelFrame(right, text="What do you want to connect?", padding=7)
+        guided.pack(fill="x")
+        for title, intent in (
+            ("Open WebUI on this BC250", "OPENWEBUI"),
+            ("Phone or tablet app", "PHONE_TABLET"),
+            ("Desktop OpenAI-compatible app", "DESKTOP_APP"),
+            ("Developer or curl client", "DEVELOPER"),
+        ):
+            ttk.Button(
+                guided, text=title,
+                command=lambda selected=intent: self._guided_setup(selected),
+            ).pack(fill="x", pady=2)
+        ttk.Label(
+            guided,
+            text=("The assistant starts only this boot, keeps the raw model port "
+                  "private, and verifies blocked plus authorized requests."),
+            wraplength=300,
+        ).pack(anchor="w", fill="x", pady=(4, 0))
+
+        add = ttk.LabelFrame(right, text="Advanced: create a client only", padding=7)
         add.pack(fill="x")
         self._label = tk.StringVar(value="")
         self._kind = tk.StringVar(value="pocketpal")
@@ -221,7 +259,19 @@ class ConnectionsPage(ttk.Frame):
             command=self._confirm_disable_all,
         ).pack(anchor="w", pady=(5, 0))
 
-        self._apply(({}, []))
+        migration = ttk.LabelFrame(right, text="Legacy shared key", padding=7)
+        migration.pack(fill="x", pady=(7, 0))
+        self._legacy_status = tk.StringVar(
+            value="Checking whether separate replacement keys are ready…")
+        ttk.Label(
+            migration, textvariable=self._legacy_status, wraplength=300,
+        ).pack(anchor="w", fill="x")
+        ttk.Button(
+            migration, text="Retire replaced shared key",
+            command=self._confirm_retire_legacy,
+        ).pack(anchor="w", pady=(5, 0))
+
+        self._apply(({}, [], {}))
         self.refresh()
 
     def mount(self, parent=None):
@@ -244,6 +294,7 @@ class ConnectionsPage(ttk.Frame):
             lambda: (
                 self.application.connections.snapshot().to_dict(),
                 self.application.connection_credentials.list_clients(),
+                self.application.integration_setup.legacy_status(),
             ),
             self._apply,
         )
@@ -251,7 +302,8 @@ class ConnectionsPage(ttk.Frame):
     def _apply(self, payload) -> None:
         if self._disposed:
             return
-        snapshot, clients = payload
+        snapshot, clients, *extra = payload
+        self._legacy = dict(extra[0]) if extra and isinstance(extra[0], Mapping) else {}
         self._snapshot = dict(snapshot)
         view = build_connections_view(snapshot, clients)
         previous_view = self._view
@@ -300,6 +352,16 @@ class ConnectionsPage(ttk.Frame):
         if view.clients:
             self._tree.selection_set(view.clients[0]["client_id"])
         self._client_selected()
+        if not self._legacy.get("legacy_present"):
+            self._legacy_status.set("No active legacy shared key remains.")
+        elif self._legacy.get("revoke_recommended"):
+            self._legacy_status.set(
+                "Separate Open WebUI and external-app keys are verified. "
+                "The exposed legacy shared key can now be retired.")
+        else:
+            self._legacy_status.set(
+                "Keep the legacy key for now. Verify separate Open WebUI and "
+                "external-app replacements first.")
 
     def _client_selected(self) -> None:
         selected = self._selected()
@@ -332,8 +394,8 @@ class ConnectionsPage(ttk.Frame):
             result = box.get("result")
             if reveal and getattr(result, "secret", None):
                 self._show_secret(result.secret)
-            self.shell.notice_bar.show_notice(Notice(
-                "success", success_title, "Connection state was refreshed."))
+            self.shell.notice_bar.show_notice(
+                connection_action_notice(result, success_title))
             self.refresh()
 
         self.shell._work(work, done)
@@ -346,6 +408,26 @@ class ConnectionsPage(ttk.Frame):
                 label=label, client_kind=kind),
             "Client created", reveal=True)
         self._label.set("")
+
+    def _guided_setup(self, intent: str) -> None:
+        defaults = {
+            "OPENWEBUI": "Open WebUI",
+            "PHONE_TABLET": "My phone",
+            "DESKTOP_APP": "Desktop app",
+            "DEVELOPER": "Developer client",
+        }
+        label = self._label.get().strip() or defaults[intent]
+
+        def action():
+            return self.application.integration_setup.start(
+                intent=intent, label=label, require_tailnet=True,
+                requested_by="gui")
+
+        self._run(
+            action,
+            "Connection ready",
+            reveal=intent != "OPENWEBUI",
+        )
 
     def _rotate(self) -> None:
         selected = self._selected()
@@ -398,6 +480,26 @@ class ConnectionsPage(ttk.Frame):
             lambda: self.application.connection_credentials.disable_all(
                 expected_revision=int(access["revision"])),
             "Remote API access disabled"))
+
+    def _confirm_retire_legacy(self) -> None:
+        if not self._legacy.get("legacy_present"):
+            self.shell.notice_bar.show_notice(Notice(
+                "info", "No legacy key", "No active legacy shared key remains."))
+            return
+        if not self._legacy.get("revoke_recommended"):
+            self.shell.notice_bar.show_notice(Notice(
+                "warning", "Replacement checks required",
+                "Verify separate Open WebUI and external-app keys before retiring the shared key."))
+            return
+        self.shell.drawer.show_confirmation(Confirmation(
+            "Retire the replaced shared key?",
+            "Apps still using the old shared API key will immediately lose access.",
+            "Verified named Open WebUI and external-app keys remain active.",
+            "Retire shared key", typed_phrase="REVOKE LEGACY",
+        ), lambda: self._run(
+            lambda: self.application.integration_setup.retire_legacy(
+                confirmation="REVOKE LEGACY"),
+            "Legacy shared key retired"))
 
     def _show_instructions(self) -> None:
         payload = instructions_for(
@@ -465,4 +567,5 @@ class ConnectionsPage(ttk.Frame):
 
 __all__ = [
     "ConnectionPageView", "ConnectionsPage", "build_connections_view",
+    "connection_action_notice",
 ]

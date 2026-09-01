@@ -392,6 +392,43 @@ class SharingService:
         persist_state_diff(self._units, before, view)
         return result
 
+    def start_verified_backends(self, view, runner) -> Any:
+        """Publish mappings after the durable integration already verified UI.
+
+        This avoids a second transactional Open WebUI replacement in the same
+        operation while retaining the normal model/gateway/Tailscale/Serve
+        safety checks and state persistence.
+        """
+        from .sharing import start_https_sharing
+
+        self._refresh_gateway(view)
+        if (
+            self._connection_credentials is not None
+            and view.get("gateway_backend_identity") == "disabled"
+        ):
+            access = self._connection_credentials.access_state()
+            self._connection_credentials.enable_for_sharing(
+                expected_revision=int(access["revision"]))
+            self._refresh_gateway(view)
+        before = dict(view)
+        gateway_was_acquired = self._gateway_consumer_present(runner)
+        try:
+            result = start_https_sharing(
+                view,
+                runner,
+                ensure_gateway=(
+                    (lambda: self._gateway_service.acquire("sharing", runner))
+                    if self._gateway_service is not None else None
+                ),
+                start_webui=lambda: None,
+            )
+        except BaseException:
+            if not gateway_was_acquired:
+                self._release_gateway(runner)
+            raise
+        persist_state_diff(self._units, before, view)
+        return result
+
     def stop(self, view, runner) -> Any:
         from .sharing import stop_https_sharing
 

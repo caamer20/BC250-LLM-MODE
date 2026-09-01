@@ -166,6 +166,22 @@ Stopping sharing removes its mappings but does not delete data or revoke named
 clients. A normal reboot returns to graphical desktop with model, gateway, and
 Open WebUI stopped.
 
+The implemented durable type is `INTEGRATION_SETUP v1`. Its request contains
+only bounded public client/model identities and pre-effect observations; no
+credential bytes are allowed in operation request, output, event, or receipt
+data. Open WebUI and an external app must use different client identities.
+All six steps acquire the same closed exclusion set covering client metadata,
+active runtime, gateway, Open WebUI, and sharing. Recovery adopts an
+operation-owned mode-0600 credential file left before metadata commit instead
+of generating a second key. Compensation revokes only operation-created
+clients and stops/releases only effects absent from the request baseline.
+
+The terminal `INTEGRATION_READY` decision requires the selected client's
+negative-auth, authorized models, and real streamed completion evidence. The
+legacy singleton remains usable during migration but cannot be retired until
+the Open WebUI replacement receipt and one separate external-client probe both
+pass; retirement requires the exact phrase `REVOKE LEGACY`.
+
 ## 7. Privacy and audit
 
 Prompts, completions, raw request bodies, credentials, authorization headers,
