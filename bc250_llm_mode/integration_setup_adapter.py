@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from .operations.integration_setup import IntegrationSetupHost
@@ -28,6 +29,27 @@ class IntegrationSetupHostAdapter(IntegrationSetupHost):
 
     def _runner_view(self):
         return self.app.runner(), self.app.read_model()
+
+    @staticmethod
+    def _run_with_lease_pulses(ctx: EffectContext, action):
+        """Keep durable leases current during one bounded blocking host call."""
+        stopped = threading.Event()
+
+        def pulse_until_stopped() -> None:
+            while not stopped.wait(10.0):
+                ctx.pulse()
+
+        heartbeat = threading.Thread(
+            target=pulse_until_stopped,
+            name="integration-setup-lease-heartbeat",
+            daemon=True,
+        )
+        heartbeat.start()
+        try:
+            return action()
+        finally:
+            stopped.set()
+            heartbeat.join(timeout=1.0)
 
     def _client_ids(self, ctx: EffectContext) -> tuple[str, ...]:
         request = ctx.request
@@ -172,7 +194,8 @@ class IntegrationSetupHostAdapter(IntegrationSetupHost):
     def start_openwebui(self, ctx: EffectContext) -> dict[str, Any]:
         ctx.pulse(phase="openwebui", current=3, summary="Starting Open WebUI")
         runner, view = self._runner_view()
-        result = self.app.openwebui.start(view, runner)
+        result = self._run_with_lease_pulses(
+            ctx, lambda: self.app.openwebui.start(view, runner))
         if not (
             result.get("running") and result.get("provider_ready")
             and result.get("expected_model_visible") and result.get("stream_ready")
