@@ -29,7 +29,13 @@ class ApplicationWindow(SetupWindow):
         self._header_status = tk.StringVar(value="Desktop next boot · model auto-start off")
         ttk.Label(self._header, textvariable=self._header_status).pack(side="right")
 
-        self.notice_bar = NoticeBar(self._outer)
+        self.notice_bar = NoticeBar(
+            self._outer,
+            on_route=lambda route: self.navigate(route),
+            on_details=lambda title, detail: self.drawer.show_details(
+                f"{title} · technical details", detail
+            ),
+        )
         self._activity_shelf = ttk.Frame(self._outer, padding=(8, 5))
         self._activity_text = tk.StringVar(value="")
         ttk.Label(self._activity_shelf, textvariable=self._activity_text).pack(
@@ -42,6 +48,8 @@ class ApplicationWindow(SetupWindow):
         self._tracked_operation_ids: list[str] = []
         body = ttk.Frame(self._outer)
         body.pack(fill="both", expand=True, pady=(8, 0))
+        self._body = body
+        self._compact_navigation = False
         self._nav = ttk.Frame(body, width=150)
         self._nav.pack(side="left", fill="y", padx=(0, 10))
         self._nav_buttons: dict[Route, object] = {}
@@ -57,6 +65,7 @@ class ApplicationWindow(SetupWindow):
             self._nav_buttons[route] = button
 
         main = ttk.Frame(body)
+        self._main = main
         main.pack(side="left", fill="both", expand=True)
         self.progress = ttk.Progressbar(main, maximum=10)
         self.progress.pack(fill="x", pady=(0, 8))
@@ -90,6 +99,35 @@ class ApplicationWindow(SetupWindow):
         self.bind("<Escape>", lambda _event: self._shortcut_escape())
         self.bind("<Map>", lambda _event: self._set_mapped(True))
         self.bind("<Unmap>", lambda _event: self._set_mapped(False))
+        self.bind("<Configure>", self._window_resized)
+
+    def _window_resized(self, event) -> None:
+        if getattr(event, "widget", self) is not self:
+            return
+        try:
+            compact = int(event.width) < 900
+        except (AttributeError, TypeError, ValueError):
+            return
+        if compact == self._compact_navigation:
+            return
+        self._compact_navigation = compact
+        self._update_navigation()
+
+    def _pack_navigation(self) -> None:
+        self._nav.pack_forget()
+        self._main.pack_forget()
+        for button in self._nav_buttons.values():
+            button.pack_forget()
+        if self._compact_navigation:
+            self._nav.pack(side="top", fill="x", padx=0, pady=(0, 7))
+            for button in self._nav_buttons.values():
+                button.pack(side="left", fill="x", expand=True, padx=2)
+            self._main.pack(side="top", fill="both", expand=True)
+        else:
+            self._nav.pack(side="left", fill="y", padx=(0, 10))
+            for button in self._nav_buttons.values():
+                button.pack(fill="x", pady=2)
+            self._main.pack(side="left", fill="both", expand=True)
 
     def emit(self, line: str) -> None:
         self._log_lines.append(str(line))
@@ -115,11 +153,13 @@ class ApplicationWindow(SetupWindow):
             self.__dict__.get("_show_setup_ready", False)
         )
         if management:
-            self._nav.pack(side="left", fill="y", padx=(0, 10))
+            self._pack_navigation()
             self._setup_nav.pack_forget()
             self.progress.pack_forget()
         else:
             self._nav.pack_forget()
+            self._main.pack_forget()
+            self._main.pack(side="left", fill="both", expand=True)
             self.progress.pack(fill="x", pady=(0, 8), before=self.content)
             self._setup_nav.pack(fill="x", pady=(8, 0))
         for route, button in self._nav_buttons.items():
@@ -127,12 +167,14 @@ class ApplicationWindow(SetupWindow):
 
     def navigate(self, route: str | Route, context=None) -> None:
         target = parse_route(route)
+        if target is self._route and context is None:
+            return
         permitted = available_routes(
             setup_complete=bool(self.state_data.get("setup_complete")),
             operational=bool(getattr(self.application, "operational", True)),
         )
         is_management_subroute = (
-            target in {Route.REPAIR, Route.UPDATES} and Route.HOME in permitted
+            target in {Route.REPAIR, Route.UPDATES, Route.BACKUPS} and Route.HOME in permitted
         )
         if (
             target not in permitted
@@ -141,7 +183,7 @@ class ApplicationWindow(SetupWindow):
         ):
             return
         current_page = self._page
-        if current_page is not None and target is not self._route:
+        if current_page is not None:
             request_leave = getattr(current_page, "request_leave", None)
             if callable(request_leave) and not request_leave(target):
                 return
@@ -234,6 +276,14 @@ class ApplicationWindow(SetupWindow):
             from .repair_page import RepairPage
 
             self._page = RepairPage(self.content, self, self.application)
+            self._page.mount()
+            self._page.enter(context)
+            self.heading.focus_set()
+            return
+        if target is Route.BACKUPS:
+            self.heading.configure(text="Maintenance · Backups")
+            from .backups_page import BackupsPage
+            self._page = BackupsPage(self.content, self, self.application)
             self._page.mount()
             self._page.enter(context)
             self.heading.focus_set()
@@ -455,44 +505,27 @@ class ApplicationWindow(SetupWindow):
         self._close_application()
 
     def _close_application(self) -> None:
-        """Stop Desktop-mode inference before ending the GUI process.
-
-        LLM Mode is an explicit current-boot serving session, so closing its
-        control window does not end that session.  In normal Desktop mode the
-        GUI owns the interactive model lifetime: it verifies the live service
-        state, stops an active server, and refuses to disappear if the stop
-        cannot be verified.  Window unmap/minimize and route changes never call
-        this boundary.
-        """
-        try:
-            state = self.application.read_model()
-            runner = self.runner()
-            host = self.application.host_mode.status(state, runner)
-            if not isinstance(host, dict) or "desktop_active" not in host:
-                raise RuntimeError("desktop session status was unavailable")
-            desktop_active = bool(host["desktop_active"])
-            if desktop_active or str(state.get("system_mode") or "") == "desktop":
-                service = self.application.model_server
-                status = service.status(state, runner)
-                if not isinstance(status, dict) or "active" not in status:
-                    raise RuntimeError("model service status was unavailable")
-                if status["active"]:
-                    stopped = service.stop(state, runner)
-                    if not isinstance(stopped, dict) or stopped.get("active") is not False:
-                        raise RuntimeError("model service did not reach inactive state")
-        except Exception as exc:
-            self.emit(f"Desktop close kept the app open: {exc.__class__.__name__}")
-            self.notice_bar.show_notice(Notice(
-                "error",
-                "The model could not be stopped",
-                "BC250 LLM MODE stayed open so inference is not left running unexpectedly. "
-                "Use Stop on the System page, then close the app again.",
-                action_label="Open System",
-                action_route=Route.SYSTEM.value,
-                dismissible=False,
-            ))
+        if self.busy:
+            self._close_after_work = True
+            self.notice_bar.show_notice(Notice("info", "Finishing current work", "The app will check whether it can close after the current action finishes."))
             return
-        self.destroy()
+        self._close_after_work = False
+        box = {}
+        def work():
+            try:
+                box["result"] = self.application.model_server.prepare_gui_close(
+                    self.application.read_model, self.application.host_mode, self.runner())
+            except Exception:
+                box["result"] = {"safe_to_close": False, "reason": "The model could not be confirmed stopped. Open System, stop it, and try closing again."}
+        def done():
+            result = box["result"]
+            if result.get("safe_to_close"):
+                self.destroy()
+            else:
+                self.notice_bar.show_notice(Notice(
+                    "warning", "The app stayed open", result["reason"],
+                    action_label="Open Activity", action_route=Route.ACTIVITY.value, dismissible=False))
+        self._work(work, done)
 
     def _refresh_cycle(self) -> None:
         broker = getattr(self, "instance_broker", None)
@@ -515,7 +548,7 @@ class ApplicationWindow(SetupWindow):
         if page is not None and self._route in {
             Route.HOME, Route.MODELS, Route.CHAT, Route.CONNECTIONS,
             Route.ACTIVITY, Route.MAINTENANCE,
-            Route.REPAIR, Route.UPDATES, Route.SYSTEM,
+            Route.REPAIR, Route.UPDATES, Route.BACKUPS, Route.SYSTEM,
         }:
             refresh = getattr(page, "refresh", None)
             if callable(refresh) and not self.busy:
@@ -531,6 +564,8 @@ class ApplicationWindow(SetupWindow):
                     except Exception:
                         pass
         super()._refresh_cycle()
+        if self.__dict__.get("_close_after_work") and not self.busy:
+            self._close_application()
 
     def destroy(self) -> None:
         self._dispose_page()

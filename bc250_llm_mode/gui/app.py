@@ -120,6 +120,10 @@ class GuiBase(tk.Tk):
                     if result.generation != current_generation:
                         continue
                     if result.error is not None:
+                        if result.lane == "chat":
+                            failed = getattr(getattr(self, "_page", None), "chat_failed", None)
+                            if callable(failed):
+                                failed(result.error)
                         if result.lane == "observation":
                             page = getattr(self, "_page", None)
                             failed = getattr(page, "observation_failed", None)

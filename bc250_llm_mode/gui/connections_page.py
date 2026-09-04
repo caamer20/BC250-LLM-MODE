@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from dataclasses import dataclass
 from typing import Any, Mapping
@@ -16,10 +15,16 @@ from ..client_compatibility import (
 )
 from ..connection_setup import CLIENT_CARDS, instructions_for
 from ..presentation import format_timestamp
-from ..problem_details import problem_detail
+from ..problem_details import UNKNOWN_PROBLEM, problem_detail
 from ..progress_projection import format_elapsed, project_operation_progress
+from ..ux_guidance import (
+    ConnectionDoctorView,
+    connection_doctor,
+    http_status_guidance,
+)
 from .routes import Route
 from .view_state import Confirmation, Notice
+from .widgets import VerticalScrollFrame
 
 
 MAX_VISIBLE_CLIENTS = 32
@@ -35,6 +40,7 @@ class ConnectionPageView:
     endpoints: tuple[tuple[str, str], ...]
     checks: tuple[tuple[str, bool], ...]
     clients: tuple[dict[str, Any], ...]
+    doctor: ConnectionDoctorView
 
 
 def connection_action_notice(result: Any, success_title: str) -> Notice:
@@ -47,10 +53,28 @@ def connection_action_notice(result: Any, success_title: str) -> Notice:
     if not isinstance(detail, Mapping):
         detail = {}
     code = str(detail.get("reason_code") or status)
-    problem = problem_detail(code)
-    action = str(detail.get("safe_action") or problem.user_message)
+    status_code = detail.get("status_code") or detail.get("http_status")
+    if isinstance(status_code, int):
+        guidance = http_status_guidance(status_code, problem_code=code)
+        title = guidance.title
+        message = f"{guidance.explanation} {guidance.action}"
+    else:
+        problem = problem_detail(code)
+        title = (
+            problem.title if problem != UNKNOWN_PROBLEM
+            else "Connection check stopped safely"
+        )
+        action = str(detail.get("safe_action") or problem.user_message)
+        message = (
+            f"{problem.user_message} {action}"
+            if action != problem.user_message else problem.user_message
+        )
     level = "warning" if status in {"BLOCKED", "BUSY", "CANCELLED"} else "error"
-    return Notice(level, "Connection not ready", f"{code}. {action}")
+    return Notice(
+        level, title, message,
+        action_label="Review Connections", action_route=Route.CONNECTIONS.value,
+        details=f"Stable connection reason: {code}",
+    )
 
 
 def build_connections_view(
@@ -96,6 +120,7 @@ def build_connections_view(
             "last_endpoint_class": item.get("last_endpoint_class"),
         })
     problem_code = str(readiness.get("primary_problem_code") or "")
+    doctor = connection_doctor(snapshot)
     return ConnectionPageView(
         headline="Ready for another device" if ready else "Finish connection checks",
         detail=(
@@ -112,6 +137,7 @@ def build_connections_view(
         endpoints=endpoints,
         checks=checks,
         clients=tuple(rows),
+        doctor=doctor,
     )
 
 
@@ -138,6 +164,21 @@ class ConnectionsPage(ttk.Frame):
         ttk.Label(
             self, textvariable=self._detail, wraplength=760,
         ).pack(anchor="w", fill="x", pady=(2, 8))
+
+        doctor_box = ttk.LabelFrame(self, text="Connection Doctor", padding=7)
+        doctor_box.pack(fill="x", pady=(0, 7))
+        self._doctor_summary = tk.StringVar(
+            value="Checking the model, private API, client key, and private network…"
+        )
+        ttk.Label(
+            doctor_box, textvariable=self._doctor_summary,
+            wraplength=700, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        self._doctor_button = ttk.Button(
+            doctor_box, text="Refresh diagnosis", command=self._doctor_action,
+        )
+        self._doctor_button.pack(side="right", padx=(8, 0))
+        self._doctor_route: str | None = None
 
         split = ttk.Panedwindow(self, orient="horizontal")
         split.pack(fill="both", expand=True)
@@ -182,8 +223,14 @@ class ConnectionsPage(ttk.Frame):
 
         clients_box = ttk.LabelFrame(left, text="Client credentials", padding=7)
         clients_box.pack(fill="both", expand=True, pady=(7, 0))
+        ttk.Label(
+            clients_box,
+            text="Client access table · select a row to repeat its state below",
+        ).pack(anchor="w", fill="x", pady=(0, 3))
+        client_table = ttk.Frame(clients_box)
+        client_table.pack(fill="both", expand=True)
         self._tree = ttk.Treeview(
-            clients_box, columns=("type", "state", "used"),
+            client_table, columns=("type", "state", "used"),
             show="tree headings", height=7, selectmode="browse")
         self._tree.heading("#0", text="Label")
         self._tree.heading("type", text="Type")
@@ -193,7 +240,21 @@ class ConnectionsPage(ttk.Frame):
         self._tree.column("type", width=90)
         self._tree.column("state", width=75)
         self._tree.column("used", width=140)
-        self._tree.pack(fill="both", expand=True)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        client_vertical = ttk.Scrollbar(
+            client_table, orient="vertical", command=self._tree.yview
+        )
+        client_vertical.grid(row=0, column=1, sticky="ns")
+        client_horizontal = ttk.Scrollbar(
+            client_table, orient="horizontal", command=self._tree.xview
+        )
+        client_horizontal.grid(row=1, column=0, sticky="ew")
+        self._tree.configure(
+            yscrollcommand=client_vertical.set,
+            xscrollcommand=client_horizontal.set,
+        )
+        client_table.rowconfigure(0, weight=1)
+        client_table.columnconfigure(0, weight=1)
         self._tree.bind(
             "<<TreeviewSelect>>", lambda _event: self._client_selected()
         )
@@ -207,7 +268,20 @@ class ConnectionsPage(ttk.Frame):
         ttk.Button(actions, text="Revoke selected", command=self._confirm_revoke).pack(side="left", padx=4)
         ttk.Button(actions, text="Test selected", command=self._test).pack(side="left")
 
-        guided = ttk.LabelFrame(right, text="What do you want to connect?", padding=7)
+        self._mode_tabs = ttk.Notebook(right)
+        self._mode_tabs.pack(fill="both", expand=True)
+        self._connect_tab = ttk.Frame(self._mode_tabs, padding=6)
+        self._manage_tab = ttk.Frame(self._mode_tabs, padding=6)
+        self._mode_tabs.add(self._connect_tab, text="Connect a device")
+        self._mode_tabs.add(self._manage_tab, text="Manage access")
+        connect_scroll = VerticalScrollFrame(self._connect_tab)
+        connect_scroll.pack(fill="both", expand=True)
+        connect_body = connect_scroll.inner
+        manage_scroll = VerticalScrollFrame(self._manage_tab)
+        manage_scroll.pack(fill="both", expand=True)
+        manage_body = manage_scroll.inner
+
+        guided = ttk.LabelFrame(connect_body, text="What do you want to connect?", padding=7)
         guided.pack(fill="x")
         self._setup_progress = tk.StringVar(
             value="No guided connection setup is currently running."
@@ -219,16 +293,20 @@ class ConnectionsPage(ttk.Frame):
             guided, text="View connection activity",
             command=lambda: self.shell.navigate(Route.ACTIVITY),
         ).pack(anchor="w", pady=(0, 5))
+        self._guided_primary = None
         for title, intent in (
             ("Open WebUI on this BC250", "OPENWEBUI"),
             ("Phone or tablet app", "PHONE_TABLET"),
             ("Desktop OpenAI-compatible app", "DESKTOP_APP"),
             ("Developer or curl client", "DEVELOPER"),
         ):
-            ttk.Button(
+            button = ttk.Button(
                 guided, text=title,
                 command=lambda selected=intent: self._guided_setup(selected),
-            ).pack(fill="x", pady=2)
+            )
+            button.pack(fill="x", pady=2)
+            if self._guided_primary is None:
+                self._guided_primary = button
         ttk.Label(
             guided,
             text=("The assistant starts only this boot, keeps the raw model port "
@@ -236,7 +314,20 @@ class ConnectionsPage(ttk.Frame):
             wraplength=300,
         ).pack(anchor="w", fill="x", pady=(4, 0))
 
-        add = ttk.LabelFrame(right, text="Advanced: create a client only", padding=7)
+        troubleshooting = ttk.LabelFrame(
+            connect_body, text="If another app reports an error", padding=7
+        )
+        troubleshooting.pack(fill="x", pady=(7, 0))
+        ttk.Label(
+            troubleshooting,
+            text=(
+                "401 · replace the API key.  403 · check key permissions and the /v1 Base URL.  "
+                "502 · start and verify the selected model. Run the selected client's test after each fix."
+            ),
+            wraplength=300, justify="left",
+        ).pack(anchor="w", fill="x")
+
+        add = ttk.LabelFrame(manage_body, text="Advanced: create a client only", padding=7)
         add.pack(fill="x")
         self._label = tk.StringVar(value="")
         self._kind = tk.StringVar(value="pocketpal")
@@ -250,7 +341,7 @@ class ConnectionsPage(ttk.Frame):
         ).pack(fill="x", pady=(2, 6))
         ttk.Button(add, text="Create client", command=self._add).pack(anchor="w")
 
-        secret = ttk.LabelFrame(right, text="One-time API key", padding=7)
+        secret = ttk.LabelFrame(connect_body, text="One-time API key", padding=7)
         secret.pack(fill="x", pady=(7, 0))
         self._secret = tk.StringVar(value="No new key is being shown.")
         ttk.Entry(secret, textvariable=self._secret, state="readonly").pack(fill="x")
@@ -260,7 +351,7 @@ class ConnectionsPage(ttk.Frame):
             anchor="w", fill="x", pady=(3, 5))
         ttk.Button(secret, text="Copy shown key", command=self._copy_secret).pack(anchor="w")
 
-        guides = ttk.LabelFrame(right, text="Client instructions", padding=7)
+        guides = ttk.LabelFrame(connect_body, text="Client instructions", padding=7)
         guides.pack(fill="x", pady=(7, 0))
         self._guide_kind = tk.StringVar(value="pocketpal")
         ttk.Combobox(
@@ -270,8 +361,12 @@ class ConnectionsPage(ttk.Frame):
         ttk.Button(
             guides, text="Show exact settings", command=self._show_instructions,
         ).pack(anchor="w", pady=(5, 0))
+        ttk.Button(
+            guides, text="Copy safe settings (no key)",
+            command=self._copy_safe_settings,
+        ).pack(anchor="w", pady=(4, 0))
 
-        danger = ttk.LabelFrame(right, text="Emergency control", padding=7)
+        danger = ttk.LabelFrame(manage_body, text="Emergency control", padding=7)
         danger.pack(fill="x", pady=(7, 0))
         ttk.Label(
             danger,
@@ -283,7 +378,7 @@ class ConnectionsPage(ttk.Frame):
             command=self._confirm_disable_all,
         ).pack(anchor="w", pady=(5, 0))
 
-        migration = ttk.LabelFrame(right, text="Legacy shared key", padding=7)
+        migration = ttk.LabelFrame(manage_body, text="Legacy shared key", padding=7)
         migration.pack(fill="x", pady=(7, 0))
         self._legacy_status = tk.StringVar(
             value="Checking whether separate replacement keys are ready…")
@@ -341,6 +436,18 @@ class ConnectionsPage(ttk.Frame):
         self._clients = {row["client_id"]: row for row in view.clients}
         self._headline.set(view.headline)
         self._detail.set(view.detail)
+        doctor = view.doctor
+        count = (
+            f"{doctor.passed_count} of {doctor.total_count} checks passed. "
+            if doctor.total_count else ""
+        )
+        self._doctor_summary.set(
+            f"{doctor.headline}. {count}{doctor.explanation}"
+        )
+        self._doctor_route = doctor.next_action_route
+        self._doctor_button.configure(
+            text=doctor.next_action_label or "Refresh diagnosis"
+        )
         self._model_value.set(
             f"Model: {view.model_alias}" if view.model_alias
             else "Model: no safe live alias observed")
@@ -361,10 +468,15 @@ class ConnectionsPage(ttk.Frame):
             ).pack(side="right", padx=(4, 0))
         for child in self._checks_frame.winfo_children():
             child.destroy()
+        doctor_steps = {step.check_id: step for step in view.doctor.steps}
         for check_id, passed in view.checks:
+            step = doctor_steps.get(check_id)
             ttk.Label(
                 self._checks_frame,
-                text=f"{'PASS' if passed else 'NEEDS ACTION'} · {check_id}",
+                text=(
+                    f"{'Ready' if passed else 'Needs action'} · "
+                    f"{step.label if step is not None else check_id}"
+                ),
             ).pack(anchor="w")
         for item in self._tree.get_children():
             self._tree.delete(item)
@@ -532,11 +644,15 @@ class ConnectionsPage(ttk.Frame):
             self._selection_notice()
             return
         base = (self._snapshot.get("urls") or {}).get("base_url")
-        self._run(
+        self.shell.drawer.show_confirmation(Confirmation(
+            "Test this client connection?",
+            f"Verify {selected['label']} against {base or 'the local gateway'} using model {alias}. The check covers authentication rejection, model identity and a synthetic streamed response.",
+            "No saved conversation is sent. This appliance-side check does not qualify a phone app or a second-device journey.",
+            "Run connection check"), lambda: self._run(
             lambda: self.application.connection_probes.run(
                 client_id=selected["client_id"], public_alias=alias,
                 tailnet_base_url=base),
-            "Connection tests completed")
+            "Connection tests completed"))
 
     def _confirm_disable_all(self) -> None:
         access = self.application.connection_credentials.access_state()
@@ -574,11 +690,60 @@ class ConnectionsPage(ttk.Frame):
         payload = instructions_for(
             self._guide_kind.get(), urls=self._snapshot.get("urls") or {},
             public_alias=self._view.model_alias if self._view else None)
+        values = payload.get("values") or {}
+        rows = [f"{label}: {value or 'Not ready'}" for label, value in values.items()]
+        notes = payload.get("card", {}).get("notes") or []
+        text = "\n".join((
+            "Use these values exactly:",
+            *rows,
+            "",
+            *(str(note) for note in notes),
+            "",
+            "A 401 means the key is missing or rejected. A 403 usually means "
+            "the key lacks permission or the client is using the wrong API path. "
+            "A 502 means the private address is reachable but the model backend needs attention.",
+        ))
         self.shell.drawer.show_details(
-            f"{payload['card']['title']} settings",
-            json.dumps(payload, indent=2))
+            f"{payload['card']['title']} settings", text)
+
+    def _copy_safe_settings(self) -> None:
+        payload = instructions_for(
+            self._guide_kind.get(), urls=self._snapshot.get("urls") or {},
+            public_alias=self._view.model_alias if self._view else None,
+        )
+        values = payload.get("values") or {}
+        safe = {
+            key: value for key, value in values.items()
+            if key not in {"API Key", "Authorization", "api_key"}
+        }
+        if not payload.get("available"):
+            self.shell.notice_bar.show_notice(Notice(
+                "warning", "Connection settings are not ready",
+                str(payload.get("unavailable_reason") or
+                    "Start a model and private sharing first."),
+                action_label="Review Models", action_route=Route.MODELS.value,
+                dismissible=False,
+            ))
+            return
+        text = "\n".join(f"{label}: {value}" for label, value in safe.items())
+        self._copy_value(text)
+
+    def _doctor_action(self) -> None:
+        route = self._doctor_route
+        if route and route != Route.CONNECTIONS.value:
+            self.shell.navigate(route)
+            return
+        self._mode_tabs.select(self._connect_tab)
+        selected = self._selected()
+        if selected and not selected["revoked"] and self._view and self._view.model_alias:
+            self._test()
+        else:
+            if self._guided_primary is not None:
+                self._guided_primary.focus_set()
+            self.refresh()
 
     def _show_secret(self, secret: str) -> None:
+        self._mode_tabs.select(self._connect_tab)
         self._secret.set(secret)
         self._secret_deadline = time.monotonic() + SECRET_REVEAL_SECONDS
         self._secret_status.set(
@@ -620,7 +785,7 @@ class ConnectionsPage(ttk.Frame):
             "Select a client and make sure a live public model alias is available."))
 
     def focus_primary(self) -> None:
-        self._label_entry.focus_set()
+        self._doctor_button.focus_set()
 
     def observation_failed(self, _error: BaseException) -> None:
         self._detail.set(

@@ -833,7 +833,7 @@ classification, Connections, Help, `connections capabilities`, client-card
 instructions, documentation, and redacted support metadata. Client cards are
 schema 2 and record exact fields, auto-probe paths, Base URL rule, private
 transport, evidence level, and optional tested version. Only pinned Open WebUI
-0.11.1 claims a third-party version; PocketPal/Python remain example-only and
+0.11.3 claims a third-party version; PocketPal/Python remain example-only and
 no hardware-tested status is claimed. Drift tests freeze the eight reviewed
 capability rows and prove unsupported inference paths receive a stable
 explanation rather than being broadly proxied. Real-client and physical-host

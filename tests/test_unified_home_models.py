@@ -90,6 +90,17 @@ def test_home_composed_readiness_can_demote_legacy_green_state():
     assert view.headline.startswith("Check ")
 
 
+def test_model_quality_choice_survives_fit_recalculation():
+    items = build_model_items(
+        (), context=8192, slots=1,
+        selected_quants={"qwen38-9b": "Q4_K_M"},
+    )
+    qwen = next(item for item in items if item.catalog_id == "qwen38-9b")
+    assert qwen.quant == "Q4_K_M"
+    assert qwen.size_gib == pytest.approx(5.383)
+    assert qwen.memory_required_gib is not None
+
+
 def test_home_refresh_reuses_shortcut_widgets_instead_of_recreating_them():
     class Shell:
         def request_observation(self, _work, _apply):

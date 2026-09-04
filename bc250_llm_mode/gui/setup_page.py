@@ -23,6 +23,7 @@ from ..local_models import (
 )
 from ..memory_profile import analyze_memory_profile
 from ..message_catalog import safe_exception_message
+from ..ux_guidance import setup_chapter_guidance
 from .app import GuiBase
 from .setup_forms import SetupForms
 from .routes import Route, SETUP_CHAPTERS, setup_chapter_for
@@ -270,6 +271,7 @@ class SetupWindow(GuiBase):
             state="disabled" if self.current_step == 0 else "normal"
         )
         self.continue_button.configure(text="Continue", state="normal")
+        self._render_chapter_context()
         renderers = (
             self._hardware, self._disclaimer, self._llm_mode,
             self._environment, self.setup_forms.render_catalog,
@@ -277,6 +279,25 @@ class SetupWindow(GuiBase):
             self._server, self._webui, self._setup_ready,
         )
         renderers[self.current_step]()
+
+    def _render_chapter_context(self) -> None:
+        chapter = LEGACY_STEP_CHAPTERS[self.current_step]
+        guidance = setup_chapter_guidance(chapter)
+        frame = ttk.LabelFrame(
+            self.content,
+            text=f"Step {guidance.chapter} of 5 · {guidance.title}",
+            padding=7,
+        )
+        frame.pack(fill="x", pady=(0, 7))
+        ttk.Label(
+            frame,
+            text=(
+                f"Expected time: {guidance.estimate}. {guidance.change_summary} "
+                + ("Progress is saved and can resume." if guidance.resumable else "")
+            ),
+            wraplength=780,
+            justify="left",
+        ).pack(anchor="w", fill="x")
 
     def _body_label(self, text: str) -> ttk.Label:
         label = ttk.Label(
@@ -520,13 +541,22 @@ class SetupWindow(GuiBase):
 
     def _webui(self) -> None:
         self.webui_var = tk.BooleanVar(value=bool(self.state_data.get("openwebui_installed")))
-        ttk.Checkbutton(self.content, text="Install optional Open WebUI on host port 3000", variable=self.webui_var).pack(anchor="w", pady=10)
-        self._body_label("If a model is absent from its selector, log in as admin and create a Workspace model pinned to the base model id.")
+        ttk.Checkbutton(
+            self.content,
+            text="Add optional browser chat with Open WebUI",
+            variable=self.webui_var,
+        ).pack(anchor="w", pady=10)
+        self._body_label(
+            "Native Chat is already available. If selected, the app installs Open WebUI "
+            "on this machine, configures its private model provider, and verifies that "
+            "the selected public model name is visible. Remote browser access is set up "
+            "later from Connections."
+        )
         self.continue_button.configure(text="Verify and finish")
 
     def _setup_ready(self) -> None:
         self.back_button.configure(state="disabled")
-        self.continue_button.configure(text="Start chatting in the terminal", state="normal")
+        self.continue_button.configure(text="Open Chat", state="normal")
         ttk.Label(
             self.content,
             text="Ready",
@@ -547,7 +577,7 @@ class SetupWindow(GuiBase):
         actions = ttk.Frame(self.content)
         actions.pack(fill="x")
         ttk.Button(
-            actions, text="Start chatting in the terminal", command=self._launch_chat_terminal
+            actions, text="Open Chat", command=lambda: self.navigate(Route.CHAT)
         ).pack(side="left")
         if self.state_data.get("openwebui_installed"):
             ttk.Button(
@@ -555,8 +585,11 @@ class SetupWindow(GuiBase):
                 command=lambda: __import__("webbrowser").open("http://127.0.0.1:3000"),
             ).pack(side="left", padx=6)
         ttk.Button(
-            actions, text="View system details", command=lambda: self.navigate(Route.SYSTEM)
+            actions, text="Connect another device", command=lambda: self.navigate(Route.CONNECTIONS)
         ).pack(side="left")
+        ttk.Button(
+            actions, text="View system details", command=lambda: self.navigate(Route.SYSTEM)
+        ).pack(side="left", padx=6)
 
     def _manage_optimizations(self) -> None:
         self.optimization_return_to_complete = True
@@ -774,7 +807,7 @@ class SetupWindow(GuiBase):
                 self.commit_narrow()
             self._work(action, self._after_optionals)
         else:
-            self._launch_chat_terminal()
+            self.navigate(Route.CHAT)
 
     def _after_llm_mode(self) -> None:
         self._record_setup_stage(

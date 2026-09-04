@@ -181,7 +181,9 @@ def test_status_probe_cannot_overwrite_a_latched_stop(tmp_path, monkeypatch):
 
     result = thermals.run_watchdog_once(store, state, FakeRunner())
     assert result["action"] == "latched"
-    assert service.current() == before
+    assert result["stop_outcome"] == "failed"
+    assert service.current()["latch_state"] == before["latch_state"]
+    assert service.current()["baseline"]["gpu_max_mhz"] == before["baseline"]["gpu_max_mhz"]
 
 
 def test_stop_intent_persisted_before_server_stop(tmp_path, monkeypatch):

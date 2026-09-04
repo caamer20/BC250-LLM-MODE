@@ -12,25 +12,190 @@ MAX_LOG_LINES = 2000
 MAX_LOG_BYTES = 2 * 1024 * 1024
 
 
-class NoticeBar(ttk.Frame):
+class VerticalScrollFrame(ttk.Frame):
+    """One lightweight scroll owner for long, mostly read-only pages."""
+
     def __init__(self, parent) -> None:
-        super().__init__(parent, padding=(8, 6))
+        super().__init__(parent)
+        self.canvas = tk.Canvas(
+            self, borderwidth=0, highlightthickness=1, takefocus=True
+        )
+        self.scrollbar = ttk.Scrollbar(
+            self, orient="vertical", command=self.canvas.yview
+        )
+        self.inner = ttk.Frame(self.canvas)
+        self._window = self.canvas.create_window(
+            (0, 0), window=self.inner, anchor="nw"
+        )
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+        self.inner.bind("<Configure>", self._content_changed)
+        self.canvas.bind("<Configure>", self._canvas_changed)
+        self.canvas.bind("<Up>", lambda _event: self._scroll_units(-1))
+        self.canvas.bind("<Down>", lambda _event: self._scroll_units(1))
+        self.canvas.bind("<Prior>", lambda _event: self._scroll_pages(-1))
+        self.canvas.bind("<Next>", lambda _event: self._scroll_pages(1))
+        self.canvas.bind("<Home>", lambda _event: self._scroll_to(0.0))
+        self.canvas.bind("<End>", lambda _event: self._scroll_to(1.0))
+        self.canvas.bind("<MouseWheel>", self._mousewheel)
+        self.canvas.bind("<Button-4>", lambda _event: self._scroll_units(-3))
+        self.canvas.bind("<Button-5>", lambda _event: self._scroll_units(3))
+        self._scroll_tag = "BC250Scroll" + str(id(self))
+        self.bind_class(self._scroll_tag, "<MouseWheel>", self._child_wheel)
+        self.bind_class(self._scroll_tag, "<Button-4>", self._child_wheel)
+        self.bind_class(self._scroll_tag, "<Button-5>", self._child_wheel)
+        self.bind_class(self._scroll_tag, "<FocusIn>", self._reveal_focus)
+        self.bind("<Destroy>", self._remove_scroll_bindings, add="+")
+
+    def _content_changed(self, _event=None) -> None:
+        try:
+            self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+            pending = list(self.inner.winfo_children())
+            count = 0
+            while pending and count < 1000:
+                widget = pending.pop()
+                count += 1
+                tags = tuple(widget.bindtags())
+                if self._scroll_tag not in tags:
+                    widget.bindtags(tags[:2] + (self._scroll_tag,) + tags[2:])
+                pending.extend(widget.winfo_children())
+        except Exception:
+            pass
+
+    def _canvas_changed(self, event) -> None:
+        try:
+            self.canvas.itemconfigure(self._window, width=int(event.width))
+        except (AttributeError, TypeError, ValueError):
+            pass
+
+    def _child_wheel(self, event):
+        if event.widget.winfo_class() in {"Text", "Listbox", "Treeview"}:
+            return None
+        if getattr(event, "num", None) in (4, 5):
+            return self._scroll_units(-3 if event.num == 4 else 3)
+        return self._mousewheel(event)
+
+    def _reveal_focus(self, event):
+        try:
+            top = event.widget.winfo_rooty() - self.inner.winfo_rooty()
+            bottom = top + event.widget.winfo_height()
+            visible = self.canvas.canvasy(0)
+            height = self.canvas.winfo_height()
+            content = max(1, self.inner.winfo_height())
+            if top < visible:
+                self.canvas.yview_moveto(max(0, top - 8) / content)
+            elif bottom > visible + height:
+                self.canvas.yview_moveto(max(0, bottom - height + 8) / content)
+        except (AttributeError, TypeError, ValueError, tk.TclError):
+            pass
+
+    def _remove_scroll_bindings(self, event):
+        if event.widget is self:
+            for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>", "<FocusIn>"):
+                self.unbind_class(self._scroll_tag, sequence)
+
+    def _scroll_units(self, units: int):
+        try:
+            self.canvas.yview_scroll(int(units), "units")
+        except Exception:
+            pass
+        return "break"
+
+    def _scroll_pages(self, pages: int):
+        try:
+            self.canvas.yview_scroll(int(pages), "pages")
+        except Exception:
+            pass
+        return "break"
+
+    def _scroll_to(self, fraction: float):
+        try:
+            self.canvas.yview_moveto(float(fraction))
+        except Exception:
+            pass
+        return "break"
+
+    def _mousewheel(self, event):
+        delta = int(getattr(event, "delta", 0) or 0)
+        if not delta:
+            return None
+        # macOS supplies small deltas while Windows commonly supplies 120.
+        units = -1 if delta > 0 else 1
+        if abs(delta) >= 120:
+            units *= max(1, abs(delta) // 120)
+        return self._scroll_units(units)
+
+
+class NoticeBar(ttk.Frame):
+    def __init__(self, parent, *, on_route=None, on_details=None) -> None:
+        super().__init__(parent, padding=(8, 6), takefocus=True)
+        self._on_route = on_route
+        self._on_details = on_details
+        self._notice: Notice | None = None
         self._title = tk.StringVar(value="")
         self._message = tk.StringVar(value="")
         ttk.Label(self, textvariable=self._title, style="NoticeTitle.TLabel").pack(anchor="w")
         ttk.Label(self, textvariable=self._message, wraplength=760).pack(anchor="w", fill="x")
-        self._dismiss = ttk.Button(self, text="Dismiss", command=self.hide)
+        self._actions = ttk.Frame(self)
+        self._action = ttk.Button(self._actions, command=self._open_action)
+        self._details = ttk.Button(
+            self._actions, text="Technical details", command=self._open_details
+        )
+        self._dismiss = ttk.Button(self._actions, text="Dismiss", command=self.hide)
 
     def show_notice(self, notice: Notice) -> None:
+        self._notice = notice
         self._title.set(notice.title)
         self._message.set(notice.message)
+        self._action.pack_forget()
+        self._details.pack_forget()
+        self._dismiss.pack_forget()
+        if notice.action_label and notice.action_route and self._on_route is not None:
+            self._action.configure(text=notice.action_label)
+            self._action.pack(side="left")
+        if notice.details and self._on_details is not None:
+            self._details.pack(side="left", padx=(5, 0))
         if notice.dismissible:
             self._dismiss.pack(side="right")
+        if any((
+            notice.action_label and notice.action_route and self._on_route is not None,
+            notice.details and self._on_details is not None,
+            notice.dismissible,
+        )):
+            self._actions.pack(fill="x", pady=(5, 0))
         else:
-            self._dismiss.pack_forget()
+            self._actions.pack_forget()
         self.pack(fill="x", pady=(0, 6))
+        if not notice.dismissible and notice.action_label and notice.action_route:
+            try:
+                self._action.focus_set()
+            except Exception:
+                pass
+        elif not notice.dismissible:
+            # Giving the persistent status region focus makes the state change
+            # discoverable to keyboard and assistive-technology users even
+            # when there is no route action to focus.
+            try:
+                self.focus_set()
+            except Exception:
+                pass
+
+    def _open_action(self) -> None:
+        notice = self._notice
+        if (
+            notice is not None and notice.action_route
+            and self._on_route is not None
+        ):
+            self._on_route(notice.action_route)
+
+    def _open_details(self) -> None:
+        notice = self._notice
+        if notice is not None and notice.details and self._on_details is not None:
+            self._on_details(notice.title, notice.details)
 
     def hide(self) -> None:
+        self._notice = None
         self.pack_forget()
 
 

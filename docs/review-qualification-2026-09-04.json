@@ -1,0 +1,106 @@
+{
+  "kind": "developer-diagnostic",
+  "date": "2026-09-04",
+  "release_candidate": false,
+  "published": false,
+  "deployed_to_appliance": false,
+  "baseline_commit": "6422cb7beeca6cb124bb5be6f53f2d675b3d549e",
+  "source_scope": "Working tree including pre-existing UX changes; no candidate commit frozen.",
+  "version": "0.9.0.dev0",
+  "schema": 14,
+  "package_source": {
+    "python_file_count": 184,
+    "sha256": "debfbc824821962d57487c49286cf50b7c36918ef67e5546f95fcdde778c9714",
+    "digest_format": "SHA256 of UTF-8 compact JSON list of path/sha256 objects, sorted by path, with sorted object keys; paths start bc250_llm_mode/.",
+    "matches_clean_build_source": true
+  },
+  "tests": {
+    "python": "3.14.7",
+    "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O",
+    "selected": 1743,
+    "finished": 1743,
+    "passed": 1741,
+    "skipped": 2,
+    "failed": 0,
+    "errors": 0,
+    "default_selected": 1691,
+    "slow_selected": 52,
+    "slow_passed": 52,
+    "missing": [],
+    "extra": [],
+    "exit_status": 0,
+    "junit_duration_seconds": 236.765,
+    "selected_ids_sha256": "5bb499df4273814b9878a6d1fa29420c0101cde7d66aa507ea20eceb99c265b9",
+    "finished_ids_sha256": "5bb499df4273814b9878a6d1fa29420c0101cde7d66aa507ea20eceb99c265b9",
+    "node_digest_format": "SHA256 of UTF-8 compact JSON sorted node-ID list.",
+    "skip_reasons": {
+      "tests/test_profile_exchange_helper.py::test_real_same_filesystem_exchange_on_linux": "Requires Linux atomic rename exchange; host is macOS.",
+      "tests/test_runtime_process.py::test_local_exchange_swaps_content_atomically": "Requires Linux atomic rename exchange; host is macOS."
+    },
+    "inventory_file_sha256": "de08f33068a3e0b6d257f8b1d662e41e4ea1990365c63003022fba7075d3b5b9",
+    "junit_file_sha256": "ccadc84904d97ceb97635b0b2c237e707f10d6fc696e4bc2b91ddf1d6f4ea8d7"
+  },
+  "real_tk": {
+    "version": 9.0,
+    "route_scale_combinations": 28,
+    "route_count": 14,
+    "scales_percent": [
+      100,
+      200
+    ],
+    "callback_errors": 0,
+    "max_route_construction_ms": 267,
+    "threads_after_close": 1,
+    "setup_included": false,
+    "physical_qualification": "pending"
+  },
+  "clean_package": {
+    "python": "3.14.7",
+    "build_path": "clean source -> sdist -> expanded sdist -> wheel",
+    "build_once": true,
+    "installed_in_separate_venv": true,
+    "hashed_offline_dependency_install": true,
+    "packaged_python_files": 184,
+    "no_extra_python_modules": true,
+    "checks": [
+      "pip check",
+      "installed CLI --version",
+      "installed worker --help",
+      "installed runtime policy --help",
+      "rendered venv desktop launcher --version",
+      "schema 14 composition",
+      "conversation create/save",
+      "database backup creation and verification",
+      "restore preview"
+    ],
+    "artifacts": [
+      {
+        "name": "bc250_llm_mode-0.9.0.dev0.tar.gz",
+        "sha256": "6c99e6765325a62eed051be2289e94b73c439a82e99730f9998d08f5e6c81e11",
+        "size": 714226
+      },
+      {
+        "name": "bc250_llm_mode-0.9.0.dev0-py3-none-any.whl",
+        "sha256": "74ef9a3714e60325bc1f040dbdbfce367c35732114c528ce6be84f58d286f0ed",
+        "size": 776336
+      }
+    ]
+  },
+  "live_appliance_observation": {
+    "access": "Tailscale SSH; read-only",
+    "model": "LFM2.5-2.6B-Q5_K_M",
+    "healthy": true,
+    "configured_context_tokens": 128000,
+    "props_context_tokens": 128000,
+    "slots": 1,
+    "configuration_changed": false
+  },
+  "remaining": [
+    "Freeze reconciled source commit and candidate artifacts.",
+    "Run hosted Python 3.11/3.14 CI and trusted release workflow rehearsal.",
+    "Collect candidate-bound Bazzite/CachyOS fresh/upgraded physical, accessibility, resource and soak evidence (C4).",
+    "Obtain independent security review (C5).",
+    "Collect non-developer journey acceptance (C6).",
+    "Complete owner-gated release review, signing and publication (C8)."
+  ]
+}

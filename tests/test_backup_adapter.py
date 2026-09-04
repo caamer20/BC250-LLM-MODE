@@ -80,6 +80,8 @@ def _create_backup(adapter, paths, units, op_id="op-bk-1",
     published = adapter.publish_archive(ctx)
     adapter.verify_archive(ctx)
     record = adapter.record_backup(ctx)
+    with units.begin() as conn:
+        conn.execute("UPDATE operations SET state = 'SUCCEEDED' WHERE id = ?", (op_id,))
     return request, ctx, published, record
 
 
@@ -153,16 +155,18 @@ def test_restore_round_trip_with_fake_exchange(tmp_path):
     _seed_operation(units, op_id, "BACKUP_RESTORE")
     ctx = _ctx(op_id, request)
 
-    adapter.validate_source(ctx)
-    adapter.stage_candidate(ctx)
-    adapter.validate_staged(ctx)
-    adapter.publish_exchange(ctx)
-    adapter.verify_post_restore(ctx)
-    terminal = adapter.promote_or_rollback(ctx)
+    from bc250_llm_mode.profile_access import profile_access
+    with profile_access(paths.app_dir, exclusive=True):
+        adapter.validate_source(ctx)
+        adapter.stage_candidate(ctx)
+        adapter.validate_staged(ctx)
+        adapter.publish_exchange(ctx)
+        adapter.verify_post_restore(ctx)
+        terminal = adapter.promote_or_rollback(ctx)
 
     assert terminal["disposition"] == "RESTORE_PUBLISHED"
-    # The post-backup mutation is gone (restored profile has no marker)...
-    assert not (paths.app_dir / "post-backup-marker.txt").exists()
+    # Files outside the database backup are preserved, never discarded.
+    assert (paths.app_dir / "post-backup-marker.txt").read_text() == "mutated-after-backup"
     # ...and the restored database is present + intact.
     assert (paths.database_path).is_file()
     conn = sqlite3.connect(str(paths.database_path))

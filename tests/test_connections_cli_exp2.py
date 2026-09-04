@@ -32,6 +32,7 @@ def world(tmp_path, monkeypatch):
 def test_parser_accepts_all_planned_connections_commands():
     parse = entry._parser().parse_args
     assert parse(("connections", "status")).connection_action == "status"
+    assert parse(("connections", "doctor")).connection_action == "doctor"
     assert parse(("connections", "capabilities")).connection_action == "capabilities"
     assert parse(("connections", "clients")).connection_action == "clients"
     add = parse(("connections", "add-client", "--label", "Phone", "--type", "pocketpal"))
@@ -92,6 +93,28 @@ def test_status_clients_and_instructions_are_redacted(world, monkeypatch, capsys
     contract = json.loads(capsys.readouterr().out)
     assert contract["profile"] == "bc250-openai-compatible-v1"
     assert len(contract["capabilities"]) == 8
+
+
+def test_doctor_is_secret_free_and_fails_when_a_step_needs_attention(
+    world, capsys,
+):
+    snapshot = {
+        "ready": False,
+        "readiness": {
+            "remote_client_ready": False,
+            "primary_problem_code": "MODEL_NOT_RUNNING",
+        },
+        "checks": [{"id": "model", "passed": False}],
+    }
+    world.connections = SimpleNamespace(
+        snapshot=lambda **_kwargs: SimpleNamespace(to_dict=lambda: snapshot)
+    )
+
+    assert entry.cli(("connections", "doctor")) == 1
+    diagnosis = json.loads(capsys.readouterr().out)
+    assert diagnosis["ready"] is False
+    assert diagnosis["next_action_route"] in {"connections", "models", "system"}
+    assert "secret" not in json.dumps(diagnosis).lower()
 
 
 def test_capabilities_is_offline_and_precomposition(monkeypatch, capsys):

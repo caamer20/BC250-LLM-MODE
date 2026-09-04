@@ -131,7 +131,7 @@ Provider reconciliation is versioned to the pinned image and changes only the
 app-owned gateway provider. It preserves unrelated user providers and never
 logs or serializes keys in normal output.
 
-For pinned Open WebUI 0.11.1, the supported container environment does not
+For pinned Open WebUI 0.11.3, the supported container environment does not
 implement `OPENAI_API_KEY_FROM_FILE`. The frozen adapter therefore sends a
 fixed, secret-free Python program over `podman exec -i` stdin. That program
 reads `/run/secrets/bc250-openwebui-client` inside the container and uses the
@@ -255,7 +255,7 @@ unknown management routes remain denied.
 Client card schema 2 records exact field names, automatic probe paths, Base URL
 rule, transport requirement, evidence level, and optional tested version. A
 card cannot require an unsupported capability or claim a tested version while
-remaining example-only. At this checkpoint only pinned Open WebUI 0.11.1 names
+remaining example-only. At this checkpoint only pinned Open WebUI 0.11.3 names
 a third-party version. PocketPal and Python remain example-only; no card claims
 hardware-tested status.
 

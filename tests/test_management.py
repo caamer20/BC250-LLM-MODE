@@ -54,6 +54,8 @@ def test_service_install_starts_now_but_disables_next_boot(tmp_path, monkeypatch
         "service_name": "bc250-llm.service",
     }
 
+    from bc250_llm_mode.db import initialize_and_close
+    initialize_and_close(tmp_path / "state.db")
     server.install_service(state, runner)
 
     commands = [command for command, _kwargs in runner.commands]
@@ -135,9 +137,9 @@ def _diginspect_tuple():
 
 
 def test_openwebui_release_pin_is_v0111_linux_amd64_manifest():
-    assert openwebui.IMAGE_TAG_DISPLAY == "v0.11.1"
+    assert openwebui.IMAGE_TAG_DISPLAY == "v0.11.3"
     assert openwebui.IMAGE_DIGEST_SHA256 == (
-        "sha256:e3a36f3aefb2408ac01d8aa2bba24f75d2569ffb6de6e7d2865c0045a38592ac"
+        "sha256:751b617714b91e4cfd0186a509c72480c858e012976103b09a30dad053c36175"
     )
     assert openwebui.IMAGE_REF == (
         "ghcr.io/open-webui/open-webui@" + openwebui.IMAGE_DIGEST_SHA256
@@ -302,6 +304,54 @@ def test_model_switch_reports_rollback_honestly():
     )
     # The draft was refreshed from the durable read model exactly once.
     assert state == {"refreshed": True}
+
+
+def test_model_switch_accepts_managed_local_alias(tmp_path):
+    from bc250_llm_mode.activation_command import ActivationOutcome
+
+    target = tmp_path / "managed-local.gguf"
+    target.write_bytes(b"local-model")
+    state = {
+        "current_model": "qwen38-9b",
+        "current_ctx": 8192,
+        "installed_models": [
+            {
+                "id": "local-a3515b591cfc",
+                "path": str(target),
+                "display_name": "Small local model",
+                "quant": "UNKNOWN",
+                "source_kind": "local",
+            }
+        ],
+        "optimizations": {"parallel_slots": 1},
+    }
+    payloads = []
+
+    class FakeActivation:
+        def activate(self, payload):
+            payloads.append(payload)
+            return ActivationOutcome("op-local", "SUCCEEDED", {})
+
+    class Store:
+        activation = FakeActivation()
+
+        def require_operational(self):
+            return self
+
+        def read_model(self):
+            return {"current_model": "local-a3515b591cfc"}
+
+    model_manager.switch_model(
+        Store(), state, "local-a3515b591cfc", FakeRunner()
+    )
+
+    assert payloads == [
+        {
+            "model_alias": "local-a3515b591cfc",
+            "requested_by": "cli",
+        }
+    ]
+    assert state["current_model"] == "local-a3515b591cfc"
 
 
 def test_context_change_requires_composed_store():

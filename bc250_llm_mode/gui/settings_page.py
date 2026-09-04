@@ -65,8 +65,8 @@ class SettingsPage(ttk.Frame):
             row=preference_row + 1, column=0, sticky="w", pady=4
         )
         ttk.Combobox(
-            basic, values=("system", "light", "dark"), state="readonly",
-            textvariable=self.appearance_var, width=12,
+            basic, values=("system (light fallback)", "light", "dark"), state="readonly",
+            textvariable=self.appearance_var, width=24,
         ).grid(row=preference_row + 1, column=1, sticky="w", padx=8, pady=4)
         ttk.Label(basic, text="Interface scale").grid(
             row=preference_row + 2, column=0, sticky="w", pady=4
@@ -208,7 +208,7 @@ class SettingsPage(ttk.Frame):
 
     def _preference_values(self) -> dict[str, Any]:
         return self.application.preferences.validate({
-            "appearance": self.appearance_var.get(),
+            "appearance": self.appearance_var.get().split(" ")[0],
             "ui_scale_percent": int(self.scale_var.get()),
             "reduced_motion": bool(self.reduced_motion_var.get()),
             "notifications_enabled": bool(self.notifications_var.get()),
@@ -303,7 +303,7 @@ class SettingsPage(ttk.Frame):
         self.throttle_var.set(int(settings["thermal_throttle_c"]))
         self.recovery_var.set(int(settings["thermal_recovery_c"]))
         self.safeguards_var.set(bool(settings["safeguards_enabled"]))
-        self.appearance_var.set(str(preferences["appearance"]))
+        self.appearance_var.set("system (light fallback)" if preferences["appearance"] == "system" else str(preferences["appearance"]))
         self.scale_var.set(int(preferences["ui_scale_percent"]))
         self.reduced_motion_var.set(bool(preferences["reduced_motion"]))
         self.notifications_var.set(bool(preferences["notifications_enabled"]))

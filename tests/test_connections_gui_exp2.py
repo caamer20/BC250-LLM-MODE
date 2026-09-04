@@ -86,8 +86,10 @@ def test_guided_outcome_never_paints_blocked_or_failed_as_success():
 
     notice = connection_action_notice(Outcome(), "Connection ready")
     assert notice.level == "warning"
-    assert notice.title == "Connection not ready"
-    assert "MODEL_NOT_SELECTED" in notice.message
+    assert notice.title == "Choose a model"
+    assert "MODEL_NOT_SELECTED" not in notice.message
+    assert notice.details == "Stable connection reason: MODEL_NOT_SELECTED"
+    assert notice.action_route == Route.CONNECTIONS.value
 
 
 def test_connections_is_a_primary_one_window_route(tmp_path):

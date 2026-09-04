@@ -14,7 +14,10 @@ install()
 from bc250_llm_mode.gui.shell import ApplicationWindow  # noqa: E402
 
 
-class _ModelServer:
+from bc250_llm_mode.system_services import ModelServerService
+
+
+class _ModelServer(ModelServerService):
     def __init__(self, *, active: bool, remains_active: bool = False) -> None:
         self.active = active
         self.remains_active = remains_active
@@ -33,7 +36,11 @@ def _window(
     tmp_path, *, mode: str, server: _ModelServer,
     desktop_active: bool | None = None,
 ):
-    del tmp_path
+    from bc250_llm_mode.db import initialize_file
+    from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
+    database = tmp_path / "state.db"
+    initialize_file(database).close()
+    server._units = UnitOfWorkFactory(database)
     summary = SimpleNamespace(active_count=0)
     if desktop_active is None:
         desktop_active = mode == "desktop"
@@ -47,6 +54,8 @@ def _window(
     )
     window = ApplicationWindow.__new__(ApplicationWindow)
     window.application = application
+    window.busy = False
+    window._work = lambda work, done: (work(), done())
     window._page = None
     window.runner = lambda: object()
     window.emit = lambda _line: None
@@ -145,3 +154,17 @@ def test_active_operation_confirmation_uses_the_same_stop_then_close_boundary(tm
     assert server.calls == ["status", "stop"]
     assert closed == [True]
     assert "running model will stop" in captured["confirmation"].consequence
+
+
+def test_close_returns_before_slow_host_work_runs(tmp_path):
+    server = _ModelServer(active=True)
+    window, closed = _window(tmp_path, mode="desktop", server=server)
+    pending = []
+    window._work = lambda work, done: pending.append((work, done))
+    window.request_close()
+    assert not server.calls and not closed
+    work, done = pending.pop()
+    work()
+    assert not closed
+    done()
+    assert closed == [True]

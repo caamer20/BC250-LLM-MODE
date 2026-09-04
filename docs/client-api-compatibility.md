@@ -24,6 +24,17 @@ with code `ENDPOINT_UNSUPPORTED`. Missing or rejected keys return a 401 with a
 stable problem code. A valid key without the required named scope returns a
 403 `SCOPE_NOT_GRANTED`. Private management paths remain denied.
 
+Connection Doctor presents these failures in plain language. The same bounded,
+secret-free result is available with `bc250-llm-mode connections doctor`:
+
+- `401`: replace the missing or rejected named key;
+- `403`: review that key's scopes and confirm the client is using Chat
+  Completions at the displayed `/v1` Base URL;
+- `404`: use a supported path rather than `/api`, Embeddings, legacy
+  Completions, or Responses; and
+- `502`: the private address is reachable, but the selected model backend must
+  be started or repaired.
+
 ## Exact settings
 
 For a phone, desktop application, SDK, curl, or SSE client:
@@ -36,7 +47,7 @@ For a phone, desktop application, SDK, curl, or SSE client:
 - configure Chat Completions. Do not choose Embeddings, legacy Completions,
   Responses, or an Open WebUI `/api` path.
 
-The managed Open WebUI provider is different: version 0.11.1 is
+The managed Open WebUI provider is different: version 0.11.3 is
 protocol-tested with the private container gateway Base URL
 `http://host.containers.internal:9071/v1`. The application writes that provider
 transactionally and verifies models plus a real streamed chat. Unrelated
@@ -51,7 +62,7 @@ Open WebUI providers are preserved.
   the real client/version still requires physical qualification.
 - **hardware-tested** may appear only after evidence on the exact candidate.
 
-At this development checkpoint, Open WebUI 0.11.1 is the only advertised
+At this development checkpoint, Open WebUI 0.11.3 is the only advertised
 third-party version. PocketPal and Python SDK cards remain example-only, and no
 client card claims hardware-tested status. Refer to
 `docs/connection-physical-qualification.md` for the pending evidence matrix.

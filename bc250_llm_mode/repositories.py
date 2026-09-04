@@ -74,6 +74,16 @@ class RuntimeConfigRepository:
             "profile_fingerprint": row["profile_fingerprint"],
         }
 
+    def applied_idle_policy(self):
+        row = self.conn.execute("SELECT extra_json FROM runtime_config WHERE id=1").fetchone()
+        if row is None:
+            return None
+        try:
+            value = json.loads(row["extra_json"]).get("applied_idle_policy")
+            return value if isinstance(value, dict) else None
+        except (ValueError, TypeError):
+            return None
+
     def update(
         self,
         *,
@@ -84,6 +94,14 @@ class RuntimeConfigRepository:
         profile_revision=None,
         profile_fingerprint=None,
     ) -> None:
+        previous = self.applied_idle_policy()
+        profile = self.conn.execute("SELECT idle_policy, stop_after_minutes, revision FROM workload_profiles WHERE profile_id=?", (profile_id,)).fetchone()
+        applied = None
+        if profile is not None and profile["revision"] == profile_revision:
+            applied = {"profile_id": profile_id, "revision": profile_revision,
+                       "idle_policy": profile["idle_policy"], "stop_after_minutes": profile["stop_after_minutes"]}
+        elif previous and previous.get("profile_id") == profile_id and previous.get("revision") == profile_revision:
+            applied = previous
         self.conn.execute(
             "INSERT INTO runtime_config(id, model_alias, context, slots, profile_id, "
             "profile_revision, profile_fingerprint, updated_at) "
@@ -99,6 +117,7 @@ class RuntimeConfigRepository:
                 profile_fingerprint, utcnow(),
             ),
         )
+        self.conn.execute("UPDATE runtime_config SET extra_json=? WHERE id=1", (json.dumps({"applied_idle_policy": applied}),))
 
 
 class RepositoryConflict(RuntimeError):
@@ -125,8 +144,13 @@ class ModelInstallationsRepository:
             "SELECT i.alias, i.path, i.quant, i.display_name, i.sampling_json, "
             "i.provenance, i.validation_status, i.artifact_id, "
             "a.content_digest AS content_digest, "
+            "a.byte_size AS artifact_byte_size, "
             "a.storage_state AS artifact_storage_state, "
-            "a.trust_state AS artifact_trust_state "
+            "a.trust_state AS artifact_trust_state, "
+            "a.source_kind AS artifact_source_kind, "
+            "a.catalog_id AS artifact_catalog_id, "
+            "a.architecture AS artifact_architecture, "
+            "a.quantization AS artifact_quantization "
             "FROM model_installations i "
             "LEFT JOIN model_artifacts a ON a.id = i.artifact_id "
             "ORDER BY i.alias"
@@ -136,15 +160,31 @@ class ModelInstallationsRepository:
             model = {
                 "id": r["alias"],
                 "path": r["path"],
-                "quant": r["quant"],
+                # Early durable local imports did not persist their inferred
+                # quantization.  Keep them usable with an explicit UNKNOWN
+                # fit bucket instead of handing callers an empty lookup key.
+                "quant": (
+                    r["quant"]
+                    or r["artifact_quantization"]
+                    or "UNKNOWN"
+                ),
                 "display_name": r["display_name"],
                 "provenance": r["provenance"],
                 "validation_status": r["validation_status"],
                 # U1.1 compatibility projections (bounded, read-only).
                 "artifact_id": r["artifact_id"],
                 "content_digest": r["content_digest"],
+                "byte_size": r["artifact_byte_size"],
                 "artifact_storage_state": r["artifact_storage_state"],
                 "artifact_trust_state": r["artifact_trust_state"],
+                # Keep origin and fit metadata attached to the disposable
+                # installation projection.  Local-model selection must not
+                # mistake a managed local alias for a built-in catalog id.
+                "source": r["artifact_source_kind"],
+                "source_kind": r["artifact_source_kind"],
+                "catalog_id": r["artifact_catalog_id"],
+                "architecture": r["artifact_architecture"],
+                "artifact_quantization": r["artifact_quantization"],
                 "managed": (
                     r["artifact_storage_state"] == "MANAGED"
                     if r["artifact_storage_state"] is not None

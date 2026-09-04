@@ -40,6 +40,29 @@ class ModelServerService:
         persist_state_diff(self._units, before, view)
         return result
 
+    def prepare_gui_close(self, state_supplier, host_mode, runner) -> dict[str, Any]:
+        from .profile_access import profile_access
+        from .operations.repositories import OperationRepository
+
+        # Drain any already-running activation before the final observation.
+        # Queued/recovering work must be resolved before ending Desktop chat.
+        with profile_access(self._units.database_path.parent, exclusive=True):
+            state = state_supplier()
+            host = host_mode.status(state, runner)
+            if not isinstance(host, dict) or "desktop_active" not in host:
+                raise RuntimeError("desktop status unavailable")
+            if not host["desktop_active"] and state.get("system_mode") != "desktop":
+                return {"safe_to_close": True}
+            with self._units.read() as conn:
+                if OperationRepository(conn).list_active():
+                    return {"safe_to_close": False, "reason": "Finish or repair active operations before closing Desktop chat."}
+            status = self.status(state, runner)
+            if status.get("active"):
+                status = self.stop(state, runner)
+            if status.get("active") is not False:
+                raise RuntimeError("model service inactivity unverified")
+            return {"safe_to_close": True}
+
 
 class TailscaleService:
     def __init__(self, units) -> None:

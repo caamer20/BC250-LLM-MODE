@@ -30,6 +30,7 @@ def _fake_exchange(active, candidate, *, approved_root):
 def _compose(tmp_path):
     paths = AppPaths.temporary(tmp_path / "profile")
     app = Application.compose(paths)
+    app.backup._adapter._quiesce = lambda: {"active": False}
     return paths, app
 
 
@@ -81,8 +82,8 @@ def test_engine_restore_round_trip(tmp_path):
     outcome = app.backup.restore_start(bid, digest, requested_by="cli")
     assert outcome.ok and outcome.status == "RESTORED"
 
-    # The post-backup mutation is gone; the restored DB is intact.
-    assert not (paths.app_dir / "after-backup.txt").exists()
+    # Locally retained data survives the database configuration restore.
+    assert (paths.app_dir / "after-backup.txt").read_text() == "post-backup mutation"
     conn = sqlite3.connect(str(paths.database_path))
     assert conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     conn.close()

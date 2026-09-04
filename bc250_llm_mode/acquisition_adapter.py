@@ -606,12 +606,28 @@ class AcquisitionHostAdapter:
                         source_kind=source_kind,
                     )
                 else:
+                    request_quantization = (
+                        getattr(ctx.request, "quantization", None) or None
+                    )
+                    source_filename = (
+                        Path(ctx.request.source_path).name
+                        if source_kind == "local"
+                        else None
+                    )
+                    catalog_id = (
+                        getattr(ctx.request, "model_id", None)
+                        if source_kind == "hub"
+                        else None
+                    )
                     artifacts.record_verified(
                         artifact_id=artifact_id,
                         content_digest=content_digest,
                         byte_size=byte_size,
                         canonical_path=canonical,
                         source_kind=source_kind,
+                        quantization=request_quantization,
+                        source_filename=source_filename,
+                        catalog_id=catalog_id,
                     )
             if disposition == "reused":
                 reg_disposition = "reused"
@@ -624,7 +640,8 @@ class AcquisitionHostAdapter:
                     alias=alias,
                     artifact_id=artifact_id,
                     quant=getattr(ctx.request, "quantization", "") or "",
-                    display_name=alias,
+                    display_name=getattr(ctx.request, "display_name", None) or alias,
+                    sampling={"source": source_kind},
                 )
         return RegistrationEvidence(
             artifact_id=artifact_id, alias=alias, disposition=reg_disposition

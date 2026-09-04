@@ -115,6 +115,7 @@ class ModelAcquisitionCommandService:
         source_path: str,
         alias: str | None = None,
         display_name: str | None = None,
+        quantization: str | None = None,
         requested_by: str = "cli",
         progress_observer=None,
     ) -> AcquisitionOutcome:
@@ -123,6 +124,8 @@ class ModelAcquisitionCommandService:
             payload["alias"] = alias
         if display_name:
             payload["display_name"] = display_name
+        if quantization:
+            payload["quantization"] = quantization
         return self._drive("MODEL_IMPORT", payload, progress_observer)
 
     def _drive(self, operation_type, payload, observer) -> AcquisitionOutcome:

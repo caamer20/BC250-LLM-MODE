@@ -86,7 +86,7 @@ def test_client_cards_claim_no_version_without_matching_evidence():
         card.card_id: card.tested_version
         for card in CLIENT_CARDS if card.tested_version is not None
     }
-    assert version_claims == {"openwebui": "0.11.1"}
+    assert version_claims == {"openwebui": "0.11.3"}
     for card in CLIENT_CARDS:
         assert card.field_labels
         assert card.automatic_probe_paths

@@ -49,6 +49,11 @@ def run_gui(application, management: bool = False, *, route: str | None = None) 
         instance = window(application, management=management)
         if broker is not None:
             instance.instance_broker = broker
+            if broker._server is not None and hasattr(getattr(instance, "tk", None), "createfilehandler"):
+                # Wake the existing refresh owner on FD readiness; minimized
+                # windows no longer wait for the 30-second background interval.
+                instance.tk.createfilehandler(broker._server, tk.READABLE,
+                    lambda *_: instance._refresh_coordinator.request_now())
         if route:
             instance.navigate(route)
         instance.mainloop()
@@ -63,6 +68,11 @@ def run_gui(application, management: bool = False, *, route: str | None = None) 
         ) from exc
     finally:
         if broker is not None:
+            try:
+                if broker._server is not None:
+                    instance.tk.deletefilehandler(broker._server)
+            except (NameError, AttributeError, tk.TclError):
+                pass
             broker.close()
 
 

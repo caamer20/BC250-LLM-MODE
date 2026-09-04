@@ -278,9 +278,18 @@ def _read_runtime_receipt(state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _expected_model(state: dict[str, Any]) -> str:
+    selected = state.get("current_model")
+    if isinstance(selected, str) and selected.strip():
+        selected = selected.strip()
+        for record in state.get("installed_models", []):
+            if not isinstance(record, dict) or record.get("id") != selected:
+                continue
+            public_alias = record.get("display_name") or selected
+            if isinstance(public_alias, str) and public_alias.strip():
+                return public_alias.replace("\n", " ").strip()
     known_good = state.get("known_good_runtime")
     candidates = (
-        state.get("current_model"),
+        selected,
         known_good.get("model_alias") if isinstance(known_good, dict) else None,
         state.get("selected_model"),
     )

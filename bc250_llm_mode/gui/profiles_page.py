@@ -10,6 +10,7 @@ from tkinter import ttk
 
 from ..presentation import format_number, format_tokens
 from .view_state import Confirmation, Notice
+from .widgets import VerticalScrollFrame
 
 
 MAX_VISIBLE_PROFILES = 37
@@ -66,12 +67,16 @@ class ProfilesPage(ttk.Frame):
             wraplength=780,
         ).pack(anchor="w", pady=(2, 8))
 
-        split = ttk.Panedwindow(self, orient="horizontal")
+        split = ttk.Frame(self)
         split.pack(fill="both", expand=True)
-        left = ttk.Frame(split, padding=(0, 0, 6, 0))
-        right = ttk.Frame(split, padding=(6, 0, 0, 0))
-        split.add(left, weight=2)
-        split.add(right, weight=3)
+        left_scroll = VerticalScrollFrame(split)
+        right_scroll = VerticalScrollFrame(split)
+        left, right = left_scroll.inner, right_scroll.inner
+        split.columnconfigure(0, weight=1)
+        split.rowconfigure(0, weight=1)
+        split.rowconfigure(1, weight=1)
+        left_scroll.grid(row=0, column=0, sticky="nsew")
+        right_scroll.grid(row=1, column=0, sticky="nsew")
 
         self._tree = ttk.Treeview(
             left,

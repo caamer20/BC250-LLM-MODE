@@ -322,3 +322,53 @@ def test_composed_query_snapshot_is_live_bounded_and_read_only(world):
     assert snapshot.ready is False  # mandatory auth probes have not run
     assert snapshot.next_action == "Run the authorized local connection test."
     assert before == after
+
+
+def test_composed_query_accepts_public_alias_for_selected_local_model(world):
+    units, _app_dir, credentials = world
+    credentials.add_client(label="Phone", client_kind="pocketpal")
+    local_id = "local-a3515b591cfc"
+    public_alias = "LFM2.5-2.6B-Q5_K_M"
+
+    class Transport:
+        def request(self, *, url, **_kwargs):
+            if url.endswith(":8080/v1/models"):
+                return ProbeHTTPResponse(200, {"data": [{"id": public_alias}]})
+            if url.endswith(":9071/health"):
+                return ProbeHTTPResponse(200, {
+                    "status": "ready", "backend_identity": "verified"})
+            if url == "http://127.0.0.1:3000/":
+                return ProbeHTTPResponse(200)
+            raise AssertionError(url)
+
+    class Active:
+        def status(self, state, runner):
+            return {"active": True, "installed": True, "running": True,
+                    "digest_verified": True}
+
+    class Tail:
+        def status(self, runner):
+            return {"installed": True, "daemon_active": True, "connected": True,
+                    "dns_name": "bazzite.tail2168f.ts.net."}
+
+    class Sharing:
+        def status(self, state, runner):
+            return {"webui_proxy": "http://127.0.0.1:3000",
+                    "api_proxy": "http://127.0.0.1:9071",
+                    "public_funnel": False,
+                    "dns_name": "bazzite.tail2168f.ts.net"}
+
+    state = {
+        "server_port": 8080,
+        "current_model": local_id,
+        "installed_models": [{"id": local_id, "display_name": public_alias}],
+    }
+    snapshot = ConnectionSetupQueryService(
+        units, credentials, state_supplier=lambda: state, runner_factory=object,
+        model_server=Active(), openwebui=Active(), tailscale=Tail(),
+        sharing=Sharing(), transport=Transport(), clock=lambda: NOW,
+    ).snapshot()
+
+    assert snapshot.model["expected_identity"] == local_id
+    assert snapshot.model["observed_identity"] == public_alias
+    assert snapshot.model["identity_matches"] is True

@@ -73,6 +73,7 @@ def palette_commands(
         ("open-more", "Open More", "Browse Activity, Maintenance, System, Settings, and Help.", "more", ("tools", "details", "advanced")),
         ("open-activity", "Open Activity", "Review durable operations, progress, and recovery evidence.", "activity", ("operation", "recovery", "history")),
         ("open-maintenance", "Open Maintenance", "Review the prioritized maintenance inbox.", "maintenance", ("health", "storage", "notification")),
+        ("open-backups", "Open Backups", "Create, verify and preview a safe configuration restore.", "maintenance/backups", ("backup", "restore", "recovery")),
         ("open-system", "Open System", "Manage model, Open WebUI, Tailscale, sharing, and host mode.", "system", ("service", "desktop", "llm")),
         ("open-settings", "Open Settings", "Edit workload, appearance, and notification preferences.", "settings", ("context", "slots", "theme")),
         ("open-help", "Open Help", "Read quick start and the bundled offline glossary.", "help", ("glossary", "doctor", "support")),

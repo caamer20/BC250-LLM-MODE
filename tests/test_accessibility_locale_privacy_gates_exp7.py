@@ -84,8 +84,9 @@ def test_tables_have_text_or_details_alternatives_and_status_is_not_color_only()
     for name, expected in required_pairs.items():
         source = (GUI / name).read_text(encoding="utf-8")
         assert all(marker in source for marker in expected), name
-    assert "PASS" in (GUI / "connections_page.py").read_text(encoding="utf-8")
-    assert "NEEDS ACTION" in (GUI / "connections_page.py").read_text(encoding="utf-8")
+    connections = (GUI / "connections_page.py").read_text(encoding="utf-8")
+    assert "'Ready' if passed else 'Needs action'" in connections
+    assert "Needs action" in connections
 
 
 def test_consistency_critical_terms_and_fallbacks_stay_unambiguous():

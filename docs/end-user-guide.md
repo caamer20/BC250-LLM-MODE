@@ -5,6 +5,10 @@ approximately 12 GiB GPU UMA and 4 GiB host memory. It supports Bazzite and
 CachyOS integrations. It is beta software, makes privileged host changes only
 after acknowledgment and preview, and requires adequate cooling.
 
+For the shortest happy path, start with the [quick start](quick-start.md). If a
+chat or external client fails, use the [troubleshooting guide](troubleshooting.md)
+before changing credentials, containers, or models.
+
 ## Install and open the application
 
 The development line currently supports a source installation. A production
@@ -58,13 +62,16 @@ auto-start.
   row's displayed primary action, including starting or switching an installed
   model through the normal safe activation workflow. During installation, the
   page shows the current phase, transferred bytes, percentage, and final result;
-  **View installation details** opens its durable Activity record.
+  **View installation details** opens its durable Activity record, where
+  supported work can be safely stopped, resumed, or recovered.
 - **Profiles** offers Interactive, Long context, Shared, Cool, and Throughput
   goals plus bounded custom profiles. Preview before Apply.
-- **Chat** streams locally without opening a browser and stores a conversation
-  only when its save action is used.
+- **Chat** streams locally without opening a browser, preserves unsent drafts
+  when you leave, and stores conversations in private local files. It can copy,
+  retry, and explicitly export either redacted or full Markdown.
 - **Connections** shows exact Open WebUI/OpenAI-compatible client values and
-  creates one independently revocable key per client.
+  creates one independently revocable key per client. Connection Doctor turns
+  model/gateway/Tailscale/key failures into one safe next action.
 - **Activity** is the durable source of progress, cancellation, retry, resume,
   and recovery truth.
 - **Maintenance** prioritizes safety and recovery before routine suggestions.

@@ -5,7 +5,7 @@ BC250 LLM MODE is a lightweight native desktop application, setup wizard, and te
 The interface is a real local `tkinter` window—not a web app. One persistent,
 resizable window owns five-chapter setup, task-oriented Home, Model Library,
 native streaming Chat, Connections, Activity, System, Settings, Help, inline notices,
-Maintenance/Repair/Updates, a local command palette, a Privacy Center,
+Maintenance/Repair/Updates/Backups, a local command palette, a Privacy Center,
 confirmations, and a bounded log drawer. It uses one Tk root, one refresh
 coordinator, and three lazily-created bounded worker lanes. Terminal chat
 remains available as an optional client with the same lifecycle semantics.
@@ -13,7 +13,9 @@ remains available as an optional client with the same lifecycle semantics.
 > [!WARNING]
 > **Public beta — use at your own risk.** BC250 LLM MODE is under active development and may contain bugs or incomplete behavior. It changes boot targets, sleep settings, kernel arguments, system services, GPU power policy, and—when explicitly selected—performance settings. These changes can cause instability, data loss, overheating, reduced hardware lifespan, or an unbootable system. Back up important data, provide adequate cooling, monitor temperatures, and understand every option before continuing. You are solely responsible for BIOS changes and for the consequences of running this software. The software is provided without warranty.
 
-Detailed guides: [end-user guide](docs/end-user-guide.md),
+Detailed guides: [quick start](docs/quick-start.md),
+[troubleshooting](docs/troubleshooting.md),
+[end-user guide](docs/end-user-guide.md),
 [operator guide](docs/operator-guide.md),
 [model API compatibility](docs/client-api-compatibility.md), and
 [accessibility and privacy](docs/accessibility-privacy.md). Candidate-bound
@@ -22,7 +24,11 @@ journey and resource qualification uses the deliberately pending
 
 ## Release status
 
-Current version: **0.9.0.dev0** (development line; not `1.0.0`). Status
+The [September 4 review implementation record](docs/review-implementation-status.md)
+is the current corrective checkpoint. Historical qualification counts do not
+qualify this changed checkout; physical and external gates remain pending.
+
+Current version: **0.9.0.dev1** (development line; not `1.0.0`). Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 (all executable local/CI checks pass), *evidence pending* (hardware/human/
 external evidence absent), *release blocked* (a policy-required item is

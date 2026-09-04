@@ -33,7 +33,8 @@ from typing import Any, Callable, Mapping, Sequence
 from .connection_setup import MultiClientAuthenticationStore
 from .gateway import build_multi_client_gateway_server, make_gateway_socket_server
 from .paths import AppPaths
-from .repositories import SettingsRepository
+from .repositories import ModelInstallationsRepository, SettingsRepository
+from .server import observed_model_matches_selected
 from .unit_of_work import UnitOfWorkFactory
 
 
@@ -237,6 +238,7 @@ class BackendIdentityProbe:
             settings = SettingsRepository(conn)
             desired = settings.get("current_model")
             configured_port = int(settings.get("server_port", self.port))
+            installed_models = ModelInstallationsRepository(conn).list()
         if not desired or configured_port != self.port:
             return False
         base = f"http://127.0.0.1:{self.port}"
@@ -252,7 +254,10 @@ class BackendIdentityProbe:
         )
         health_ok = isinstance(health, Mapping) and str(
             health.get("status") or "").lower() in {"ok", "ready", "healthy"}
-        return bool(health_ok and observed == desired)
+        return bool(health_ok and observed_model_matches_selected({
+            "current_model": desired,
+            "installed_models": installed_models,
+        }, observed))
 
     def ready(self) -> bool:
         now = self._clock()

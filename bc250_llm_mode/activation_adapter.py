@@ -146,6 +146,19 @@ class ActivationHostAdapter:
             candidate.context_per_slot * candidate.parallel_slots
         )
 
+    @staticmethod
+    def _identity_matches(
+        health: dict[str, Any], candidate: CandidateRuntimeV1,
+    ) -> bool:
+        """Accept the stable internal id or llama.cpp's public alias."""
+        if health.get("model_matches_desired") is True:
+            return True
+        observed = health.get("model_id")
+        return observed in {
+            candidate.model_alias,
+            candidate.display_alias,
+        }
+
     def _latch(self) -> str:
         with self._units.read() as conn:
             return str(ThermalStateRepository(conn).get().get("latch_state") or "")
@@ -541,7 +554,7 @@ class ActivationHostAdapter:
             return ProbeResult(RecoveryClass.REVERTIBLE, "HEALTH_TIMEOUT")
         identity_ok = (
             health.get("healthy")
-            and health.get("model_id") == candidate.model_alias
+            and self._identity_matches(health, candidate)
             and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots
@@ -576,7 +589,7 @@ class ActivationHostAdapter:
         health = self._server.health(view, pulse=pulse)
         healthy = bool(
             health.get("healthy")
-            and health.get("model_id") == candidate.model_alias
+            and self._identity_matches(health, candidate)
             and self._context_matches(health, candidate)
             and int(health.get("parallel_slots") or 0)
             == candidate.parallel_slots

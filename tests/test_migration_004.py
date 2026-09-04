@@ -173,6 +173,42 @@ def test_duplicate_digest_two_aliases_one_artifact(units):
             "SELECT COUNT(*) AS n FROM model_installations"
         ).fetchone()["n"]
         assert count == 2
+        projected = installs.list()
+        assert [row["source_kind"] for row in projected] == ["local", "local"]
+        assert [row["source"] for row in projected] == ["local", "local"]
+        assert [row["byte_size"] for row in projected] == [10, 10]
+
+
+def test_legacy_local_install_with_empty_quant_gets_safe_fit_key(units, tmp_path):
+    from bc250_llm_mode.local_models import installed_fit_entry
+
+    target = tmp_path / "managed-local.gguf"
+    target.write_bytes(b"model-bytes")
+    with units.begin() as conn:
+        artifacts = ModelArtifactRepository(conn)
+        installs = ModelInstallationsRepository(conn)
+        artifact_id = artifacts.record_verified(
+            artifact_id="art-local-empty-quant",
+            content_digest="sha256:" + "ef" * 32,
+            byte_size=target.stat().st_size,
+            canonical_path=str(target),
+            source_kind="local",
+        )
+        installs.install_alias(
+            alias="local-a3515b591cfc",
+            artifact_id=artifact_id,
+            quant="",
+            display_name="Small local model",
+        )
+        projected = next(
+            row for row in installs.list()
+            if row["id"] == "local-a3515b591cfc"
+        )
+
+    assert projected["quant"] == "UNKNOWN"
+    entry = installed_fit_entry(projected)
+    assert entry.id == "local-a3515b591cfc"
+    assert entry.weights_gib_by_quant[projected["quant"]] > 0
 
 
 def test_alias_conflict_refused_without_mutation(units):

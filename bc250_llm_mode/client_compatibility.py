@@ -141,7 +141,7 @@ CLIENT_CARDS = (
         "Pinned provider adapter plus gateway/container protocol fixtures.",
         ("Base URL", "API Key", "Model"), "Enabled", 120,
         ("Managed setup uses the app-owned OpenAI-compatible provider, not an /api URL.",),
-        tested_version="0.11.1",
+        tested_version="0.11.3",
         required_capability_ids=("models-list", "chat-sse"),
         automatic_probe_paths=("GET /v1/models", "POST /v1/chat/completions stream=true"),
         base_url_rule="Managed provider uses the private container gateway Base URL ending once in /v1.",

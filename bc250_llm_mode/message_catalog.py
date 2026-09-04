@@ -115,6 +115,11 @@ def message_for(code: str) -> MessageText:
     found = MESSAGE_CATALOG.get(normalized)
     if found is not None:
         return found
+    from .problem_details import PROBLEM_CATALOG
+    problem = PROBLEM_CATALOG.get(normalized)
+    if problem is not None:
+        return MessageText(problem.code, problem.category, problem.severity,
+                           problem.title, problem.user_message)
     safe = (
         normalized
         if _SAFE_CODE.fullmatch(normalized) and not _SECRET_LIKE_CODE.match(normalized)

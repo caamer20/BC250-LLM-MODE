@@ -6,6 +6,7 @@ import fcntl
 import json
 import os
 import secrets
+import time
 import socket
 import struct
 import tempfile
@@ -43,8 +44,9 @@ class BrokerRequest:
 class GuiInstanceBroker:
     def __init__(self, profile_dir: str | Path) -> None:
         self.profile_dir = Path(profile_dir)
-        self.lock_path = self.profile_dir / "gui.lock"
-        candidate = self.profile_dir / "gui.sock"
+        self._owner_dir = self.profile_dir.parent / ("." + self.profile_dir.name + "-gui")
+        self.lock_path = self._owner_dir / "gui.lock"
+        candidate = self._owner_dir / "gui.sock"
         # Darwin and several BSDs cap AF_UNIX names near 104 bytes. Keep the
         # lock/nonce in the private profile, but use a UID+profile-hashed name
         # in the protected runtime/tmp directory when the real path is too
@@ -54,7 +56,7 @@ class GuiInstanceBroker:
             digest = hashlib.sha256(os.fsencode(self.profile_dir.resolve())).hexdigest()[:20]
             candidate = runtime / f"bc250-gui-{os.getuid()}-{digest}.sock"
         self.socket_path = candidate
-        self.nonce_path = self.profile_dir / "gui.nonce"
+        self.nonce_path = self._owner_dir / "gui.nonce"
         self._lock = None
         self._server: socket.socket | None = None
         self._nonce: str | None = None
@@ -62,6 +64,8 @@ class GuiInstanceBroker:
     def acquire(self) -> bool:
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.profile_dir, 0o700)
+        self._owner_dir.mkdir(mode=0o700, exist_ok=True)
+        os.chmod(self._owner_dir, 0o700)
         lock = open(self.lock_path, "a+b")
         os.chmod(self.lock_path, 0o600)
         try:
@@ -92,7 +96,7 @@ class GuiInstanceBroker:
         self._nonce = nonce
         return True
 
-    def activate_existing(self, request: BrokerRequest, timeout: float = 0.5) -> bool:
+    def activate_existing(self, request: BrokerRequest, timeout: float = 6.0) -> bool:
         try:
             nonce = self.nonce_path.read_text(encoding="utf-8").strip()
         except OSError:
@@ -119,7 +123,10 @@ class GuiInstanceBroker:
         if self._server is None:
             return []
         requests = []
-        while len(requests) < 8:
+        dispatch_deadline = time.monotonic() + 0.1
+        for _attempt in range(8):
+            if time.monotonic() >= dispatch_deadline:
+                break
             try:
                 conn, _ = self._server.accept()
             except BlockingIOError:
@@ -129,7 +136,16 @@ class GuiInstanceBroker:
                 try:
                     if not self._same_uid(conn):
                         continue
-                    data = conn.recv(MAX_MESSAGE_BYTES + 1)
+                    data = bytearray()
+                    while len(data) <= MAX_MESSAGE_BYTES:
+                        remaining = dispatch_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError("broker dispatch deadline")
+                        conn.settimeout(remaining)
+                        chunk = conn.recv(MAX_MESSAGE_BYTES + 1 - len(data))
+                        if not chunk:
+                            break
+                        data.extend(chunk)
                     if len(data) > MAX_MESSAGE_BYTES:
                         continue
                     value = json.loads(data.decode("utf-8"))

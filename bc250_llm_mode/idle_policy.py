@@ -55,6 +55,7 @@ class IdlePolicyService:
         *,
         last_request_at: str | None,
         desktop_mode: bool = False,
+        active_requests: int | None = None,
     ) -> IdleDecision:
         from .operations.repositories import OperationRepository
         from .repositories import RuntimeConfigRepository
@@ -62,6 +63,7 @@ class IdlePolicyService:
 
         with self._units.read() as conn:
             runtime = RuntimeConfigRepository(conn).get()
+            applied = RuntimeConfigRepository(conn).applied_idle_policy()
             profile_id = runtime.get("profile_id")
             profile = (
                 WorkloadProfileRepository(conn).get(
@@ -71,18 +73,25 @@ class IdlePolicyService:
                 else None
             )
             active_operations = bool(OperationRepository(conn).list_active())
+        if applied and (applied.get("profile_id"), applied.get("revision")) == (runtime.get("profile_id"), runtime.get("profile_revision")):
+            from types import SimpleNamespace
+            profile = SimpleNamespace(**applied)
         policy = profile.idle_policy if profile is not None else "KEEP_LOADED"
+        if profile is not None and runtime.get("profile_revision") != profile.revision:
+            return IdleDecision(policy, "NONE", "APPLIED_PROFILE_REVISION_UNAVAILABLE", None, None)
         if not self._server_active():
             return IdleDecision(policy, "NONE", "SERVER_ALREADY_STOPPED", None, None)
         if active_operations:
             return IdleDecision(policy, "NONE", "ACTIVE_OPERATION", None, None)
-        if desktop_mode:
+        if desktop_mode and policy == "STOP_ON_DESKTOP":
             return IdleDecision(policy, "STOP", "DESKTOP_MODE", None, None)
         if policy == "STOP_ON_DESKTOP":
             return IdleDecision(policy, "NONE", "WAITING_FOR_DESKTOP", None, None)
         if policy == "KEEP_LOADED":
             return IdleDecision(policy, "NONE", "KEEP_LOADED_CURRENT_BOOT", None, None)
         threshold = int(profile.stop_after_minutes or 0) * 60
+        if active_requests is None or active_requests > 0:
+            return IdleDecision(policy, "NONE", "REQUEST_ACTIVITY_UNKNOWN" if active_requests is None else "REQUESTS_ACTIVE", None, threshold)
         observed = _parse_utc(last_request_at)
         now = _parse_utc(self._now())
         if observed is None or now is None:
@@ -97,14 +106,16 @@ class IdlePolicyService:
         *,
         last_request_at: str | None,
         desktop_mode: bool = False,
+        active_requests: int | None = None,
     ) -> dict[str, Any]:
         decision = self.evaluate(
-            last_request_at=last_request_at, desktop_mode=desktop_mode
+            last_request_at=last_request_at, desktop_mode=desktop_mode,
+            active_requests=active_requests,
         )
         stopped = False
         if decision.action == "STOP":
-            self._stop_server()
-            stopped = True
+            result = self._stop_server()
+            stopped = isinstance(result, dict) and result.get("active") is False
         return {**decision.to_dict(), "stopped": stopped, "started": False}
 
 

@@ -229,20 +229,42 @@ def installed_fit_entry(record: dict[str, Any]) -> ModelEntry:
     from .catalog import model_by_id
 
     model_id = str(record["id"])
-    if record.get("source") != "local":
-        return model_by_id(model_id)
+    source_kind = str(
+        record.get("source_kind") or record.get("source") or ""
+    ).lower()
+    catalog_id = str(record["catalog_id"]) if record.get("catalog_id") else None
+
+    # Managed catalog downloads normally retain their catalog id.  Older
+    # rows used the installation alias directly.  If neither resolves, the
+    # installation is still a valid managed/local GGUF and must be fitted
+    # from its actual file rather than rejected as an unknown catalog model.
+    catalog = None
+    for candidate in (catalog_id, model_id if source_kind not in {"local", "legacy"} else None):
+        if not candidate:
+            continue
+        try:
+            catalog = model_by_id(candidate)
+            break
+        except KeyError:
+            continue
+    if catalog is not None and source_kind not in {"local", "legacy"}:
+        return catalog
+
     path = Path(str(record["path"])).expanduser()
     try:
         weights_gib = float(record.get("weights_gib") or path.stat().st_size / (1024**3))
     except OSError as exc:
         raise ValueError(f"Installed model file is unavailable: {path}") from exc
-    catalog_id = str(record["catalog_id"]) if record.get("catalog_id") else None
-    catalog = model_by_id(catalog_id) if catalog_id else None
+    quant = str(
+        record.get("quant")
+        or record.get("artifact_quantization")
+        or _quant_from_name(str(record.get("display_name") or path.name), catalog)
+    )
     local = LocalModel(
         id=model_id,
         display_name=str(record.get("display_name") or path.stem),
         path=str(path),
-        quant=str(record.get("quant", "UNKNOWN")),
+        quant=quant,
         weights_gib=weights_gib,
         family=str(record.get("family") or (catalog.family if catalog else "unknown")),
         params_b=float(record.get("params_b") or (catalog.params_b if catalog else 0.0)),

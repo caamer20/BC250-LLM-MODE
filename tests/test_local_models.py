@@ -62,6 +62,42 @@ def test_installed_local_model_rebuilds_fit_metadata(tmp_path):
     assert entry.weights_gib_by_quant["Q5_K_M"] > 0
 
 
+def test_unmarked_managed_local_alias_is_not_treated_as_catalog_model(tmp_path):
+    """Regression: durable local aliases used to raise Unknown catalog model."""
+    target = tmp_path / "small-model-Q4_K_M.gguf"
+    sparse_model(target)
+
+    entry = installed_fit_entry(
+        {
+            "id": "local-a3515b591cfc",
+            "display_name": "Small local model",
+            "path": str(target),
+            "quant": "UNKNOWN",
+        }
+    )
+
+    assert entry.id == "local-a3515b591cfc"
+    assert entry.weights_gib_by_quant["UNKNOWN"] > 0
+
+
+def test_repository_source_kind_marks_installed_local_model(tmp_path):
+    target = tmp_path / "Qwen3.8-2B-Q4_K_M.gguf"
+    sparse_model(target)
+    entry = installed_fit_entry(
+        {
+            "id": "local-small-qwen",
+            "display_name": "Qwen3.8 2B",
+            "path": str(target),
+            "quant": "Q4_K_M",
+            "source_kind": "local",
+            "catalog_id": "qwen38-2b-distill",
+        }
+    )
+
+    assert entry.id == "local-small-qwen"
+    assert entry.family == "qwen35"
+
+
 def test_discovery_recognizes_expanded_catalog_filename(tmp_path, monkeypatch):
     from bc250_llm_mode import local_models
 

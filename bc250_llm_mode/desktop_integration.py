@@ -95,7 +95,9 @@ class DesktopIntegrationService:
     ) -> None:
         self.paths = paths
         self.environ = dict(os.environ if environ is None else environ)
-        self.python = Path(python_executable or sys.executable).resolve()
+        # Keep the venv entry path: resolving its symlink selects base Python
+        # and loses the environment's installed package/dependencies.
+        self.python = Path(python_executable or sys.executable).expanduser().absolute()
 
     def targets(self) -> DesktopTargets:
         home = self.paths.app_dir.parent

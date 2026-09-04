@@ -120,7 +120,7 @@ def test_watchdog_throttles_then_resumes_exact_profile(monkeypatch, tmp_path):
     assert state.get("thermal_watchdog_baseline") is None
 
 
-def test_watchdog_stop_latches_and_never_stops_twice(monkeypatch, tmp_path):
+def test_watchdog_stop_latches_and_retries_unconfirmed_stop(monkeypatch, tmp_path):
     from support_legacy_store import LegacyStateStore as StateStore
 
     store = StateStore(tmp_path / "state.json")
@@ -143,7 +143,7 @@ def test_watchdog_stop_latches_and_never_stops_twice(monkeypatch, tmp_path):
     for _ in range(3):
         result = thermals.run_watchdog_once(store, state, FakeRunner())
         assert result["action"] == "latched" and result["state"] == "latched"
-    assert len(stops) == 1, "a latched stop is idempotent"
+    assert len(stops) == 4, "unconfirmed stops must be retried once per poll"
 
 
 def test_reset_latch_requires_safe_temperature(monkeypatch, tmp_path):

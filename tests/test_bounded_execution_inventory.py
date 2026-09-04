@@ -20,6 +20,7 @@ PROCESS_CALL_NAMES = {"run", "Popen", "check_output", "check_call", "call",
 
 # Dispositions (plan §9.2): every site must name its target contract.
 DISPOSITIONS = {
+    "runtime_policy.py": "already_bounded",
     # The proven port; P3 promotes it into ProcessCommandSpec v2 for all.
     "runtime_process.py": "already_bounded",
     "worker_service.py": "already_bounded",
@@ -110,6 +111,10 @@ def actual_census() -> dict[str, dict]:
 
 
 FROZEN_BASELINE = {
+    # One explicit current-boot child, polled every 5s; termination/kill waits
+    # are bounded and the enclosing systemd unit owns the process tree.
+    "runtime_policy.py": {"proc_calls": 1, "http_module": False,
+                          "shell_kwargs": 0, "timeout_none": 0},
     "__main__.py": {"proc_calls": 0, "http_module": True,
                     "shell_kwargs": 0, "timeout_none": 0},
     "app.py": {"proc_calls": 1, "http_module": False,

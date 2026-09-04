@@ -15,6 +15,7 @@ database — and headless-tested.
 from __future__ import annotations
 
 import threading
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -56,7 +57,7 @@ class ChatDeadline:
     def __post_init__(self) -> None:
         for name in ("connect_s", "read_s", "write_s", "total_s"):
             value = getattr(self, name)
-            if not isinstance(value, (int, float)) or value <= 0:
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 < value <= 3600:
                 raise ValueError(f"{name} must be a positive bound, got {value!r}")
 
     def to_dict(self) -> dict[str, float]:
@@ -105,9 +106,21 @@ class ChatCancellation:
 
     def __init__(self) -> None:
         self._event = threading.Event()
+        self._interrupt = None
+        self._lock = threading.Lock()
 
     def cancel(self) -> None:
         self._event.set()
+        with self._lock:
+            interrupt = self._interrupt
+        if interrupt is not None:
+            interrupt()
+
+    def bind_interrupt(self, callback) -> None:
+        with self._lock:
+            self._interrupt = callback
+        if callback is not None and self.is_cancelled:
+            callback()
 
     @property
     def is_cancelled(self) -> bool:

@@ -10,6 +10,7 @@ from tkinter import ttk
 
 from .routes import Route
 from .view_state import Confirmation, Notice
+from .widgets import VerticalScrollFrame
 
 
 @dataclass(frozen=True)
@@ -181,7 +182,7 @@ def system_card_views(
         ServiceCardView(
             "backup", "Backups & recovery", f"{backups} backup(s)",
             "Backup and restore are durable, verified operations; restore retains the prior profile.",
-            None, None,
+            "backups", "Open Backups",
         ),
     )
 
@@ -195,8 +196,9 @@ class SystemPage(ttk.Frame):
         self._last_cards: tuple[ServiceCardView, ...] = ()
         self._has_observation = False
         self._card_widgets: dict[str, dict[str, Any]] = {}
-        self._cards_frame = ttk.Frame(self)
-        self._cards_frame.pack(fill="both", expand=True)
+        scroll = VerticalScrollFrame(self)
+        scroll.pack(fill="both", expand=True)
+        self._cards_frame = scroll.inner
         self._render_cards((ServiceCardView(
             "loading", "System status", "Checking…",
             "Reading services, thermal safety, runtime, and recovery state.",
@@ -251,12 +253,21 @@ class SystemPage(ttk.Frame):
                     target_journey="remote_client").to_dict(), {})
             runtime = self.application.runtime_lifecycle.status()
             backups = self.application.backup.list_backups()
-            return system_card_views(
+            from ..runtime_policy import observed_policy
+            policy = observed_policy(self.application.paths.app_dir)
+            cards = system_card_views(
                 home=home, server=server, webui=webui, tailscale=tailscale,
                 sharing=sharing, runtime=runtime, backups=len(backups),
                 platform_label=self.application.platform.profile.label,
                 readiness=readiness,
             )
+            return cards + (ServiceCardView(
+                "monitoring", "Monitoring & idle policy", str(policy["monitoring"]).capitalize(),
+                f"Last poll: {policy.get('observed_at', 'unavailable')}. "
+                f"Stop: {policy.get('stop_outcome') or 'not requested'}. "
+                f"Active requests: {policy.get('active_requests', 'unknown')}. "
+                f"Idle policy: {policy.get('idle_policy', 'unknown')}. "
+                f"{policy.get('reason', '')}"),)
 
         def apply(cards) -> None:
             self._has_observation = True
@@ -298,7 +309,7 @@ class SystemPage(ttk.Frame):
                 self._card_widgets[card.key] = widgets
             frame = widgets["frame"]
             frame.configure(text=card.title)
-            frame.grid(row=index // 2, column=index % 2, sticky="nsew", padx=4, pady=4)
+            frame.grid(row=index, column=0, sticky="nsew", padx=4, pady=4)
             widgets["state"].set(card.state)
             widgets["detail"].set(card.detail)
             primary = widgets["primary"]
@@ -322,7 +333,7 @@ class SystemPage(ttk.Frame):
             else:
                 more.pack_forget()
         self._cards_frame.columnconfigure(0, weight=1)
-        self._cards_frame.columnconfigure(1, weight=1)
+        self._cards_frame.columnconfigure(1, weight=0)
 
     def focus_primary(self) -> None:
         self._cards_frame.focus_set()
@@ -340,6 +351,9 @@ class SystemPage(ttk.Frame):
         ))
 
     def _act(self, code: str) -> None:
+        if code == "backups":
+            self.shell.navigate("maintenance/backups")
+            return
         if code == "llm-mode":
             self.shell.drawer.show_confirmation(
                 Confirmation(

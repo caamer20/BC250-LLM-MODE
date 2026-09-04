@@ -38,6 +38,16 @@ class UnitOfWorkFactory:
 
     @contextmanager
     def begin(self, *, write: bool = True):
+        from .profile_access import profile_access, require_writable_profile
+
+        with profile_access(self.database_path.parent):
+            if write:
+                require_writable_profile(self.database_path.parent)
+            with self._begin_locked(write=write) as conn:
+                yield conn
+
+    @contextmanager
+    def _begin_locked(self, *, write: bool = True):
         """Yield a connection inside one unit of work."""
         conn = self._connect(mode="write" if write else "read")
         try:

@@ -1,11 +1,68 @@
 # Changelog
 
+## 0.9.0.dev1 — September 4 review deployment
+
+- Integrates the review corrections and the existing end-user UX work described
+  below. This development version is prepared for the owner's BC250 and GitHub
+  update; it does not claim a qualified 1.0 release.
+- Local combined qualification before the version increment: 1,741 passed and
+  two expected Linux-only skips, plus 28 real Tk route/scale checks and a clean
+  installed wheel. Candidate CI and deployment results are recorded in
+  `docs/review-implementation-status.md`.
+
 All notable changes to BC250 LLM MODE. Format follows Keep a Changelog;
 versions are tagged in git.
 
 ## [0.9.0.dev0] — unreleased development line
 
+### September 4 full-review corrections
+
+- Enforced committed thermal latches and observable current-boot monitoring,
+  applied idle policies and content-free request activity; refreshed controlled
+  service starts and guest cleanup without enabling boot autostart.
+- Verified actual archive bytes, refused unsupported inclusion claims, preserved
+  complete local profiles and monotonic authority during restore, and added
+  exact publication/rollback recovery with native Backup & Restore controls.
+- Bounded gateway admission/framing/responses and preserved in-flight reservations;
+  made SSE completion, silent-read cancellation, conversation revisions, indexed
+  history, partial recovery, opt-in drafts and context budgeting explicit.
+- Preserved venv launch identity, expired stale readiness, bound connection tests
+  to current generations, moved shutdown probes off Tk, and corrected actual Tk
+  scrolling/layout errors found by the new real-widget gate.
+- Replaced enumerated CI files with complete inventories and pinned release
+  source/dependencies/provenance/decision flow. No release was published; physical,
+  security, human and owner gates remain pending. See
+  `docs/review-implementation-status.md` for scope and results.
+
 ### End-user friendliness remediation
+
+- Updated the immutable Linux/AMD64 Open WebUI runtime pin from 0.11.1 to
+  0.11.3 using the official manifest digest. The version-bound provider
+  adapter identity now invalidates older receipts and re-runs the existing
+  transactional provider/model/SSE verification before promotion; persistent
+  data and rollback behavior are unchanged.
+- Implemented the usability-review follow-up across the native appliance
+  journeys: notices now expose their safe route action and bounded technical
+  details, persistent failures receive keyboard focus, and shared plain-language
+  guidance translates stable connection/update/repair state without exposing
+  credentials or arbitrary exception text.
+- Setup now presents five task chapters with duration/change/resume context and
+  finishes in native Chat. Models defaults to the complete library, preserves
+  quality selections across fit recalculation, offers four workload presets,
+  and previews fast-memory headroom, download size, post-file free space,
+  planning time, and durable recovery before installation.
+- Native Chat now includes first-prompt examples, Ctrl/Cmd+Enter, local draft
+  persistence, Retry, Copy, explicit redacted/full Markdown export, actionable
+  stop/failure classifications, and visible Archive/Unarchive recovery.
+- Added the bounded, secret-free Connection Doctor to the GUI and CLI; split
+  guided device connection from advanced access management; added copy-safe
+  endpoint/model cards and 401/403/404/502 recovery copy; retained one-time,
+  independently revocable keys and the no-public-Funnel policy.
+- Reworked Maintenance, Repair, Cleanup, and Updates around consequence,
+  reversibility, expected duration, and next action; added compact navigation,
+  scrollable long/detail surfaces, keyboard table guidance, and new Quick Start
+  plus troubleshooting documents. Physical accessibility and participant
+  qualification remain explicitly pending and are not claimed by this change.
 
 - Added the EUF-0 through EUF-10 implementation plan and ADR 014, freezing
   layered process/protocol/journey readiness, packaged current-boot gateway

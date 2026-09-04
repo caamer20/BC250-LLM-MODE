@@ -4,6 +4,7 @@ import json
 import os
 import pwd
 import shutil
+import sys
 import tempfile
 import time
 import urllib.error
@@ -16,12 +17,54 @@ from .optimize import normalized_settings
 from .privilege import elevated
 
 
+def require_safe_start(state: dict[str, Any]) -> None:
+    """Read committed safety truth immediately before every start effect."""
+    from .services import ThermalLatchProtected, ThermalStateService
+
+    latch = state.get("thermal_watchdog_state", "nominal")
+    app_dir = state.get("app_dir")
+    if app_dir:
+        database = Path(str(app_dir)).expanduser() / "state.db"
+        if not database.is_file():
+            raise ThermalLatchProtected("Safety state unavailable; run Repair before starting.")
+        latch = ThermalStateService.for_database(database).current()["latch_state"]
+    if latch == "stopped":
+        raise ThermalLatchProtected("Thermal stop is latched. Let the GPU cool and explicitly reset the latch before starting.")
+
+
 def current_model_record(state: dict[str, Any]) -> dict[str, Any]:
     model_id = state.get("current_model")
     for record in state.get("installed_models", []):
         if record.get("id") == model_id:
             return record
     raise RuntimeError("No current installed model is selected")
+
+
+def observed_model_matches_selected(
+    state: dict[str, Any], observed_model: Any,
+) -> bool:
+    """Match llama.cpp's public alias to the selected durable model id.
+
+    The launcher intentionally publishes a friendly ``display_name`` through
+    llama.cpp's ``--alias``.  Local imports use a separate stable internal id
+    (for example ``local-a3515b591cfc``), so both identities are valid proof
+    of the same selected installation.
+    """
+    if observed_model is None:
+        return False
+    observed = str(observed_model)
+    selected = state.get("current_model")
+    if selected is not None and observed == str(selected):
+        return True
+    for record in state.get("installed_models", []):
+        if record.get("id") != selected:
+            continue
+        public_alias = str(
+            record.get("display_name") or selected or ""
+        ).replace("\n", " ").strip()
+        duplicates = sum(str(item.get("display_name") or item.get("id") or "").replace("\n", " ").strip() == public_alias for item in state.get("installed_models", []))
+        return bool(public_alias and observed == public_alias and duplicates == 1)
+    return False
 
 
 LAUNCHER_TEMPLATE = """#!/usr/bin/env bash
@@ -115,6 +158,7 @@ argv = [
     "--cache-type-k", h["kv_cache_type"],
     "--cache-type-v", h["kv_cache_type"],
     "--parallel", str(h["parallel_slots"]),
+    "--metrics",
     "--alias", h["alias"],
     "--temp", str(h.get("temperature", 0.3)),
     "--top-p", str(h.get("top_p", 0.9)),
@@ -250,6 +294,15 @@ def _service_text(state: dict[str, Any], launcher: Path) -> str:
             f"Environment=HOME={account.pw_dir}\nEnvironment=XDG_RUNTIME_DIR=/run/user/{uid}\n"
         )
     podman = shutil.which("podman") or "/usr/bin/podman"
+    # The supervisor is part of this explicitly started service, never an
+    # autostart unit. Every automatic restart rechecks committed safety first.
+    def unit_arg(value):
+        return '"' + str(value).replace("%", "%%").replace("\\", "\\\\").replace('"', '\\"') + '"'
+    supervised_command = " ".join(unit_arg(arg) for arg in (
+        os.path.abspath(sys.executable), "-m", "bc250_llm_mode.runtime_policy",
+        "--profile", launcher.parent, "--", podman, "exec", "--user", "root", container, launcher))
+    cleanup_check = " ".join(unit_arg(arg) for arg in (podman, "exec", "--user", "root", container, "/usr/bin/test", "-x", "/usr/bin/pkill"))
+    guest_cleanup = " ".join(unit_arg(arg) for arg in (podman, "exec", "--user", "root", container, "/usr/bin/pkill", "-KILL", "-x", "llama-server"))
     runtime_prep = ""
     if uid == 0:
         install = shutil.which("install") or "/usr/bin/install"
@@ -290,7 +343,13 @@ Wants=network-online.target
 
 [Service]
 {identity}{runtime_prep}{resource_guards}ExecStartPre=-{podman} start {container}
-ExecStart={podman} exec --user root {container} {launcher}
+ExecStartPre={cleanup_check}
+ExecStart={supervised_command}
+# Podman exec's guest process can outlive an abruptly killed host client.
+# The dedicated managed guest has one canonical llama-server owner.
+ExecStopPost=-{guest_cleanup}
+TimeoutStopSec=15
+KillMode=control-group
 Restart=on-failure
 RestartSec={restart_delay}
 StandardOutput=append:{server_log}
@@ -327,6 +386,7 @@ def install_service(
         # LLM Mode is a current-boot session. Never leave inference enabled
         # across reboot; start it explicitly for this boot only.
         runner.run(elevated(["systemctl", "disable", service_name]), check=False)
+        require_safe_start(state)
         runner.run(elevated(["systemctl", "start", service_name]))
         state.update(boot_policy="desktop", desktop_on_reboot=True, llm_autostart=False)
     else:
@@ -352,8 +412,9 @@ def restart_service(state: dict[str, Any], runner: CommandRunner) -> None:
     # Restart never changes enablement: desktop-next-boot is untouched.
     from .runtime_handoff import regenerate_for_app_state
 
-    regenerate_for_app_state(state)
-    generate_launcher(state)
+    require_safe_start(state)
+    install_service(state, runner, enable_and_start=False)
+    require_safe_start(state)
     runner.run(elevated(["systemctl", "restart", str(state["service_name"])]))
 
 
@@ -412,6 +473,9 @@ def start_service(
 ) -> dict[str, Any]:
     """Start only the systemd-owned llama server, optionally waiting for its API."""
     current_model_record(state)
+    require_safe_start(state)
+    install_service(state, runner, enable_and_start=False)
+    require_safe_start(state)
     runner.run(elevated(["systemctl", "start", str(state["service_name"])]))
     if wait_for_health:
         return health_check(state, runner)
@@ -466,10 +530,8 @@ def local_server_readiness(
         "healthy": health_ok and bool(observed_model),
         "model_id": observed_model,
         "desired_model": desired_model,
-        "model_matches_desired": bool(
-            observed_model is not None
-            and desired_model is not None
-            and observed_model == desired_model
+        "model_matches_desired": observed_model_matches_selected(
+            state, observed_model
         ),
     }
 
@@ -561,9 +623,8 @@ def health_check(
                 "healthy": True,
                 "model_id": observed_model,
                 "desired_model": desired_model,
-                "model_matches_desired": bool(
-                    observed_model is not None
-                    and observed_model == desired_model
+                "model_matches_desired": observed_model_matches_selected(
+                    state, observed_model
                 ),
                 # llama.cpp's /props ``n_ctx`` is the context available to
                 # each parallel slot.  Publish both units explicitly so

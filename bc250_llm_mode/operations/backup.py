@@ -83,6 +83,8 @@ def decode_backup_create_request(payload: dict[str, Any]) -> BackupCreateRequest
         # dependency exists. Refuse BEFORE any effect.
         raise OperationValidationError(
             f"encryption is not available in this build ({CODE_ENCRYPTION_UNAVAILABLE})")
+    if payload.get("include_models") or payload.get("include_runtime"):
+        raise OperationValidationError("INCLUSION_UNAVAILABLE: model/runtime bytes are unsupported")
     return BackupCreateRequestV1(
         destination_label=dest,
         include_models=bool(payload.get("include_models", False)),

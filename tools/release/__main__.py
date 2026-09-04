@@ -111,7 +111,25 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
         evidence=records, candidate=candidate, artifacts=artifacts,
         policy=policy)
     # G3 §G3.3: stdout is ONLY the JSON decision; diagnostics go to stderr.
-    print(json.dumps(decision.to_dict(), indent=2, sort_keys=True))
+    document = json.dumps(decision.to_dict(), indent=2, sort_keys=True) + "\n"
+    print(document, end="")
+    if getattr(args, "output", None):
+        target = Path(args.output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(document, encoding="utf-8")
+        target.with_suffix(target.suffix + ".sha256").write_text(
+            hashlib.sha256(document.encode()).hexdigest() + "  " + target.name + "\n")
+    if getattr(args, "manifest_output", None):
+        # Persist a manifest derived from THIS decision; blocked evaluation
+        # remains a blocked draft and keeps the evaluator's nonzero exit.
+        sbom = next((a for a in artifacts.artifacts if a.role == "cyclonedx-sbom"), None)
+        manifest = build_release_manifest(
+            decision=decision, inventory=artifacts,
+            sbom_digest=("sha256:" + sbom.sha256) if sbom else None,
+            final=args.level == "final" and decision.eligible_for_1_0_0)
+        target = Path(args.manifest_output)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     eligible = (decision.eligible_for_1_0_0 if args.level == "final"
                 else decision.eligible_for_rc)
     print(f"level={args.level} eligible={eligible}", file=sys.stderr)
@@ -308,6 +326,8 @@ def main(argv: list[str] | None = None) -> int:
     # qualification level selects the exit-code semantics.
     p_eval.add_argument("--artifacts", required=True)
     p_eval.add_argument("--level", required=True, choices=["rc", "final"])
+    p_eval.add_argument("--output", help="persist the exact decision and SHA-256")
+    p_eval.add_argument("--manifest-output", help="persist the manifest derived from this decision")
     p_eval.set_defaults(func=_cmd_evaluate)
 
     p_man = sub.add_parser(

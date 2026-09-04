@@ -599,7 +599,14 @@ class Application:
             build_backup_restore_workflow,
         )
 
-        backup_adapter = BackupHostAdapter(units, application.paths)
+        def quiesce_for_restore():
+            state = application.read_model()
+            service = application.model_server
+            runner = application.runner()
+            observed = service.status(state, runner)
+            return service.stop(state, runner) if observed.get("active") else observed
+
+        backup_adapter = BackupHostAdapter(units, application.paths, quiesce=quiesce_for_restore)
         registry.register(build_backup_create_workflow(backup_adapter))
         registry.register(build_backup_restore_workflow(backup_adapter))
 
@@ -842,7 +849,8 @@ class Application:
         )
 
         application.connection_probes = ConnectionProbeService(
-            units, application.connection_credentials
+            units, application.connection_credentials,
+            identity_supplier=lambda client_id, alias, base: application.connections.current_probe_identity(client_id, alias, base),
         )
         application.connections = ConnectionSetupQueryService(
             units,

@@ -20,25 +20,24 @@ evidence pending).
 # From a tracked-clean checkout at the candidate commit (owner untracked
 # files may exist; they are classified in AGENTS.md and never committed):
 COMMIT=$(git rev-parse HEAD)
-python -m build                       # build wheel + sdist EXACTLY ONCE
+python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+python -m build --no-isolation        # build wheel + sdist EXACTLY ONCE
 
 # Emit the complete release set into dist/:
 python - <<'PY'
 import json
 from pathlib import Path
 from tools.release.artifacts import build_inventory
-from tools.release.sbom import build_sbom, parse_pyproject_dependencies
+from tools.release.sbom import build_sbom, installed_dependencies
 dist = Path("dist")
 inv = build_inventory(dist)
 (dist / "checksums.sha256").write_text(
     "".join(f"{a.sha256}  {a.name}\n" for a in inv.artifacts))
-deps = parse_pyproject_dependencies(
-    Path("pyproject.toml").read_text(encoding="utf-8"))
+deps = installed_dependencies()
 wheel = next(a for a in inv.artifacts if a.name.endswith(".whl"))
 sbom = build_sbom(package_name="bc250-llm-mode",
                   package_version="<candidate-version>",
                   dependencies=deps,
-                  build_requires=[("setuptools", ">=68")],
                   subject_sha256=wheel.sha256)
 (dist / "sbom.cdx.json").write_text(json.dumps(sbom, sort_keys=True, indent=2))
 (dist / "inventory.json").write_text(
@@ -111,3 +110,25 @@ at the evaluator/approval boundary by design.
 - Policy changes: new content revision + new `release/policy-vN.json`
   snapshot + dated amendment where a decision record binds the old digest.
   Historical snapshots and ADRs are immutable.
+
+
+## September 4 source and decision binding
+
+Dispatch the workflow from the exact candidate ref: validation requires both
+its resolved SHA and full ref to equal the workflow's GitHub source identity.
+A different source needs a separately reviewed trusted builder; it is refused
+by this workflow. Every subsequent checkout uses validation's immutable SHA.
+Moving the ref later does not change the build input.
+
+Install the reviewed, hashed Python lock before building with `--no-isolation`.
+The SBOM records installed versions, including transitive/build dependencies;
+managed Open WebUI is separately identified by its pinned container digest.
+
+`evaluate --output decision/release-decision.json --manifest-output
+decision/release-manifest.json` persists the actual decision, its digest and a
+manifest derived from that same evaluation. A blocked evaluation still exits
+nonzero. The decision/manifest live outside their own artifact inventory and
+are separately attested and verified before approval. Provenance verification
+requires the approved repository, workflow, source digest and ref. Downstream
+preparation verifies the saved bundle and compares it with fresh final
+evaluation. No package upload step exists without owner-authorized C8 work.

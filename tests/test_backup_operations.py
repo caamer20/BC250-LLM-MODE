@@ -35,10 +35,10 @@ _SHA = "a" * 64
 def test_backup_create_decode_valid():
     req = decode_backup_create_request(
         {"destination_label": "backups/bk-1.tar",
-         "include_models": True, "requested_by": "gui"})
+         "include_models": False, "requested_by": "gui"})
     assert isinstance(req, BackupCreateRequestV1)
     assert req.destination_label == "backups/bk-1.tar"
-    assert req.include_models is True and req.include_runtime is False
+    assert req.include_models is False and req.include_runtime is False
     assert req.encrypt is False
 
 

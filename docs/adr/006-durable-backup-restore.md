@@ -130,3 +130,16 @@ substituted by these tests.
   that cannot exchange atomically refuses.
 - Authenticated encryption is designed and fail-closed, pending a reviewed
   crypto dependency (C3).
+
+
+## 2026-09-04 corrective amendment (RV-2/RV-3)
+
+The [restore preservation contract](../restore-preservation-contract.md) is the
+current replacement/preservation matrix. Database-only archives do not claim
+model/runtime inclusion. Actual held archive bytes are inspected for every
+explicit verify/restore, with exact member/digest/size bounds. The atomic
+whole-profile swap now stages current local assets and preserves operational,
+runtime, credential and thermal authority. An external advisory lock and
+identity-bound intent receipts survive exchange and process death. A verified
+reverse exchange is required before reporting rollback. Physical C4 evidence
+for the corrected candidate is pending; older green counts do not qualify it.

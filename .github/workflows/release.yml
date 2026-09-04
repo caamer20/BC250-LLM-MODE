@@ -31,24 +31,41 @@ on:
 
 # Least privilege by default: every job reads the repository only. The ONLY
 # write/attest/publish permissions are granted job-specifically below, and
-# `id-token: write` (OIDC) exists solely on the attest + publish jobs.
+# `id-token: write` (OIDC) exists solely on the two attestation jobs and publication preparation.
 permissions:
   contents: read
+
+env:
+  CANDIDATE_VERSION: ${{ inputs.candidate_version }}
+  CANDIDATE_REF: ${{ inputs.candidate_ref }}
+  QUALIFICATION_LEVEL: ${{ inputs.qualification_level }}
 
 jobs:
   validate-candidate:
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           ref: ${{ inputs.candidate_ref }}
+      - name: Resolve and bind dispatch source once
+        id: identity
+        env:
+          CANDIDATE_REF: ${{ inputs.candidate_ref }}
+        run: |
+          git check-ref-format "$CANDIDATE_REF"
+          SOURCE_SHA=$(git rev-parse HEAD)
+          test "$SOURCE_SHA" = "$GITHUB_SHA"
+          test "$CANDIDATE_REF" = "$GITHUB_REF"
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Install with test dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e '.[test]'
+          python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          python -m pip install --no-deps --no-build-isolation -e '.[test]'
       - name: Version matches candidate input
         run: |
           python - <<'PY'
@@ -73,36 +90,39 @@ jobs:
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Build wheel + sdist exactly once
         run: |
-          python -m pip install --upgrade pip build
-          python -m build
+          python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          python -m build --no-isolation
       - name: Emit the complete release set (checksums, SBOM, inventory, manifest)
         run: |
-          python -m pip install -e .
+          python -m pip install --no-deps --no-build-isolation -e .
           export PYTHONPATH=.
           COMMIT=$(git rev-parse HEAD)
           python - <<'PY'
           import json
           from pathlib import Path
           from tools.release.artifacts import build_inventory
-          from tools.release.sbom import build_sbom, parse_pyproject_dependencies
+          import os
+          from tools.release.sbom import build_sbom, installed_dependencies, Component
+          from bc250_llm_mode.openwebui_runtime import OPENWEBUI_IMAGE_DIGEST, OPENWEBUI_IMAGE_VERSION
           dist = Path("dist")
           inv = build_inventory(dist)
           (dist / "checksums.sha256").write_text(
               "".join(f"{a.sha256}  {a.name}\n" for a in inv.artifacts))
           pyproject = Path("pyproject.toml").read_text(encoding="utf-8")
-          deps = parse_pyproject_dependencies(pyproject)
+          deps = installed_dependencies()
           wheel = next(a for a in inv.artifacts if a.name.endswith(".whl"))
           sbom = build_sbom(
               package_name="bc250-llm-mode",
-              package_version="${{ inputs.candidate_version }}",
+              package_version=os.environ["CANDIDATE_VERSION"],
               dependencies=deps,
-              build_requires=[("setuptools", ">=68")],
+              container_refs=[Component(name="open-webui", version=OPENWEBUI_IMAGE_VERSION,
+                                        kind="container", sha256=OPENWEBUI_IMAGE_DIGEST.removeprefix("sha256:"))],
               subject_sha256=wheel.sha256)
           (dist / "sbom.cdx.json").write_text(
               json.dumps(sbom, sort_keys=True, indent=2))
@@ -115,9 +135,10 @@ jobs:
           # decision-derived release-manifest (draft; BLOCKED until the
           # evaluator sees the full verified evidence set)
           python -m tools.release manifest \
-            --candidate "${{ inputs.candidate_version }}" \
+            --candidate "$CANDIDATE_VERSION" \
             --source-commit "$COMMIT" \
-            --source-ref "${{ inputs.candidate_ref }}" \
+            --source-ref "$CANDIDATE_REF" \
+            --repository "$GITHUB_REPOSITORY" \
             --artifacts dist \
             --output dist/release-manifest.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -127,11 +148,11 @@ jobs:
 
   verify-artifacts:
     runs-on: ubuntu-latest
-    needs: [build-once]
+    needs: [validate-candidate, build-once]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
@@ -142,7 +163,8 @@ jobs:
       - name: Install exact wheel from job artifact + smoke CLI/worker
         run: |
           python -m venv /tmp/verify-venv
-          /tmp/verify-venv/bin/pip install dist/*.whl
+          /tmp/verify-venv/bin/pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          /tmp/verify-venv/bin/pip install --no-deps dist/*.whl
           /tmp/verify-venv/bin/bc250-llm-mode --version
           /tmp/verify-venv/bin/python -m bc250_llm_mode.worker_main --help
       - name: Full artifact verification (inventory, checksums, SBOM subject == wheel digest)
@@ -152,7 +174,7 @@ jobs:
 
   attest:
     runs-on: ubuntu-latest
-    needs: [verify-artifacts]
+    needs: [validate-candidate, verify-artifacts]
     # Attestations bind the artifact subject digest to build provenance. Every
     # attestation is VERIFIED by the verify-attestations job below before the
     # approval environment — an attestation that is never verified does not
@@ -178,7 +200,7 @@ jobs:
     # G4.6: post-attestation verification BEFORE the approval environment —
     # repository, workflow identity, and subject digests are all checked.
     runs-on: ubuntu-latest
-    needs: [attest]
+    needs: [validate-candidate, attest]
     permissions:
       contents: read
       attestations: read
@@ -192,21 +214,33 @@ jobs:
       - name: Verify build-provenance attestations (repo + workflow identity)
         env:
           GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.validate-candidate.outputs.source_sha }}
         run: |
+          mkdir -p provenance
           for subject in dist/*.whl dist/*.tar.gz dist/sbom.cdx.json; do
-            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY"
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --signer-digest "$SOURCE_SHA" --source-digest "$SOURCE_SHA" \
+              --source-ref "$CANDIDATE_REF" --deny-self-hosted-runners --format json \
+              > "provenance/$(basename "$subject").json"
+            test "$(wc -c < "provenance/$(basename "$subject").json")" -le 4194304
           done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verified-provenance
+          path: provenance/
+          if-no-files-found: error
 
   final-evaluation:
     # G4.7: the authoritative release evaluator is the gate that BOTH the
     # approval environment and publish depend on — environment approval can
     # never override the evaluator.
     runs-on: ubuntu-latest
-    needs: [verify-attestations]
+    needs: [validate-candidate, verify-attestations]
     steps:
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
@@ -216,23 +250,66 @@ jobs:
           python-version: "3.11"
       - name: Install candidate tooling
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+          python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Run the authoritative release evaluator
         run: |
           export PYTHONPATH=.
           COMMIT=$(git rev-parse HEAD)
           python -m tools.release evaluate \
-            --candidate "${{ inputs.candidate_version }}" \
+            --candidate "$CANDIDATE_VERSION" \
             --source-commit "$COMMIT" \
-            --source-ref "${{ inputs.candidate_ref }}" \
+            --source-ref "$CANDIDATE_REF" \
+            --repository "$GITHUB_REPOSITORY" \
             --artifacts dist \
-            --level "${{ inputs.qualification_level }}" \
-            --evidence release/evidence
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+            --level "$QUALIFICATION_LEVEL" \
+            --evidence release/evidence \
+            --output decision/release-decision.json \
+            --manifest-output decision/release-manifest.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-decision
-          path: dist/release-manifest.json
+          path: decision/
+          if-no-files-found: error
+
+  attest-decision:
+    # Decision/manifest are separate subjects, never members of their own inventory.
+    runs-on: ubuntu-latest
+    needs: [validate-candidate, final-evaluation]
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-decision
+          path: decision/
+      - uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        with:
+          subject-path: |
+            decision/release-decision.json
+            decision/release-manifest.json
+      - name: Verify decision and manifest provenance before approval
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ needs.validate-candidate.outputs.source_sha }}
+        run: |
+          mkdir -p decision-provenance
+          for subject in decision/release-decision.json decision/release-manifest.json; do
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              --signer-digest "$SOURCE_SHA" --source-digest "$SOURCE_SHA" \
+              --source-ref "$CANDIDATE_REF" --deny-self-hosted-runners --format json \
+              > "decision-provenance/$(basename "$subject").json"
+            test "$(wc -c < "decision-provenance/$(basename "$subject").json")" -le 4194304
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verified-decision-provenance
+          path: decision-provenance/
+          if-no-files-found: error
 
   approval-environment:
     # Required maintainer approval before publication. The environment gate is
@@ -240,16 +317,16 @@ jobs:
     # ONLY after the final evaluation is eligible — approval can never
     # override the evaluator.
     runs-on: ubuntu-latest
-    needs: [final-evaluation]
+    needs: [final-evaluation, attest-decision]
     environment: release-approval
     steps:
       - run: echo "Release approved by maintainer; proceeding to publish."
 
   publish:
     runs-on: ubuntu-latest
-    needs: [approval-environment]
+    needs: [validate-candidate, approval-environment]
     environment: release-approval
-    # OIDC `id-token: write` exists ONLY here, for short-lived Trusted
+    # OIDC `id-token: write` exists here for short-lived Trusted
     # Publishing identity. No long-lived API token is used.
     permissions:
       contents: read
@@ -258,25 +335,34 @@ jobs:
       # Retrieve the EXACT previously built artifacts — NEVER rebuild here.
       - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
-          ref: ${{ inputs.candidate_ref }}
+          ref: ${{ needs.validate-candidate.outputs.source_sha }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: release-candidate
           path: dist/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-decision
+          path: decision/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: verified-provenance
+          path: provenance/
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: Install candidate tooling
         run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+          python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          python -m pip install --no-deps --no-build-isolation -e .
       - name: Consume the decision — full manifest + artifact re-verification
         # G4.8: publication consumes the release decision through the same
         # full-comparison verification (inventory equality, checksums, SBOM
         # subject == actual wheel digest, manifest digest integrity).
         run: |
           export PYTHONPATH=.
-          python -m tools.release verify dist/release-manifest.json dist
+          (cd decision && sha256sum -c release-decision.json.sha256)
+          python -m tools.release verify decision/release-manifest.json dist
       - name: Release-state blocker — final evaluation must be eligible
         # The refusal is a release-state blocker (the evaluator), never a
         # bypassable shell line: without the full verified evidence set this
@@ -285,12 +371,15 @@ jobs:
           export PYTHONPATH=.
           COMMIT=$(git rev-parse HEAD)
           python -m tools.release evaluate \
-            --candidate "${{ inputs.candidate_version }}" \
+            --candidate "$CANDIDATE_VERSION" \
             --source-commit "$COMMIT" \
-            --source-ref "${{ inputs.candidate_ref }}" \
+            --source-ref "$CANDIDATE_REF" \
+            --repository "$GITHUB_REPOSITORY" \
             --artifacts dist \
             --level final \
-            --evidence release/evidence
+            --evidence release/evidence \
+            --output rechecked/release-decision.json
+          cmp decision/release-decision.json rechecked/release-decision.json
       - name: Publication (owner-authorized; not yet performed)
         # Reached only with an eligible FINAL evaluation plus environment
         # approval. The actual PyPI Trusted Publishing / GitHub Releases

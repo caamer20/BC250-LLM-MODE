@@ -73,6 +73,9 @@ class BackupCommandService:
             return BackupOutcome(
                 None, "ENCRYPTION_UNAVAILABLE",
                 {"reason": "encryption is not available in this build"})
+        if include_models or include_runtime:
+            return BackupOutcome(None, "INCLUSION_UNAVAILABLE", {
+                "reason": "Model and runtime bytes are not supported in backups; local assets are preserved during restore."})
         record = self._enqueue.enqueue(
             operation_type="BACKUP_CREATE",
             payload={"destination_label": destination_label,
@@ -113,12 +116,14 @@ class BackupCommandService:
 
     # -- list / verify (query-only) -----------------------------------------
 
-    def list_backups(self) -> list[dict[str, Any]]:
+    def list_backups(self, *, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+        if not 1 <= limit <= 100 or not 0 <= offset <= 100000:
+            raise ValueError("invalid backup page")
         with self._units.read() as conn:
             rows = conn.execute(
                 "SELECT backup_id, manifest_digest, storage_path_label, "
                 "bytes_total, encryption_mode, verification_state, created_at "
-                "FROM backup_sets ORDER BY created_at DESC").fetchall()
+                "FROM backup_sets ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset)).fetchall()
         return [dict(r) for r in rows]
 
     def verify_backup(self, backup_id: str) -> dict[str, Any]:
@@ -133,17 +138,17 @@ class BackupCommandService:
         if not archive.is_file():
             return {"backup_id": backup_id, "found": True, "valid": False,
                     "reason": "archive-missing"}
-        from .backup_adapter import MANIFEST_NAME, _bare_digest
-        from .backup_manifest import verify_manifest_digest
-        import json
-        import tarfile
-        with tarfile.open(archive, "r") as tar:
-            doc = json.loads(tar.extractfile(MANIFEST_NAME).read())
-        digest_ok = verify_manifest_digest(doc)
-        bound_ok = _bare_digest(doc["manifest_digest"]) == row["manifest_digest"]
-        return {"backup_id": backup_id, "found": True,
-                "valid": digest_ok and bound_ok,
-                "manifest_digest": row["manifest_digest"]}
+        from .backup_archive import inspect_archive
+        from .backup_adapter import _bare_digest
+        try:
+            inspected = inspect_archive(archive)
+            bound_ok = _bare_digest(inspected.manifest["manifest_digest"]) == row["manifest_digest"]
+            return {"backup_id": backup_id, "found": True, "valid": bound_ok,
+                    "manifest_digest": row["manifest_digest"],
+                    "archive_digest": inspected.archive_digest}
+        except OperationValidationError:
+            return {"backup_id": backup_id, "found": True, "valid": False,
+                    "reason": "archive-verification-failed"}
 
     # -- restore inspect (query-only dry run) -------------------------------
 
@@ -159,6 +164,7 @@ class BackupCommandService:
             return {"backup_id": backup_id, "found": False, "restorable": False,
                     "blockers": ["backup-unknown"]}
         blockers: list[str] = []
+        inspected = {}
         if row["verification_state"] != "verified":
             blockers.append("backup-not-verified")
         if row["encryption_mode"] != "none":
@@ -166,6 +172,15 @@ class BackupCommandService:
         archive = self._adapter._archive_path(row["storage_path_label"])
         if not archive.is_file():
             blockers.append("archive-missing")
+        if not blockers and not self.verify_backup(backup_id)["valid"]:
+            blockers.append("archive-verification-failed")
+        if not blockers:
+            from types import SimpleNamespace
+            try:
+                inspected = self._adapter.validate_source(SimpleNamespace(request=SimpleNamespace(
+                    backup_id=backup_id, confirmation_digest=row["manifest_digest"])))
+            except OperationValidationError as exc:
+                blockers.append(str(exc).split(":", 1)[0])
         return {
             "backup_id": backup_id,
             "found": True,
@@ -174,6 +189,8 @@ class BackupCommandService:
             "confirmation_digest": row["manifest_digest"],
             "storage_path_label": row["storage_path_label"],
             "bytes_total": row["bytes_total"],
+            "required_space_bytes": inspected.get("required_space_bytes"),
+            "retained_prior_parent": str(self._adapter._paths.app_dir.parent),
             "impact": {
                 "replaces": "active-profile",
                 "prior_profile": "retained-for-rollback",
@@ -234,12 +251,13 @@ class BackupCommandService:
             return BackupOutcome(
                 operation_id, "RESTORED",
                 {"result_code": "RESTORE_PUBLISHED",
-                 "post_verify_state": terminal["post_verify_state"]})
+                 "post_verify_state": terminal["post_verify_state"],
+                 "retained_prior_profile": str(self._adapter._restore_staging_profile(operation_id))})
         # No terminal record: publication did not complete. Read the operation
         # row (still present while the DB was not swapped).
         from .operations.model import OperationConflict
         try:
-            with self._units.begin() as conn:
+            with self._units.read() as conn:
                 record = OperationRepository(conn).require(operation_id)
         except OperationConflict:
             return BackupOutcome(

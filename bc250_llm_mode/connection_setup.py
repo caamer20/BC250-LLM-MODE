@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as _datetime
 import hmac
+import hashlib
 import json
 import os
 import secrets
@@ -38,6 +39,7 @@ from .connection_credentials import (
 )
 from .gateway import MAX_SECRET_LEN, fingerprint_of
 from .legacy_import import utcnow
+from .server import observed_model_matches_selected
 
 
 CONNECTION_SNAPSHOT_SCHEMA_VERSION = 1
@@ -173,7 +175,7 @@ def build_connection_snapshot(
         **model,
         "public_alias": alias,
         "service_active": bool(model.get("service_active", model_ok)),
-        "observed_at": model.get("observed_at") or generated_at,
+        "observed_at": model.get("observed_at"),
     }
     safe_model.pop("path", None)
     safe_model.pop("model_path", None)
@@ -204,30 +206,30 @@ def build_connection_snapshot(
             "expected_identity": model.get("expected_identity") or alias,
             "observed_identity": model.get("observed_identity") or alias,
             "identity_matches": model.get("identity_matches", True),
-            "observed_at": model.get("observed_at") or generated_at,
+            "observed_at": model.get("observed_at"),
         },
         gateway={
             **safe_gateway,
             "credential_metadata_ready": credential_ok,
-            "observed_at": gateway.get("observed_at") or generated_at,
+            "observed_at": gateway.get("observed_at"),
         },
         openwebui={
             **openwebui,
-            "observed_at": openwebui.get("observed_at") or generated_at,
+            "observed_at": openwebui.get("observed_at"),
         },
         tailscale={
             **tailscale,
-            "observed_at": tailscale.get("observed_at") or generated_at,
+            "observed_at": tailscale.get("observed_at"),
         },
         serve={
             "mappings_exact": mappings_ok,
             "funnel_disabled": funnel_ok,
             "public_funnel": sharing.get("public_funnel"),
-            "observed_at": sharing.get("observed_at") or generated_at,
+            "observed_at": sharing.get("observed_at"),
         },
         client_verification={
             **probe_state,
-            "observed_at": probe_state.get("observed_at") or generated_at,
+            "observed_at": probe_state.get("observed_at"),
             "dependency_identity": probe_state.get("dependency_identity"),
             "verified_dependency_identity": probe_state.get(
                 "verified_dependency_identity"),
@@ -803,9 +805,11 @@ class ConnectionProbeService:
         self, units, credentials: ConnectionCredentialCommandService,
         *, transport: ProbeTransport | None = None,
         clock: Callable[[], str] = utcnow,
+        identity_supplier=None,
     ) -> None:
         self._units = units
         self._credentials = credentials
+        self._identity_supplier = identity_supplier
         self._transport = transport or BoundedHTTPProbeTransport()
         self._clock = clock
 
@@ -824,6 +828,7 @@ class ConnectionProbeService:
         alias = _public_alias({"public_alias": public_alias})
         if alias is None:
             raise ConnectionCredentialError("observed public model alias is unavailable")
+        before_identity = self._identity_supplier(client_id, alias, tailnet_base_url) if self._identity_supplier else None
         secret = self._credentials.secret_for_probe(client_id)
         local_models = f"{LOCAL_GATEWAY_BASE_URL}/models"
         unauthorized_local = self._transport.request(
@@ -871,9 +876,11 @@ class ConnectionProbeService:
             required.extend((results["tailnet_unauthorized"],
                              results["tailnet_authorized_models"],
                              results["tailnet_stream"]))
+        after_identity = self._identity_supplier(client_id, alias, tailnet_base_url) if self._identity_supplier else None
+        stable = not self._identity_supplier or bool(before_identity and before_identity == after_identity)
         report = ConnectionProbeReport(
             PROBE_SCHEMA_VERSION, observed_at, client_id, results,
-            passed=all(value == "passed" for value in required),
+            passed=stable and all(value == "passed" for value in required),
         )
         # Persist only terminal classifications/freshness.  No body, URL,
         # address, token, model, prompt, or response data crosses this line.
@@ -883,7 +890,8 @@ class ConnectionProbeService:
                 "VALUES (?, ?, ?, 0) ON CONFLICT(key) DO UPDATE SET "
                 "payload_json=excluded.payload_json, observed_at=excluded.observed_at, stale=0",
                 (f"{PROBE_OBSERVATION_PREFIX}{client_id}",
-                 json.dumps({"results": results, "passed": report.passed},
+                 json.dumps({"results": results, "passed": report.passed,
+                             "verified_dependency_identity": before_identity if stable else None},
                             sort_keys=True, separators=(",", ":")), observed_at),
             )
         return report
@@ -943,12 +951,11 @@ class ConnectionSetupQueryService:
             "public_alias": alias,
             "expected_identity": state.get("current_model") or alias,
             "observed_identity": alias,
-            "identity_matches": bool(
-                alias and (
-                    not state.get("current_model")
-                    or state.get("current_model") == alias
-                )
-            ),
+            "identity_matches": bool(alias and (
+                observed_model_matches_selected(state, alias)
+                if state.get("current_model")
+                else True
+            )),
         }
 
     def _gateway_observation(self, runner: Any) -> dict[str, Any]:
@@ -1009,7 +1016,26 @@ class ConnectionSetupQueryService:
         except (OSError, TimeoutError, urllib.error.URLError, ValueError):
             return ProbeHTTPResponse(0)
 
-    def _probe_freshness(self, client_id: str | None) -> dict[str, Any]:
+    def current_probe_identity(self, client_id, public_alias, tailnet_base_url):
+        from .repositories import RuntimeConfigRepository
+        from .server import invocation_marker
+        state = dict(self._state_supplier())
+        invocation = invocation_marker(state, self._runner_factory())
+        if not invocation:
+            return None
+        with self._units.read() as conn:
+            runtime = RuntimeConfigRepository(conn).get()
+            client = ConnectionClientRepository(conn).get(client_id)
+            access = ConnectionAccessRepository(conn).get()
+        if client is None or client.revoked_at:
+            return None
+        payload = {"runtime": runtime, "client_generation": client.active_fingerprint, "scopes": client.scopes,
+                   "client_id": client_id, "access": access,
+                   "invocation": invocation, "alias": public_alias,
+                   "endpoint": tailnet_base_url}
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
+
+    def _probe_freshness(self, client_id: str | None, *, public_alias=None, base_url=None) -> dict[str, Any]:
         with self._units.read() as conn:
             if client_id:
                 rows = conn.execute(
@@ -1042,6 +1068,13 @@ class ConnectionSetupQueryService:
             } and value in {"passed", "failed", "not-checked"}
         }
         clean["observed_at"] = row["observed_at"]
+        selected_id = str(row["key"])[len(PROBE_OBSERVATION_PREFIX):]
+        try:
+            identity = self.current_probe_identity(selected_id, public_alias, base_url)
+        except Exception:
+            identity = None
+        clean["dependency_identity"] = identity or "unavailable"
+        clean["verified_dependency_identity"] = payload.get("verified_dependency_identity")
         return clean
 
     def snapshot(self, *, client_id: str | None = None) -> ConnectionSnapshot:
@@ -1061,11 +1094,16 @@ class ConnectionSetupQueryService:
         openwebui = self._openwebui_observation(state, runner)
         tailscale = self._safe_status(lambda: self._tailscale.status(runner))
         sharing = self._safe_status(lambda: self._sharing.status(state, runner))
+        observed_at = self._clock()
+        # Only this live observation boundary may assign an observation time.
+        for observation in (model, gateway, openwebui, tailscale, sharing):
+            observation.setdefault("observed_at", observed_at)
         return build_connection_snapshot(
-            generated_at=self._clock(), model=model, gateway=gateway,
+            generated_at=observed_at, model=model, gateway=gateway,
             openwebui=openwebui,
             tailscale=tailscale, sharing=sharing,
-            probes=self._probe_freshness(client_id),
+            probes=self._probe_freshness(client_id, public_alias=model.get("public_alias"),
+                base_url=endpoint_urls(_clean_dns_name(tailscale.get("dns_name") or sharing.get("dns_name"))).get("base_url")),
         )
 
 

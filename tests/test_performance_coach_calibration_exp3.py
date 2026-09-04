@@ -675,13 +675,13 @@ def test_idle_policy_only_stops_and_suppresses_during_operations(tmp_path):
     service = IdlePolicyService(
         world.units,
         server_active=lambda: True,
-        stop_server=lambda: stops.append("stop"),
+        stop_server=lambda: (stops.append("stop") or {"active": False}),
         now=lambda: NOW,
     )
-    recent = service.enforce_once(last_request_at="2026-08-29T19:45:01Z")
+    recent = service.enforce_once(last_request_at="2026-08-29T19:45:01Z", active_requests=0)
     assert recent["reason_code"] == "IDLE_INTERVAL_NOT_REACHED"
     assert recent["started"] is False and not stops
-    elapsed = service.enforce_once(last_request_at="2026-08-29T19:29:59Z")
+    elapsed = service.enforce_once(last_request_at="2026-08-29T19:29:59Z", active_requests=0)
     assert elapsed["reason_code"] == "STOP_AFTER_ELAPSED"
     assert elapsed["stopped"] is True and stops == ["stop"]
 
@@ -700,7 +700,7 @@ def test_idle_policy_only_stops_and_suppresses_during_operations(tmp_path):
     assert stops == ["stop"]
 
 
-def test_desktop_mode_stop_is_absolute_but_idle_policy_never_starts(tmp_path):
+def test_desktop_presence_does_not_stop_interactive_chat(tmp_path):
     world = _profile_world(tmp_path)
     interactive = world.query.preview("builtin-interactive")
     with world.units.begin() as conn:
@@ -716,7 +716,7 @@ def test_desktop_mode_stop_is_absolute_but_idle_policy_never_starts(tmp_path):
     active = IdlePolicyService(
         world.units,
         server_active=lambda: True,
-        stop_server=lambda: stops.append("stop"),
+        stop_server=lambda: (stops.append("stop") or {"active": False}),
         now=lambda: NOW,
     )
     keep = active.enforce_once(last_request_at="2026-08-20T00:00:00Z")
@@ -724,7 +724,7 @@ def test_desktop_mode_stop_is_absolute_but_idle_policy_never_starts(tmp_path):
     desktop = active.enforce_once(
         last_request_at="2026-08-29T19:59:59Z", desktop_mode=True
     )
-    assert desktop["reason_code"] == "DESKTOP_MODE" and stops == ["stop"]
+    assert desktop["reason_code"] == "KEEP_LOADED_CURRENT_BOOT" and stops == []
     inactive = IdlePolicyService(
         world.units,
         server_active=lambda: False,
@@ -732,4 +732,4 @@ def test_desktop_mode_stop_is_absolute_but_idle_policy_never_starts(tmp_path):
         now=lambda: NOW,
     ).enforce_once(last_request_at=None)
     assert inactive["reason_code"] == "SERVER_ALREADY_STOPPED"
-    assert inactive["started"] is False and stops == ["stop"]
+    assert inactive["started"] is False and stops == []

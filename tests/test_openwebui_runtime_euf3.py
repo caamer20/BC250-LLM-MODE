@@ -25,6 +25,7 @@ from bc250_llm_mode.openwebui_runtime import (
     validate_openwebui_command,
     verify_private_secret_file,
 )
+from bc250_llm_mode.openwebui import _expected_model
 from bc250_llm_mode.paths import AppPaths
 
 
@@ -42,6 +43,16 @@ def _spec(tmp_path: Path, *, data_source: str = OPENWEBUI_DATA_VOLUME):
         secret_key_file=str(_secret(tmp_path / "secret")),
         client_credential_file=str(_secret(tmp_path / "client")),
     )
+
+
+def test_expected_model_uses_public_alias_for_local_installation():
+    assert _expected_model({
+        "current_model": "local-a3515b591cfc",
+        "installed_models": [{
+            "id": "local-a3515b591cfc",
+            "display_name": "LFM2.5-2.6B-Q5_K_M",
+        }],
+    }) == "LFM2.5-2.6B-Q5_K_M"
 
 
 def test_spec_is_pinned_loopback_bounded_and_secret_free(tmp_path):

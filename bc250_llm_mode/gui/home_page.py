@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 import tkinter as tk
 from tkinter import ttk
 
 from ..presentation import format_bytes
+from ..ux_guidance import friendly_state
 from .routes import Route
 from .view_state import Notice, PrimaryAction
 
@@ -308,11 +309,16 @@ class HomePage(ttk.Frame):
                     self.application.maintenance_snapshot.snapshot().to_dict(),
                     self.application.readiness.snapshot(
                         target_journey="native_chat").to_dict(),
+                    self._monitoring(),
                 ),
                 self._apply_snapshot,
             )
             return
         self._apply_snapshot(snapshot)
+
+    def _monitoring(self):
+        from ..runtime_policy import observed_policy
+        return observed_policy(self.application.paths.app_dir)
 
     def _apply_snapshot(self, snapshot: Mapping[str, Any] | tuple[Any, Any]) -> None:
         if self._disposed:
@@ -334,15 +340,23 @@ class HomePage(ttk.Frame):
             if isinstance(readiness_source, Mapping) else None
         )
         view = build_home_view(source, maintenance, readiness)
+        if isinstance(snapshot, tuple) and len(snapshot) > 3:
+            policy = snapshot[3]
+            view = replace(view, cards=tuple(replace(card, summary=card.summary +
+                f" Monitoring: {policy.get('monitoring', 'unavailable')}. Stop: {policy.get('stop_outcome') or 'not requested'}. See System for the last poll and idle policy.")
+                if card.key == "safety" else card for card in view.cards))
         self._view = view
         self._headline.set(view.headline)
-        self._explanation.set(view.explanation)
+        self._explanation.set(f"Why this is next: {view.explanation}")
         self._primary_text.set(view.primary.label)
         for card in view.cards:
             frame = getattr(self, f"_{card.key}_frame")
             frame.configure(text=card.title)
             state_var, summary_var = self._card_vars[card.key]
-            state_var.set(("STALE · " if card.stale else "") + card.state)
+            state_var.set(
+                ("Needs a fresh check · " if card.stale else "")
+                + friendly_state(card.state)
+            )
             summary_var.set(card.summary)
         shortcuts = view.shortcuts[:4]
         for index, button in enumerate(self._shortcut_buttons):

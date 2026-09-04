@@ -6,10 +6,11 @@ import json
 from typing import Any
 
 import tkinter as tk
-from tkinter import ttk
+from tkinter import filedialog, ttk
 
 from ..application_update import UpdateOutcome
 from ..presentation import format_bytes
+from ..ux_guidance import operation_reason_guidance
 from .view_state import Confirmation, Notice
 
 
@@ -52,16 +53,19 @@ class UpdatesPage(ttk.Frame):
         ttk.Button(actions, text="Check signed channel", command=self._check).pack(
             side="left"
         )
-        ttk.Label(actions, text="Version").pack(side="left", padx=(12, 4))
-        self._version_entry = ttk.Entry(
-            actions, textvariable=self._candidate_version, width=18
+        version_actions = ttk.Frame(self)
+        version_actions.pack(fill="x", pady=(0, 5))
+        ttk.Label(version_actions, text="Verified version").pack(side="left")
+        self._version_entry = ttk.Combobox(
+            version_actions, textvariable=self._candidate_version, width=18,
+            state="readonly", values=(),
         )
-        self._version_entry.pack(side="left")
-        ttk.Button(actions, text="Preview", command=self._preview_update).pack(
+        self._version_entry.pack(side="left", padx=(4, 0))
+        ttk.Button(version_actions, text="Preview", command=self._preview_update).pack(
             side="left", padx=5
         )
         self._apply_button = ttk.Button(
-            actions, text="Apply verified update", command=self._confirm_apply,
+            version_actions, text="Apply verified update", command=self._confirm_apply,
             state="disabled",
         )
         self._apply_button.pack(side="left")
@@ -78,7 +82,14 @@ class UpdatesPage(ttk.Frame):
         ttk.Entry(row, textvariable=self._bundle_path).pack(
             side="left", fill="x", expand=True
         )
-        ttk.Button(row, text="Verify and import", command=self._import).pack(
+        import_actions = ttk.Frame(import_box)
+        import_actions.pack(fill="x", pady=(4, 0))
+        ttk.Button(
+            import_actions, text="Choose file…", command=self._choose_bundle
+        ).pack(
+            side="left"
+        )
+        ttk.Button(import_actions, text="Verify and import", command=self._import).pack(
             side="left", padx=(5, 0)
         )
 
@@ -88,10 +99,18 @@ class UpdatesPage(ttk.Frame):
         notes = ttk.LabelFrame(detail, text="Signed release notes · plain text", padding=8)
         detail.add(plan, weight=2)
         detail.add(notes, weight=3)
-        self._plan = tk.StringVar(value="Select Check or enter a version to preview.")
+        self._plan = tk.StringVar(
+            value="Check the signed source to select an eligible version, or import a signed offline bundle."
+        )
         ttk.Label(plan, textvariable=self._plan, wraplength=320).pack(
             anchor="w", fill="x"
         )
+        self._next_step = tk.StringVar(
+            value="What next: check the signed source or choose an offline signed bundle."
+        )
+        ttk.Label(
+            plan, textvariable=self._next_step, wraplength=320,
+        ).pack(anchor="w", fill="x", pady=(5, 0))
         lower = ttk.Frame(plan)
         lower.pack(fill="x", pady=(10, 0))
         ttk.Button(lower, text="Preview rollback", command=self._preview_rollback).pack(
@@ -106,7 +125,12 @@ class UpdatesPage(ttk.Frame):
             side="left"
         )
         self._notes = tk.Text(notes, height=10, wrap="word", state="disabled")
-        self._notes.pack(fill="both", expand=True)
+        self._notes.pack(side="left", fill="both", expand=True)
+        notes_scroll = ttk.Scrollbar(
+            notes, orient="vertical", command=self._notes.yview
+        )
+        notes_scroll.pack(side="right", fill="y")
+        self._notes.configure(yscrollcommand=notes_scroll.set)
         self.refresh(force=True)
 
     def mount(self, parent=None):
@@ -162,18 +186,24 @@ class UpdatesPage(ttk.Frame):
 
     def _apply_check(self, check) -> None:
         if check.release is None:
+            guidance = operation_reason_guidance(check.reason_code)
             self.shell.notice_bar.show_notice(Notice(
-                "warning", "No eligible signed update",
-                check.reason_code.value, dismissible=True,
+                "warning", guidance.title,
+                f"{guidance.explanation} {guidance.next_step}",
+                details=f"Stable update reason: {check.reason_code.value}",
+                dismissible=True,
             ))
+            self._next_step.set("What next: " + guidance.next_step)
             return
         self._candidate_version.set(check.release.version)
+        self._version_entry.configure(values=(check.release.version,))
         self._set_notes(check.release.notes)
         self._plan.set(
             f"Verified {check.release.source_ref} · "
             f"{format_bytes(check.release.total_bytes)} signed release set. "
             "Preview before applying."
         )
+        self._next_step.set("What next: preview the verified release before installing it.")
 
     def _preview_update(self) -> None:
         version = self._candidate_version.get().strip()
@@ -194,10 +224,16 @@ class UpdatesPage(ttk.Frame):
                 f"Requires {format_bytes(preview.required_free_bytes)}; "
                 f"{format_bytes(preview.available_free_bytes)} available. "
                 f"Profile backup: yes. Restart into new slot: yes. "
-                f"Rollback slot: {preview.rollback_installation_id or 'not established'}."
+                f"Rollback slot: {preview.rollback_installation_id or 'not established'}. "
+                "Expected interruption: one application restart; model auto-start remains off."
+            )
+            self._next_step.set(
+                "What next: review the plan and release notes, then explicitly apply the verified update."
             )
         else:
-            self._plan.set(f"Unavailable: {preview.reason_code.value}")
+            guidance = operation_reason_guidance(preview.reason_code)
+            self._plan.set(f"{guidance.title}. {guidance.explanation}")
+            self._next_step.set("What next: " + guidance.next_step)
         self.shell.drawer.show_details(
             "Signed update preview", json.dumps(preview.to_dict(), indent=2, sort_keys=True)
         )
@@ -237,6 +273,15 @@ class UpdatesPage(ttk.Frame):
             success="Signed bundle imported",
         )
 
+    def _choose_bundle(self) -> None:
+        path = filedialog.askopenfilename(
+            title="Choose the original signed update bundle",
+            filetypes=(("Signed update bundle", "*.tar *.tar.gz *.tgz *.zip"),
+                       ("All files", "*")),
+        )
+        if path:
+            self._bundle_path.set(path)
+
     def _preview_rollback(self) -> None:
         self.shell.request_observation(
             self.application.application_update_commands.rollback_preview,
@@ -248,8 +293,16 @@ class UpdatesPage(ttk.Frame):
         ready = preview.outcome is UpdateOutcome.READY
         self._rollback_button.configure(state="normal" if ready else "disabled")
         self._plan.set(
-            (f"Rollback to verified {preview.version}; profile restore is required."
-             if ready else f"Rollback unavailable: {preview.reason_code.value}")
+            (f"Rollback to verified {preview.version}; a fresh backup and profile restore are required."
+             if ready else (
+                 f"{operation_reason_guidance(preview.reason_code).title}. "
+                 f"{operation_reason_guidance(preview.reason_code).explanation}"
+             ))
+        )
+        guidance = operation_reason_guidance(preview.reason_code)
+        self._next_step.set(
+            "What next: review and confirm the rollback preview."
+            if ready else "What next: " + guidance.next_step
         )
         self.shell.drawer.show_details(
             "Application rollback preview",
@@ -299,16 +352,28 @@ class UpdatesPage(ttk.Frame):
         def done() -> None:
             result = box["result"]
             self.shell.track_operation_id(getattr(result, "operation_id", None))
+            guidance = operation_reason_guidance(
+                getattr(result, "reason_code", "UNKNOWN")
+            )
             self.shell.notice_bar.show_notice(Notice(
                 "success" if result.ok else "warning",
-                success if result.ok else "Update action refused",
-                str(getattr(result, "reason_code", "UNKNOWN")),
+                success if result.ok else guidance.title,
+                (
+                    "The verified action completed. Review Activity if the application is restarting."
+                    if result.ok else
+                    f"{guidance.explanation} {guidance.next_step}"
+                ),
+                details=(
+                    None if result.ok else
+                    f"Stable update reason: {getattr(getattr(result, 'reason_code', None), 'value', getattr(result, 'reason_code', 'UNKNOWN'))}"
+                ),
                 dismissible=True,
             ))
             payload = result.to_dict()
             release = payload.get("release")
             if isinstance(release, dict) and isinstance(release.get("version"), str):
                 self._candidate_version.set(release["version"])
+                self._version_entry.configure(values=(release["version"],))
             self.shell.drawer.show_details(
                 "Application update result", json.dumps(payload, indent=2, sort_keys=True)
             )

@@ -131,6 +131,8 @@ def register_and_switch_local(
     outcome = store.model_acquisition.import_local(
         str(model.path),
         alias=sanitize_alias(model.id),
+        display_name=model.display_name,
+        quantization=model.quant,
         requested_by=_requested_by(runner),
     )
     if not outcome.ok:

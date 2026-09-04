@@ -4,6 +4,18 @@ BC250 LLM MODE turns an AMD BC-250 running Bazzite or CachyOS into a dedicated l
 `llama.cpp`/Vulkan inference station, then operates it. This document maps the
 module layout and the invariants that keep the hardware safe.
 
+## September 4 correction boundaries
+
+`profile_access.py` holds process exclusion outside the exchanged profile.
+`backup_archive.py` inspects held archive bytes; `restore_profile.py` preserves
+current local assets/authority and records exact directory identities.
+`runtime_policy.py` supervises explicitly started inference and polls fresh
+thermal/idle state. `http_deadline.py` owns one response interrupt per admitted
+request; its timer is joined on exit. Private conversation metadata remains
+outside the diagnostic database. See
+[the implementation record](docs/review-implementation-status.md) for pending
+physical qualification and the [restore matrix](docs/restore-preservation-contract.md).
+
 ## Module map
 
 | Module | Responsibility |

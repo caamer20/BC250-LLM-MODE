@@ -13,6 +13,7 @@ from ..maintenance_center import MAX_MAINTENANCE_ITEMS, PRIORITY_POLICY
 from ..notifications import CATEGORIES, MASTER
 from .routes import Route
 from .view_state import Notice
+from .widgets import VerticalScrollFrame
 
 
 @dataclass(frozen=True)
@@ -103,15 +104,25 @@ class MaintenancePage(ttk.Frame):
             action_row, text="Preview storage cleanup", command=self._cleanup_preview
         ).pack(side="left", padx=5)
         ttk.Button(action_row, text="Refresh", command=self.refresh).pack(side="left")
+        ttk.Button(action_row, text="Backups", command=lambda: self.shell.navigate("maintenance/backups")).pack(side="left", padx=5)
 
         split = ttk.Panedwindow(self, orient="horizontal")
         split.pack(fill="both", expand=True)
         left = ttk.Frame(split, padding=(0, 0, 6, 0))
-        right = ttk.Frame(split, padding=(6, 0, 0, 0))
+        right_host = ttk.Frame(split, padding=(6, 0, 0, 0))
         split.add(left, weight=3)
-        split.add(right, weight=2)
-        self._tree = ttk.Treeview(
+        split.add(right_host, weight=2)
+        right_scroll = VerticalScrollFrame(right_host)
+        right_scroll.pack(fill="both", expand=True)
+        right = right_scroll.inner
+        ttk.Label(
             left,
+            text="Maintenance table · the selected row is repeated in plain text",
+        ).pack(anchor="w", fill="x", pady=(0, 3))
+        table = ttk.Frame(left)
+        table.pack(fill="both", expand=True)
+        self._tree = ttk.Treeview(
+            table,
             columns=("priority", "freshness", "age", "resource"),
             show="tree headings",
             selectmode="browse",
@@ -127,7 +138,18 @@ class MaintenancePage(ttk.Frame):
         self._tree.column("freshness", width=90)
         self._tree.column("age", width=70)
         self._tree.column("resource", width=120)
-        self._tree.pack(fill="both", expand=True)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vertical = ttk.Scrollbar(table, orient="vertical", command=self._tree.yview)
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal = ttk.Scrollbar(
+            table, orient="horizontal", command=self._tree.xview
+        )
+        horizontal.grid(row=1, column=0, sticky="ew")
+        self._tree.configure(
+            yscrollcommand=vertical.set, xscrollcommand=horizontal.set
+        )
+        table.rowconfigure(0, weight=1)
+        table.columnconfigure(0, weight=1)
         self._tree.bind("<<TreeviewSelect>>", lambda _event: self._show_selected())
 
         detail = ttk.LabelFrame(right, text="Selected item", padding=8)
@@ -170,13 +192,13 @@ class MaintenancePage(ttk.Frame):
                 text=_CATEGORY_LABELS[category],
                 variable=self._notification_vars[category],
             ).grid(
-                row=1 + index // 2, column=index % 2,
-                sticky="w", padx=(0, 7), pady=1,
+                row=1 + index, column=0,
+                sticky="w", pady=1,
             )
         notice_actions = ttk.Frame(notices)
         notice_actions.grid(
-            row=1 + (len(CATEGORIES) + 1) // 2,
-            column=0, columnspan=2, sticky="ew", pady=(6, 0),
+            row=1 + len(CATEGORIES),
+            column=0, sticky="ew", pady=(6, 0),
         )
         ttk.Button(
             notice_actions, text="Apply notification choices",
@@ -186,7 +208,6 @@ class MaintenancePage(ttk.Frame):
             notice_actions, text="Test notification", command=self._test_notification
         ).pack(side="left", padx=5)
         notices.columnconfigure(0, weight=1)
-        notices.columnconfigure(1, weight=1)
         self.refresh()
 
     def mount(self, parent=None):
@@ -264,9 +285,19 @@ class MaintenancePage(ttk.Frame):
             return
         self._primary.configure(state="normal")
         self._title.set(str(item["title"]))
-        self._impact.set(str(item["impact"]))
+        priority = int(item.get("priority") or 9)
+        self._impact.set(
+            f"Why this is shown: {item['impact']} "
+            f"It is priority {priority} in the safety-first Maintenance inbox."
+        )
+        age = _age(item.get("evidence_age_seconds"))
+        age_copy = (
+            "checked now" if age == "now" else
+            "not checked" if age == "not checked" else f"checked {age} ago"
+        )
         self._evidence.set(
-            f"{item['evidence_freshness']} evidence · {_age(item.get('evidence_age_seconds'))}"
+            f"Evidence: {str(item['evidence_freshness']).replace('_', ' ').lower()} · "
+            f"{age_copy}"
         )
         self._dismissibility.set(
             "Safety/integrity item — cannot be dismissed."

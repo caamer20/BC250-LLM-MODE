@@ -12,6 +12,11 @@ from tkinter import ttk
 from ..presentation import format_bytes, format_timestamp
 from ..storage_cleanup_adapter import MAX_DISCOVERY_ENTRIES
 from ..undo import MAX_UNDO_CANDIDATES
+from ..ux_guidance import (
+    operation_reason_guidance,
+    repair_duration_label,
+    repair_reversibility_label,
+)
 from .view_state import Confirmation, Notice
 
 MAX_VISIBLE_CLEANUP = min(32, MAX_DISCOVERY_ENTRIES)
@@ -59,8 +64,13 @@ class RepairPage(ttk.Frame):
         right = ttk.Frame(split, padding=(8, 0, 0, 0))
         split.add(left, weight=3)
         split.add(right, weight=2)
+        ttk.Label(
+            left, text="Repairs table · select a row to read its safe preview summary",
+        ).pack(anchor="w", fill="x", pady=(0, 3))
+        repair_table = ttk.Frame(left)
+        repair_table.pack(fill="both", expand=True)
         self._repair_tree = ttk.Treeview(
-            left, columns=("status", "privilege"), show="tree headings",
+            repair_table, columns=("status", "privilege"), show="tree headings",
             selectmode="browse", height=12,
         )
         self._repair_tree.heading("#0", text="Repair")
@@ -69,7 +79,21 @@ class RepairPage(ttk.Frame):
         self._repair_tree.column("#0", width=300)
         self._repair_tree.column("status", width=90)
         self._repair_tree.column("privilege", width=80)
-        self._repair_tree.pack(fill="both", expand=True)
+        self._repair_tree.grid(row=0, column=0, sticky="nsew")
+        repair_vertical = ttk.Scrollbar(
+            repair_table, orient="vertical", command=self._repair_tree.yview
+        )
+        repair_vertical.grid(row=0, column=1, sticky="ns")
+        repair_horizontal = ttk.Scrollbar(
+            repair_table, orient="horizontal", command=self._repair_tree.xview
+        )
+        repair_horizontal.grid(row=1, column=0, sticky="ew")
+        self._repair_tree.configure(
+            yscrollcommand=repair_vertical.set,
+            xscrollcommand=repair_horizontal.set,
+        )
+        repair_table.rowconfigure(0, weight=1)
+        repair_table.columnconfigure(0, weight=1)
         self._repair_tree.bind(
             "<<TreeviewSelect>>", lambda _event: self._repair_selected()
         )
@@ -125,8 +149,10 @@ class RepairPage(ttk.Frame):
         ttk.Label(
             tab, textvariable=self._cleanup_summary, wraplength=800,
         ).pack(anchor="w", fill="x", pady=(6, 5))
+        cleanup_table = ttk.Frame(tab)
+        cleanup_table.pack(fill="both", expand=True)
         self._cleanup_tree = ttk.Treeview(
-            tab, columns=("kind", "size", "reason"), show="tree headings",
+            cleanup_table, columns=("kind", "size", "reason"), show="tree headings",
             selectmode="extended", height=11,
         )
         for column, title, width in (
@@ -135,7 +161,21 @@ class RepairPage(ttk.Frame):
         ):
             self._cleanup_tree.heading(column, text=title)
             self._cleanup_tree.column(column, width=width)
-        self._cleanup_tree.pack(fill="both", expand=True)
+        self._cleanup_tree.grid(row=0, column=0, sticky="nsew")
+        cleanup_vertical = ttk.Scrollbar(
+            cleanup_table, orient="vertical", command=self._cleanup_tree.yview
+        )
+        cleanup_vertical.grid(row=0, column=1, sticky="ns")
+        cleanup_horizontal = ttk.Scrollbar(
+            cleanup_table, orient="horizontal", command=self._cleanup_tree.xview
+        )
+        cleanup_horizontal.grid(row=1, column=0, sticky="ew")
+        self._cleanup_tree.configure(
+            yscrollcommand=cleanup_vertical.set,
+            xscrollcommand=cleanup_horizontal.set,
+        )
+        cleanup_table.rowconfigure(0, weight=1)
+        cleanup_table.columnconfigure(0, weight=1)
         self._cleanup_accessible = tk.StringVar(
             value="No cleanup targets are selected."
         )
@@ -157,8 +197,10 @@ class RepairPage(ttk.Frame):
             ),
             wraplength=800,
         ).pack(anchor="w", fill="x", pady=(0, 6))
+        undo_table = ttk.Frame(tab)
+        undo_table.pack(fill="both", expand=True)
         self._undo_tree = ttk.Treeview(
-            tab, columns=("deadline", "source"), show="tree headings",
+            undo_table, columns=("deadline", "source"), show="tree headings",
             selectmode="browse", height=10,
         )
         self._undo_tree.heading("#0", text="Available inverse")
@@ -167,7 +209,21 @@ class RepairPage(ttk.Frame):
         self._undo_tree.column("#0", width=260)
         self._undo_tree.column("deadline", width=170)
         self._undo_tree.column("source", width=220)
-        self._undo_tree.pack(fill="both", expand=True)
+        self._undo_tree.grid(row=0, column=0, sticky="nsew")
+        undo_vertical = ttk.Scrollbar(
+            undo_table, orient="vertical", command=self._undo_tree.yview
+        )
+        undo_vertical.grid(row=0, column=1, sticky="ns")
+        undo_horizontal = ttk.Scrollbar(
+            undo_table, orient="horizontal", command=self._undo_tree.xview
+        )
+        undo_horizontal.grid(row=1, column=0, sticky="ew")
+        self._undo_tree.configure(
+            yscrollcommand=undo_vertical.set,
+            xscrollcommand=undo_horizontal.set,
+        )
+        undo_table.rowconfigure(0, weight=1)
+        undo_table.columnconfigure(0, weight=1)
         self._undo_accessible = tk.StringVar(value="No Undo is selected.")
         ttk.Label(
             tab, textvariable=self._undo_accessible, wraplength=800,
@@ -292,9 +348,11 @@ class RepairPage(ttk.Frame):
             return
         required = item.get("target_policy") == "REQUIRED"
         self._repair_detail.set(
-            f"{item['outcome']} · {item['reversibility']} · "
-            + ("Enter the required opaque target, then preview."
-               if required else "Preview current evidence before running.")
+            f"Availability: {'ready to preview' if item.get('available') else 'not currently available'}. "
+            f"Expected time: {repair_duration_label(item.get('duration_class'))}. "
+            f"{repair_reversibility_label(item.get('reversibility'), prior_state_survives=bool(item.get('prior_state_survives', True)))} "
+            + ("Enter the required target identifier, then preview."
+               if required else "Preview current evidence before running anything.")
         )
         self._target_entry.configure(state="normal" if required else "disabled")
 
@@ -319,7 +377,10 @@ class RepairPage(ttk.Frame):
         )
         self._repair_detail.set(
             "Ready for confirmation."
-            if preview.ready else f"Unavailable: {preview.reason_code}"
+            if preview.ready else (
+                f"{operation_reason_guidance(preview.reason_code).title}. "
+                f"{operation_reason_guidance(preview.reason_code).next_step}"
+            )
         )
         self.shell.drawer.show_details(
             "Repair preview", json.dumps(preview.to_dict(), indent=2, sort_keys=True)
@@ -332,9 +393,12 @@ class RepairPage(ttk.Frame):
         action = preview.action
         self.shell.drawer.show_confirmation(Confirmation(
             action.title,
-            "; ".join(action.mutation_steps),
-            "Prior working state survives." if action.prior_state_survives
-            else "Use the support handoff if verification does not pass.",
+            f"The app will run {len(action.mutation_steps)} reviewed step(s). "
+            f"Expected time: {repair_duration_label(action.duration_class)}.",
+            repair_reversibility_label(
+                action.reversibility,
+                prior_state_survives=action.prior_state_survives,
+            ),
             "Run repair",
             destructive=action.destructive,
             typed_phrase=(preview.confirmation_token if action.destructive else None),
@@ -358,10 +422,16 @@ class RepairPage(ttk.Frame):
             self.shell.track_operation_id(result.operation_id)
             if result.one_time_secret:
                 self._show_secret(result.one_time_secret)
+            guidance = operation_reason_guidance(result.result_code)
             self.shell.notice_bar.show_notice(Notice(
                 "success" if result.ok else "error",
                 "Repair verified" if result.ok else "Repair needs attention",
-                result.result_code,
+                (
+                    "The requested repair completed and its result was verified."
+                    if result.ok else
+                    f"{guidance.explanation} {guidance.next_step}"
+                ),
+                details=f"Stable repair result: {result.result_code}",
                 dismissible=result.ok,
             ))
             if not result.ok:
@@ -399,9 +469,14 @@ class RepairPage(ttk.Frame):
             if target in selected_ids:
                 self._cleanup_tree.selection_add(target)
         self._cleanup_summary.set(
-            f"{len(preview.selected)} selected · "
-            f"{format_bytes(preview.reclaimable_bytes)} estimated · "
-            f"expires {preview.expires_at}"
+            f"What will happen: {preview.mode.lower()} {len(preview.selected)} selected target(s), "
+            f"covering about {format_bytes(preview.reclaimable_bytes)}. "
+            + (
+                "Can be undone until the displayed retention deadline. "
+                if preview.mode in {"QUARANTINE", "RESTORE"} else
+                "Cannot be undone after verified purge. "
+            )
+            + f"Preview expires {preview.expires_at}. Nothing runs until you confirm."
         )
         self._cleanup_selected()
         self._apply_cleanup_button.configure(
@@ -445,10 +520,16 @@ class RepairPage(ttk.Frame):
         def done() -> None:
             result = box["result"]
             self.shell.track_operation_id(result.operation_id)
+            guidance = operation_reason_guidance(result.result_code)
             self.shell.notice_bar.show_notice(Notice(
                 "success" if result.ok else "error",
                 "Cleanup verified" if result.ok else "Cleanup needs attention",
-                result.result_code,
+                (
+                    "The selected cleanup completed and its retained/removed identity was verified."
+                    if result.ok else
+                    f"{guidance.explanation} {guidance.next_step}"
+                ),
+                details=f"Stable cleanup result: {result.result_code}",
                 dismissible=result.ok,
             ))
             self._cleanup_preview_value = None
@@ -481,9 +562,9 @@ class RepairPage(ttk.Frame):
         if preview is None or not preview.ready:
             return
         self.shell.drawer.show_confirmation(Confirmation(
-            "Restore the exact retained identity?",
-            "A child cleanup operation will move the verified bytes back to their original app staging identity.",
-            "The source operation remains in history and the receipt records the restoration.",
+            "Restore the retained item?",
+            "The app will verify the retained item and move it back to its original managed location.",
+            "The original action remains in Activity and a new receipt records this restoration.",
             "Restore",
         ), self._run_undo)
 
@@ -503,10 +584,16 @@ class RepairPage(ttk.Frame):
         def done() -> None:
             result = box["result"]
             self.shell.track_operation_id(result.operation_id)
+            guidance = operation_reason_guidance(result.result_code)
             self.shell.notice_bar.show_notice(Notice(
                 "success" if result.ok else "error",
                 "Undo verified" if result.ok else "Undo refused",
-                result.result_code,
+                (
+                    "The retained item was restored and verified."
+                    if result.ok else
+                    f"{guidance.explanation} {guidance.next_step}"
+                ),
+                details=f"Stable Undo result: {result.result_code}",
                 dismissible=result.ok,
             ))
             self._undo_preview_value = None

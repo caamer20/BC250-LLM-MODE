@@ -15,7 +15,7 @@ from bc250_llm_mode.gateway_runtime import (
     parse_bridge_inspect,
     run_gateway_runtime,
 )
-from bc250_llm_mode.repositories import SettingsRepository
+from bc250_llm_mode.repositories import ModelInstallationsRepository, SettingsRepository
 from bc250_llm_mode.unit_of_work import UnitOfWorkFactory
 
 
@@ -113,6 +113,32 @@ def test_backend_identity_probe_requires_desired_live_model_and_caches(tmp_path)
     now[0] += BACKEND_CACHE_SECONDS + 0.01
     assert probe.ready() is True
     assert len(calls) == 4
+
+
+def test_backend_identity_probe_accepts_public_alias_for_local_model(tmp_path):
+    database = tmp_path / "state.db"
+    initialize_and_close(database)
+    units = UnitOfWorkFactory(database)
+    local_id = "local-a3515b591cfc"
+    public_alias = "LFM2.5-2.6B-Q5_K_M"
+    with units.begin() as conn:
+        SettingsRepository(conn).set_many({
+            "current_model": local_id, "server_port": 8080,
+        })
+        ModelInstallationsRepository(conn).replace_all([{
+            "id": local_id,
+            "path": "/models/LFM2.5-2.6B-Q5_K_M.gguf",
+            "quant": "Q5_K_M",
+            "display_name": public_alias,
+        }])
+
+    def json_get(url, **_kwargs):
+        return ({"status": "ok"} if url.endswith("/health") else
+                {"data": [{"id": public_alias}]})
+
+    assert BackendIdentityProbe(
+        units, port=8080, json_get=json_get,
+    ).ready() is True
 
 
 def test_backend_identity_probe_fails_closed_for_wrong_model_and_port(tmp_path):

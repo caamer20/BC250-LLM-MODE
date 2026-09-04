@@ -351,6 +351,9 @@ def validate_body_bounds(body: bytes, ml) -> Decision:
                         problem_code="INVALID_REQUEST")
     # maximum context budget = max_tokens + up-to model's ctx; enforce combined cap
     max_tokens = payload.get("max_tokens")
+    if max_tokens is not None and type(max_tokens) is not int:
+        return Decision(False, "malformed", "max_tokens must be an integer", status=400,
+                        problem_code="INVALID_REQUEST")
     if isinstance(max_tokens, int) and max_tokens <= 0:
         return Decision(False, "denied", "max_tokens must be positive", status=400,
                         problem_code="INVALID_REQUEST")
@@ -386,15 +389,28 @@ class RateLimiter:
     def _row(self, client: str) -> _ClientRate:
         with self._lock:
             row = self._clients.get(client)
-            if row is None or self._now() - row.window_start >= RATE_WINDOW_S:
+            if row is None:
+                if len(self._clients) >= 256:
+                    for key, old in tuple(self._clients.items()):
+                        if old.inflight == 0 and self._now() - old.window_start >= RATE_WINDOW_S:
+                            del self._clients[key]
+                    if len(self._clients) >= 256:
+                        raise ValueError("client admission limit")
                 row = _ClientRate()
                 row.window_start = self._now()
                 self._clients[client] = row
             return row
 
     def check(self, client: str) -> tuple[bool, str]:
-        row = self._row(client)
+        try:
+            row = self._row(client)
+        except ValueError:
+            return False, "client admission limit"
         with row.lock:
+            if self._now() - row.window_start >= RATE_WINDOW_S:
+                # Time windows reset counters, never live reservations.
+                row.window_start = self._now()
+                row.count = row.tokens = 0
             if row.inflight >= MAX_CONCURRENT:
                 return False, "concurrency limit"
             row.inflight += 1
@@ -551,6 +567,12 @@ class GatewayServer:
             )
             return _PreparedRequest(unavailable, principal, scope)
         ok, message = self.rate.check(principal)
+        if ok and scope in {SCOPE_INFERENCE_READ, SCOPE_INFERENCE_STREAM}:
+            request_payload = json.loads(body)
+            allowance = len(body) // 4 + int(request_payload.get("max_tokens") or MAX_GENERATED_TOKENS)
+            if not self.rate.charge_tokens(principal, allowance):
+                self.rate.release(principal)
+                ok, message = False, "token reservation limit"
         if not ok:
             limited = Decision(
                 False,
@@ -677,31 +699,42 @@ class GatewayServer:
             )
         return response_status, response_body, parse_stream(body)
 
+    @staticmethod
+    def _bounded_request_body(path: str, body: bytes) -> bytes:
+        if path.split("?", 1)[0].rstrip("/") == "/v1/chat/completions":
+            payload = json.loads(body)
+            payload.setdefault("max_tokens", MAX_GENERATED_TOKENS)
+            return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        return body
+
     # -- helper that builds the actual backend HTTP call (bounded) -----------------
     def proxy_request(self, request_id: str, method: str, path: str,
                       body: bytes, presented_token: str) -> tuple[int, bytes]:
-        import httpx
-
-        url = f"{self.backend_base}{path.split('?')[0] if '?' in path else path}"
-        # identity check for the backend (bounded)
-        with httpx.Client(timeout=_gateway_timeout()) as client:
-            headers = {"Content-Type": "application/json"}
-            response = client.request(method, url, content=body, headers=headers)
-            return response.status_code, response.content
+        with self.open_backend_stream(method, path, body) as response:
+            output = bytearray()
+            for chunk in response.iter_raw():
+                if len(output) + len(chunk) > self._max_response:
+                    raise ValueError("upstream response exceeds bounds")
+                output.extend(chunk)
+            return response.status_code, bytes(output)
 
     @contextmanager
     def open_backend_stream(self, method: str, path: str, body: bytes):
         """Open one bounded upstream response without forwarding credentials."""
         import httpx
 
+        from .http_deadline import response_deadline
+        started = time.monotonic()
         url = f"{self.backend_base}{path.split('?')[0] if '?' in path else path}"
         with httpx.Client(timeout=_gateway_timeout()) as client:
             with client.stream(
                 method,
                 url,
-                content=body,
-                headers={"Content-Type": "application/json"},
-            ) as response:
+                content=self._bounded_request_body(path, body),
+                headers={"Content-Type": "application/json", "Accept-Encoding": "identity"},
+            ) as response, response_deadline(response, 600 - (time.monotonic() - started)):
+                if response.headers.get("Content-Encoding", "identity") != "identity":
+                    raise ValueError("encoded upstream response refused")
                 yield response
 
     # -- bounded SSE proxy used by the live handler ---------------------------------
@@ -709,7 +742,7 @@ class GatewayServer:
                      presented_token: str):
         with self.open_backend_stream(method, path, body) as response:
             total = 0
-            for chunk in response.iter_bytes():
+            for chunk in response.iter_raw():
                 total += len(chunk)
                 if total > self._max_response:
                     break
@@ -826,10 +859,38 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "BC250Gateway"
 
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10.0)
+        self.rfile = _HeaderBudget(self.rfile)
+
+    def handle_expect_100(self):
+        self.send_error(417)
+        self.close_connection = True
+        return False
+
     def _read_body(self) -> bytes:
-        length = min(int(self.headers.get("Content-Length") or 0),
-                     MAX_BODY_BYTES + 1)
-        return self.rfile.read(length)
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get("Transfer-Encoding") or len(lengths) > 1:
+            raise ValueError("ambiguous request framing")
+        if self.headers.get("Expect"):
+            raise ValueError("unsupported Expect")
+        raw = lengths[0] if lengths else "0"
+        if not raw.isascii() or not raw.isdecimal() or len(raw) > 10:
+            raise ValueError("invalid body length")
+        length = int(raw)
+        if length > MAX_BODY_BYTES:
+            raise OverflowError("body exceeds bound")
+        deadline = time.monotonic() + 15
+        body = bytearray()
+        while len(body) < length:
+            self.connection.settimeout(max(0.01, min(10, deadline - time.monotonic())))
+            chunk = self.rfile.read(min(65536, length - len(body)))
+            if not chunk or time.monotonic() > deadline:
+                raise ValueError("incomplete request body")
+            body.extend(chunk)
+        self.connection.settimeout(10.0)
+        return bytes(body)
 
     def _headers_dict(self) -> dict[str, str]:
         return {k.lower(): v for k, v in self.headers.items()}
@@ -919,6 +980,8 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
                     )
                     headers_sent = True
                     return
+                if not response.headers.get("Content-Type", "text/event-stream").lower().startswith("text/event-stream"):
+                    raise ValueError("upstream did not return SSE")
                 declared_length = int(response.headers.get("Content-Length") or 0)
                 if declared_length > gateway._max_response:
                     raise RuntimeError("backend stream response too large")
@@ -939,7 +1002,10 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
                 self.end_headers()
                 headers_sent = True
                 total = 0
+                deadline = time.monotonic() + 600
                 for chunk in response.iter_raw():
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("stream deadline exceeded")
                     total += len(chunk)
                     if total > gateway._max_response:
                         response_status = 502
@@ -979,7 +1045,19 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
 
     def _run(self) -> None:
         gateway: "GatewayServer" = self.server.gateway  # type: ignore[attr-defined]
-        body = self._read_body()
+        self.close_connection = True
+        try:
+            body = self._read_body()
+        except (OverflowError, ValueError, OSError) as exc:
+            request_id = new_request_id()
+            too_large = isinstance(exc, OverflowError)
+            self._send_buffered(413 if too_large else 400, {
+                "Content-Type": "application/json", "X-Request-ID": request_id,
+                "X-Gateway-Api-Version": str(GATEWAY_API_VERSION),
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            }, json.dumps(openai_error(problem_detail(
+                "REQUEST_TOO_LARGE" if too_large else "INVALID_REQUEST", request_id=request_id))).encode())
+            return
         headers = self._headers_dict()
         if (
             classify_path(self.path) == SCOPE_INFERENCE_READ
@@ -1018,19 +1096,57 @@ class _SocketHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class _HeaderBudget:
+    def __init__(self, source):
+        self.source = source
+        self.remaining = MAX_HEADER_BYTES
+
+    def readline(self, size=-1):
+        import http.client
+        data = self.source.readline(min(size if size >= 0 else self.remaining + 1, self.remaining + 1))
+        self.remaining -= len(data)
+        if self.remaining < 0:
+            raise http.client.LineTooLong("request headers")
+        return data
+
+    def __getattr__(self, name):
+        return getattr(self.source, name)
+
+
+class _BoundedGatewayServer(http.server.ThreadingHTTPServer):
+    daemon_threads = True
+    block_on_close = False
+    request_queue_size = 16
+    allow_reuse_address = True
+
+    def __init__(self, *args, **kwargs):
+        self._admission = threading.BoundedSemaphore(16)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address):
+        # Bound accepted sockets BEFORE ThreadingMixIn allocates a thread.
+        if not self._admission.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._admission.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._admission.release()
+
+    def handle_error(self, request, client_address):
+        pass  # No raw request or connection exception in content-free logs.
+
+
 def make_gateway_socket_server(gateway: "GatewayServer", *, host: str = "127.0.0.1",
                                port: int = 0) -> "http.server.ThreadingHTTPServer":
     """Bind a real loopback socket server wired to the gateway (exit gate)."""
-    server_cls = type(
-        "GatewayHTTPServer",
-        (http.server.ThreadingHTTPServer,),
-        {
-            "daemon_threads": True,
-            "block_on_close": False,
-            "request_queue_size": 16,
-            "allow_reuse_address": True,
-        },
-    )
-    server = server_cls((host, port), _SocketHandler)
+    server = _BoundedGatewayServer((host, port), _SocketHandler)
     server.gateway = gateway  # type: ignore[attr-defined]
     return server

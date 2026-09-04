@@ -115,6 +115,32 @@ def test_local_server_readiness_is_bounded_and_identity_checked(monkeypatch):
     assert all(timeout == 0.75 for _url, timeout in calls)
 
 
+def test_local_server_readiness_maps_public_alias_to_local_id(monkeypatch):
+    def fake_get(url, timeout=5):
+        if url.endswith("/health"):
+            return {"status": "ok"}
+        return {"data": [{"id": "LFM2.5-2.6B-Q5_K_M"}]}
+
+    monkeypatch.setattr(server, "_json_get", fake_get)
+    result = server.local_server_readiness(
+        {
+            "server_port": 8080,
+            "current_model": "local-a3515b591cfc",
+            "installed_models": [
+                {
+                    "id": "local-a3515b591cfc",
+                    "display_name": "LFM2.5-2.6B-Q5_K_M",
+                }
+            ],
+        },
+        timeout=0.75,
+    )
+
+    assert result["model_id"] == "LFM2.5-2.6B-Q5_K_M"
+    assert result["desired_model"] == "local-a3515b591cfc"
+    assert result["model_matches_desired"] is True
+
+
 def test_health_model_id_is_observed_not_desired(monkeypatch):
     """§11.2: the desired current_model is never proof of a live model."""
 

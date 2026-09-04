@@ -216,12 +216,17 @@ def _model_readiness(
     )
     expected_clean = _text(expected, identity=True)
     observed_clean = _text(observed, identity=True)
+    # Upstream live observation can prove that a server's friendly public
+    # alias maps to the selected durable installation id.  Preserve that
+    # explicit result; only fall back to literal equality for older callers
+    # that do not provide the mapping result.
     identity_matches = (
-        _bool(source, "identity_matches", default=True)
-        and (not expected_clean or expected_clean == observed_clean)
+        _bool(source, "identity_matches")
+        if "identity_matches" in source
+        else (not expected_clean or expected_clean == observed_clean)
     )
     fresh, observed_at, fresh_until = _freshness(
-        source.get("observed_at") or generated_at,
+        source.get("observed_at"),
         generated_at=generated_at,
         max_age_seconds=LIVE_OBSERVATION_MAX_AGE_SECONDS,
     )
@@ -286,7 +291,7 @@ def _gateway_readiness(
         source, "backend_identity_verified", default=bool(source.get("healthy")))
     protocol = listeners and backend
     fresh, observed_at, fresh_until = _freshness(
-        source.get("observed_at") or generated_at,
+        source.get("observed_at"),
         generated_at=generated_at,
         max_age_seconds=LIVE_OBSERVATION_MAX_AGE_SECONDS,
     )
@@ -339,7 +344,7 @@ def _openwebui_readiness(
     visible = _bool(source, "expected_model_visible", "model_visible")
     verified = _bool(source, "end_to_end_verified", "chat_verified")
     fresh, observed_at, fresh_until = _freshness(
-        source.get("observed_at") or generated_at,
+        source.get("observed_at"),
         generated_at=generated_at,
         max_age_seconds=LIVE_OBSERVATION_MAX_AGE_SECONDS,
     )
@@ -402,7 +407,7 @@ def _tailscale_readiness(
     connected = _bool(source, "protocol_ready", "connected")
     dns_name = _text(source.get("dns_name"), identity=True)
     fresh, observed_at, fresh_until = _freshness(
-        source.get("observed_at") or generated_at,
+        source.get("observed_at"),
         generated_at=generated_at,
         max_age_seconds=LIVE_OBSERVATION_MAX_AGE_SECONDS,
     )
@@ -441,7 +446,7 @@ def _serve_readiness(
     funnel_disabled = _bool(
         source, "funnel_disabled", default=source.get("public_funnel") is False)
     fresh, observed_at, fresh_until = _freshness(
-        source.get("observed_at") or generated_at,
+        source.get("observed_at"),
         generated_at=generated_at,
         max_age_seconds=LIVE_OBSERVATION_MAX_AGE_SECONDS,
     )
@@ -736,7 +741,7 @@ def readiness_from_snapshots(
             ),
             "identity_matches": connection_model.get("identity_matches", True),
             "chat_verified": inference_ready,
-            "observed_at": connection_model.get("observed_at") or generated_at,
+            "observed_at": connection_model.get("observed_at"),
         },
         gateway=gateway,
         openwebui=openwebui,
@@ -748,7 +753,7 @@ def readiness_from_snapshots(
                 and sharing.get("api_mapping_exact")
             ),
             "funnel_disabled": sharing.get("public_funnel") is False,
-            "observed_at": sharing.get("observed_at") or generated_at,
+            "observed_at": sharing.get("observed_at"),
         },
         client_verification=probes,
         thermal={

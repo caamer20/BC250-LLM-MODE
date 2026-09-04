@@ -183,3 +183,16 @@ def validate_sbom(
         if bound != expected_subject_sha256:
             return False, "SBOM_SUBJECT_MISMATCH"
     return True, "OK"
+
+
+def installed_dependencies() -> list[tuple[str, str]]:
+    """Actual locked build environment, including transitive and build packages."""
+    from importlib.metadata import distributions
+    resolved = {}
+    for distribution in distributions():
+        name = re.sub(r"[-_.]+", "-", distribution.metadata["Name"]).lower()
+        if name not in {"bc250-llm-mode", "pip"}:
+            if name in resolved and resolved[name] != distribution.version:
+                raise ValueError("ambiguous installed dependency")
+            resolved[name] = distribution.version
+    return sorted(resolved.items())

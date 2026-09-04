@@ -139,6 +139,18 @@ class ExecutionEngine:
             )
 
     def execute_one(self, operation_id: str) -> ExecutionOutcome:
+        from ..profile_access import profile_access, ProfileBusy
+
+        with self.units.read() as conn:
+            row = conn.execute("SELECT operation_type FROM operations WHERE id = ?", (operation_id,)).fetchone()
+        restore = row is not None and row["operation_type"] == "BACKUP_RESTORE"
+        try:
+            with profile_access(self.units.database_path.parent, exclusive=restore):
+                return self._execute_with_profile_access(operation_id)
+        except ProfileBusy:
+            return ExecutionOutcome("SKIPPED_BUSY", operation_id, reason_code="PROFILE_BUSY")
+
+    def _execute_with_profile_access(self, operation_id: str) -> ExecutionOutcome:
         try:
             outcome = self._execute(operation_id)
         except LostLease as lost:

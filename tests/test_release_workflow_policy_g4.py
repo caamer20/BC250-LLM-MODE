@@ -43,7 +43,7 @@ def test_id_token_write_exists_only_in_attest_and_publish():
     for job_name, job in rel["jobs"].items():
         token = (job.get("permissions") or {}).get("id-token")
         if token == "write":
-            assert job_name in {"attest", "publish"}, (
+            assert job_name in {"attest", "attest-decision", "publish"}, (
                 f"id-token: write must exist only on attest/publish, "
                 f"found on {job_name}")
         else:
@@ -70,7 +70,7 @@ def test_consuming_jobs_share_one_artifact_identity():
         names = [str((step.get("with") or {}).get("name"))
                  for step in rel["jobs"][job_name].get("steps") or []
                  if "download-artifact" in str(step.get("uses", ""))]
-        assert names and all(n == "release-candidate" for n in names), (
+        assert names and names.count("release-candidate") == 1 and set(names) <= {"release-candidate", "release-decision", "verified-provenance"}, (
             f"{job_name} must download exactly the release-candidate bundle, "
             f"got {names}")
     uploads = [(job_name, str((step.get("with") or {}).get("name")))
@@ -78,7 +78,7 @@ def test_consuming_jobs_share_one_artifact_identity():
                for step in job.get("steps") or []
                if "upload-artifact" in str(step.get("uses", ""))]
     uploaded = {name for _, name in uploads}
-    assert uploaded == {"release-candidate", "release-decision"}, (
+    assert uploaded == {"release-candidate", "release-decision", "verified-provenance", "verified-decision-provenance"}, (
         f"unexpected uploaded artifact bundles: {uploaded}")
 
 

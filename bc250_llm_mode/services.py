@@ -115,6 +115,15 @@ class ThermalStateService:
         """Escalate to STOPPED. Always permitted; baseline kept as evidence."""
         return self._apply(latch_state=STOPPED)
 
+    def record_stop_outcome(self, outcome: str) -> dict[str, Any]:
+        if outcome not in {"confirmed", "pending", "failed"}:
+            raise ValueError("invalid thermal stop outcome")
+        from .legacy_import import utcnow
+
+        return self._apply(annotate_baseline={
+            "stop_outcome": outcome, "stop_observed_at": utcnow(),
+        })
+
     def annotate_restore_failure(self, error: str) -> dict[str, Any]:
         """Record failed profile restoration on the durable baseline."""
         return self._apply(annotate_baseline={"last_restore_error": error})

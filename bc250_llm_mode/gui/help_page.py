@@ -12,7 +12,9 @@ from ..client_compatibility import (
     capability_display_rows,
 )
 from ..message_catalog import glossary_entries
+from .routes import Route
 from .view_state import Notice
+from .widgets import VerticalScrollFrame
 
 
 class HelpPage(ttk.Frame):
@@ -21,23 +23,26 @@ class HelpPage(ttk.Frame):
         self.shell = shell
         self.application = application
         self._disposed = False
+        self._scroller = VerticalScrollFrame(self)
+        self._scroller.pack(fill="both", expand=True)
+        body = self._scroller.inner
         platform = application.platform.status()
         distribution = platform.get("distribution") or {}
-        ttk.Label(self, text="Quick start", font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
+        ttk.Label(body, text="Quick start", font=("TkDefaultFont", 16, "bold")).pack(anchor="w")
         ttk.Label(
-            self,
+            body,
             text=(
-                "1. Choose a model in Models.  2. Install and start it.  "
-                "3. Chat locally or enable the authenticated remote endpoint.\n\n"
-                "Entering LLM Mode from System closes the graphical desktop and opens a full-screen "
-                "tty1 login for this boot. Restarting returns to the normal graphical desktop with "
-                "the model service disabled. From tty1, return without rebooting with "
-                "~/.bc250-llm-mode/app-venv/bin/bc250-llm-mode desktop --now."
+                "1. Open Models and choose a recommended model.  "
+                "2. Select Install, Start and Chat.  "
+                "3. Send a prompt in native Chat.\n\n"
+                "Use Connections only when you want Open WebUI, a phone, or another "
+                "OpenAI-compatible app. The guided setup provides the exact Base URL, "
+                "model name, and a separate one-time key."
             ),
             wraplength=720,
             justify="left",
         ).pack(anchor="w", fill="x", pady=(3, 10))
-        platform_frame = ttk.LabelFrame(self, text="Platform", padding=7)
+        platform_frame = ttk.LabelFrame(body, text="Platform", padding=7)
         platform_frame.pack(fill="x")
         ttk.Label(
             platform_frame,
@@ -49,7 +54,7 @@ class HelpPage(ttk.Frame):
             wraplength=720,
         ).pack(anchor="w")
         compatibility = ttk.LabelFrame(
-            self,
+            body,
             text=f"Offline model API compatibility · v{CLIENT_COMPATIBILITY_SCHEMA_VERSION}",
             padding=7,
         )
@@ -71,8 +76,8 @@ class HelpPage(ttk.Frame):
             wraplength=720, justify="left",
         ).pack(anchor="w", fill="x", pady=(3, 0))
         self.result_var = tk.StringVar(value="Run checks for a bounded diagnostic summary.")
-        ttk.Label(self, textvariable=self.result_var, wraplength=720, justify="left").pack(anchor="w", fill="x", pady=8)
-        actions = ttk.Frame(self)
+        ttk.Label(body, textvariable=self.result_var, wraplength=720, justify="left").pack(anchor="w", fill="x", pady=8)
+        actions = ttk.Frame(body)
         actions.pack(fill="x")
         self.check_button = ttk.Button(
             actions, text="Run checks", command=self._run_doctor
@@ -80,13 +85,57 @@ class HelpPage(ttk.Frame):
         self.check_button.pack(side="left")
         ttk.Button(actions, text="Create redacted support bundle…", command=self._support_bundle).pack(side="left", padx=5)
         ttk.Button(actions, text="Copy diagnostic summary", command=self._copy_summary).pack(side="left")
-        advanced = ttk.LabelFrame(self, text="Advanced tools", padding=7)
-        advanced.pack(fill="x", pady=10)
-        ttk.Button(advanced, text="Start terminal chat", command=self.application.open_chat_terminal).pack(side="left")
-        ttk.Button(advanced, text="Open setup log", command=lambda: self.shell.open_logs("setup")).pack(side="left", padx=5)
-        ttk.Button(advanced, text="Open server log", command=lambda: self.shell.open_logs("server")).pack(side="left")
+        ttk.Button(
+            actions, text="Open Connections",
+            command=lambda: self.shell.navigate(Route.CONNECTIONS),
+        ).pack(side="left", padx=5)
 
-        glossary = ttk.LabelFrame(self, text="Offline glossary", padding=7)
+        troubleshooting = ttk.LabelFrame(
+            body, text="Something failed", padding=7
+        )
+        troubleshooting.pack(fill="x", pady=(8, 0))
+        ttk.Label(
+            troubleshooting,
+            text=(
+                "No response: open System and verify the selected model.  "
+                "401: replace the client API key.  403: check key permission and use "
+                "the Base URL ending once in /v1.  502: the private address works, "
+                "but the model backend needs to be started or repaired."
+            ),
+            wraplength=720, justify="left",
+        ).pack(anchor="w", fill="x")
+        quick_actions = ttk.Frame(troubleshooting)
+        quick_actions.pack(fill="x", pady=(5, 0))
+        ttk.Button(
+            quick_actions, text="Open Chat",
+            command=lambda: self.shell.navigate(Route.CHAT),
+        ).pack(side="left")
+        ttk.Button(
+            quick_actions, text="Open Models",
+            command=lambda: self.shell.navigate(Route.MODELS),
+        ).pack(side="left", padx=5)
+        ttk.Button(
+            quick_actions, text="View Activity",
+            command=lambda: self.shell.navigate(Route.ACTIVITY),
+        ).pack(side="left")
+        advanced = ttk.LabelFrame(body, text="Advanced tools", padding=7)
+        advanced.pack(fill="x", pady=10)
+        advanced_actions = ttk.Frame(advanced)
+        advanced_actions.pack(fill="x")
+        ttk.Button(advanced_actions, text="Start terminal chat", command=self.application.open_chat_terminal).pack(side="left")
+        ttk.Button(advanced_actions, text="Open setup log", command=lambda: self.shell.open_logs("setup")).pack(side="left", padx=5)
+        ttk.Button(advanced_actions, text="Open server log", command=lambda: self.shell.open_logs("server")).pack(side="left")
+        ttk.Label(
+            advanced,
+            text=(
+                "LLM Mode is an advanced current-boot serving mode. It may close the "
+                "graphical desktop; restarting returns to the normal desktop and leaves "
+                "model auto-start off."
+            ),
+            wraplength=700, justify="left",
+        ).pack(anchor="w", fill="x", pady=(6, 0))
+
+        glossary = ttk.LabelFrame(body, text="Offline glossary", padding=7)
         glossary.pack(fill="both", expand=True, pady=(0, 8))
         controls = ttk.Frame(glossary)
         controls.pack(fill="x")
@@ -113,7 +162,7 @@ class HelpPage(ttk.Frame):
         self._render_glossary()
 
         accessibility = ttk.LabelFrame(
-            self, text="Keyboard and accessibility", padding=7
+            body, text="Keyboard and accessibility", padding=7
         )
         accessibility.pack(fill="x", pady=(0, 8))
         ttk.Label(
@@ -170,9 +219,19 @@ class HelpPage(ttk.Frame):
 
         def done() -> None:
             report = result_box["report"]
-            worst = ", ".join(report.worst_ids) if report.worst_ids else "none"
+            worst = [
+                finding for finding in report.findings
+                if finding.id in set(report.worst_ids)
+            ]
+            if report.overall == "PASS":
+                summary = "All bounded checks passed."
+            elif worst:
+                finding = worst[0]
+                summary = f"{finding.title}. {finding.evidence}"
+            else:
+                summary = "Checks completed, but no single next action was identified."
             self.result_var.set(
-                f"Overall: {report.overall} · {len(report.findings)} checks · highest-priority findings: {worst}"
+                f"Overall: {report.overall.title()} · {len(report.findings)} checks. {summary}"
             )
 
         self.shell._work(action, done)

@@ -36,7 +36,7 @@ def test_release_workflow_oidc_only_on_attest_and_publish():
     for name, job in rel["jobs"].items():
         perms = job.get("permissions") or {}
         if perms.get("id-token") == "write":
-            assert name in {"attest", "publish"}, (
+            assert name in {"attest", "attest-decision", "publish"}, (
                 f"id-token: write leaked into job {name!r}")
     assert rel["jobs"]["publish"]["permissions"].get("id-token") == "write"
 

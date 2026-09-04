@@ -21,6 +21,7 @@ class Route(StrEnum):
     MAINTENANCE = "maintenance"
     REPAIR = "maintenance/repair"
     UPDATES = "maintenance/updates"
+    BACKUPS = "maintenance/backups"
 
 
 PRIMARY_ROUTES = (

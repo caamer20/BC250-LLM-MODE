@@ -28,10 +28,10 @@ from .paths import AppPaths
 
 
 OPENWEBUI_SPEC_VERSION = 1
-OPENWEBUI_PROVIDER_ADAPTER_VERSION = "open-webui-0.11.1-config-v1"
-OPENWEBUI_IMAGE_VERSION = "0.11.1"
+OPENWEBUI_PROVIDER_ADAPTER_VERSION = "open-webui-0.11.3-config-v1"
+OPENWEBUI_IMAGE_VERSION = "0.11.3"
 OPENWEBUI_IMAGE_DIGEST = (
-    "sha256:e3a36f3aefb2408ac01d8aa2bba24f75d2569ffb6de6e7d2865c0045a38592ac"
+    "sha256:751b617714b91e4cfd0186a509c72480c858e012976103b09a30dad053c36175"
 )
 OPENWEBUI_IMAGE = f"ghcr.io/open-webui/open-webui@{OPENWEBUI_IMAGE_DIGEST}"
 OPENWEBUI_ARCHITECTURE = "amd64"
@@ -276,7 +276,7 @@ def plan_provider_config(
 
 # This source is sent over stdin to the pinned image's Python.  It contains no
 # credential, prompt, completion, host path, or user data.  The adapter is tied
-# to Open WebUI 0.11.1's awaited Config.get_many/Config.upsert contract.
+# to Open WebUI 0.11.3's awaited Config.get_many/Config.upsert contract.
 _PROVIDER_RECONCILE_SCRIPT = r'''
 import asyncio, json, os
 from pathlib import Path
@@ -343,7 +343,7 @@ async def main():
         and index < len(check_keys) and hmac.compare_digest(check_keys[index], key)
     )
     print(json.dumps({
-        "adapter": "open-webui-0.11.1-config-v1",
+        "adapter": "open-webui-0.11.3-config-v1",
         "action": action,
         "provider_index": index,
         "provider_count": len(check_urls),
@@ -386,7 +386,7 @@ async def main():
         payload = json.loads(response.read(65537))
     ids = [item.get("id") for item in payload.get("data", []) if isinstance(item, dict)]
     print(json.dumps({
-        "adapter": "open-webui-0.11.1-config-v1",
+        "adapter": "open-webui-0.11.3-config-v1",
         "provider_ready": True,
         "model_ids": ids[:16],
     }, sort_keys=True))
@@ -436,7 +436,7 @@ with urllib.request.urlopen(request, timeout=30) as response:
 if not (saw_data and saw_done and saw_content):
     raise RuntimeError("stream verification did not complete")
 print(json.dumps({
-    "adapter": "open-webui-0.11.1-config-v1",
+    "adapter": "open-webui-0.11.3-config-v1",
     "stream_ready": True,
     "saw_done": True,
     "saw_content": True,

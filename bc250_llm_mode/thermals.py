@@ -118,22 +118,26 @@ def run_watchdog_once(
 ) -> dict[str, Any]:
     """One watchdog poll. Returns {state, temperature, action}.
 
-    A latched stop is idempotent: polling reports ``latched`` and never calls
-    stop_service again; only an explicit reset (safe temperature + human
-    intent) clears the latch. Throttling preserves the user's configured GPU
-    profile in a dedicated baseline so recovery restores it exactly. All
-    durable thermal writes go through ThermalStateService — never a
-    whole-state save.
+    Stop intent and observed inactivity are separate. A latched active or
+    unknown service receives one stop attempt per poll, including after a
+    crash between persisting the latch and stopping the process.
     """
     from .optimize import apply_gpu_clock_limit, normalized_settings, restore_gpu_profile
 
+    loader = getattr(store, "read_model", None)
+    if callable(loader):
+        state["optimizations"] = loader().get("optimizations")
+    service = _service_for(store)
+    if service is not None:
+        fresh = service.current()
+        state["thermal_watchdog_state"] = fresh["latch_state"]
+        state["thermal_watchdog_baseline"] = fresh.get("baseline")
     settings = normalized_settings(state.get("optimizations"))
-    if not settings.get("thermal_watchdog_enabled"):
-        return {"state": "disabled", "temperature": None, "action": "none"}
     current = str(state.get("thermal_watchdog_state", NOMINAL))
     if current == STOPPED:
-        # Latched: one stop already happened. Report without side effects.
-        return {"state": "latched", "temperature": None, "action": "latched"}
+        return _enforce_latched_stop(store, state, runner, temperature=None)
+    if not settings.get("thermal_watchdog_enabled"):
+        return {"state": "disabled", "temperature": None, "action": "none"}
     temp = read_gpu_temperature()
     if temp is None:
         return {
@@ -223,17 +227,10 @@ def run_watchdog_once(
         state.pop("thermal_watchdog_baseline", None)
         new_state = NOMINAL
     elif action == "stop":
-        from .server import stop_service
-
-        runner.emit(f"Thermal watchdog: {temp:.1f}°C hit the stop point; stopping the model server")
-        # Persist the latch BEFORE stopping the service: a crash between the
-        # two must never forget that the stop was required.
         _persist_stopped(store, state)
-        try:
-            stop_service(state, runner)
-        finally:
-            _notify_transition(store, STOPPED)
-        new_state = STOPPED
+        result = _enforce_latched_stop(store, state, runner, temperature=round(temp, 1))
+        _notify_transition(store, STOPPED)
+        return result
     else:
         new_state = THROTTLED if action == "hold" else current
         if service is not None and action == "hold":
@@ -245,6 +242,32 @@ def run_watchdog_once(
     if state.get("thermal_watchdog_baseline"):
         result["baseline_preserved"] = True
     return result
+
+
+def _enforce_latched_stop(store, state, runner, *, temperature):
+    from .server import service_status, stop_service
+
+    outcome = "pending"
+    try:
+        observed = service_status(state, runner)
+    except Exception:
+        observed = {}
+    try:
+        if observed.get("active_state") in {"inactive", "failed"}:
+            outcome = "confirmed"
+        else:
+            observed = stop_service(state, runner)
+            if isinstance(observed, dict) and observed.get("active") is False:
+                outcome = "confirmed"
+    except Exception:
+        outcome = "failed"
+    service = _service_for(store)
+    if service is not None:
+        service.record_stop_outcome(outcome)
+    return {"state": "latched" if temperature is None else STOPPED,
+            "temperature": temperature,
+            "action": "latched" if temperature is None else "stop",
+            "stop_outcome": outcome, "inactive_confirmed": outcome == "confirmed"}
 
 
 def reset_latch(
@@ -311,6 +334,9 @@ def watch_loop(
 
     count = 0
     while iterations is None or count < iterations:
+        loader = getattr(store, "read_model", None) or getattr(store, "load", None)
+        if callable(loader):
+            state = loader()
         result = run_watchdog_once(store, state, runner)
         if result["temperature"] is not None and result["action"] != "none":
             runner.emit(f"watch: {result['state']} {result['temperature']}°C ({result['action']})")

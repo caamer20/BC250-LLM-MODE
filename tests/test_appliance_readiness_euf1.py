@@ -175,6 +175,22 @@ def test_wrong_running_model_identity_is_blocked():
     assert snapshot.native_chat_ready is False
 
 
+def test_explicit_local_public_alias_match_is_preserved():
+    snapshot = _ready(
+        model=_model(
+            expected_identity="local-a3515b591cfc",
+            observed_identity="LFM2.5-2.6B-Q5_K_M",
+            identity_matches=True,
+        ),
+        target_journey="native_chat",
+    )
+
+    model = snapshot.component("model")
+    assert model.state is ReadinessState.READY
+    assert model.problem_code is None
+    assert snapshot.native_chat_ready is True
+
+
 def test_native_chat_does_not_depend_on_optional_integrations():
     snapshot = _ready(
         gateway={}, openwebui={}, tailscale={}, serve={},

@@ -201,6 +201,10 @@ def _parser() -> argparse.ArgumentParser:
         dest="connection_action", required=True)
     connection_sub.add_parser("status", help="Show the guided connection snapshot")
     connection_sub.add_parser(
+        "doctor",
+        help="Explain the first failed connection step and its safe next action",
+    )
+    connection_sub.add_parser(
         "capabilities", help="Show the versioned supported API/client matrix")
     connection_sub.add_parser("clients", help="List redacted client metadata")
     add_client = connection_sub.add_parser(
@@ -1130,6 +1134,14 @@ def main(argv: list[str] | None = None) -> int:
         if action == "status":
             print(json.dumps(application.connections.snapshot().to_dict(), indent=2))
             return 0
+        if action == "doctor":
+            from .ux_guidance import connection_doctor
+
+            diagnosis = connection_doctor(
+                application.connections.snapshot().to_dict()
+            )
+            print(json.dumps(diagnosis.to_dict(), indent=2))
+            return 0 if diagnosis.ready else 1
         if action == "clients":
             print(json.dumps({
                 "access": credentials.access_state(),

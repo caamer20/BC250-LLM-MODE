@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 
 from ..catalog import ADVERTISED_CATALOG, calculate_fit, validation_tier
+from ..constants import FAST_VRAM_GIB
 from ..appliance_readiness import readiness_from_snapshots
 from ..model_recommendation import (
     ModelRecommendationPolicy,
@@ -17,8 +18,15 @@ from ..model_recommendation import (
     evidence_is_fresh,
     fit_label,
 )
-from ..presentation import format_number
+from ..presentation import format_bytes, format_number
 from ..progress_projection import format_elapsed, project_operation_progress
+from ..ux_guidance import (
+    WORKLOAD_PRESETS,
+    friendly_state,
+    model_install_time_guidance,
+    quantization_guidance,
+    workload_preset,
+)
 from .routes import Route
 from .view_state import Confirmation, Notice
 
@@ -132,6 +140,7 @@ class ModelItemView:
     profile_summary: str = ""
     immutable_identity: bool = False
     standard_layout: bool = False
+    memory_required_gib: float | None = None
 
     def __post_init__(self) -> None:
         if self.state not in MODEL_PRESENTATION_STATES:
@@ -178,6 +187,7 @@ def build_model_items(
     *,
     context: int,
     slots: int,
+    selected_quants: Mapping[str, str] | None = None,
     operations_active: bool = False,
     recovery_required: bool = False,
     inference_verified: bool = False,
@@ -185,6 +195,7 @@ def build_model_items(
     now=None,
 ) -> tuple[ModelItemView, ...]:
     """Merge durable installations and curated remote candidates once."""
+    selected_quants = selected_quants or {}
     if model_running is None:
         model_running = bool(inference_verified)
     installed_rows = list(installed)
@@ -210,6 +221,16 @@ def build_model_items(
             else "ACTIVE" if active and model_running else "INSTALLED")
         byte_size = getattr(row, "byte_size", None)
         entry = catalog_by_id.get(str(getattr(row, "catalog_id", "") or ""))
+        installed_fit = None
+        installed_quant = getattr(row, "quant", None)
+        if entry is not None and installed_quant in entry.weights_gib_by_quant:
+            try:
+                installed_fit = calculate_fit(
+                    entry, str(installed_quant), context,
+                    parallel_slots=slots,
+                )
+            except (KeyError, ValueError):
+                installed_fit = None
         support_tier = validation_tier(entry) if entry is not None else "local"
         format_name = str(getattr(row, "format", "") or "").lower()
         standard_layout = bool(
@@ -229,8 +250,15 @@ def build_model_items(
             family=str(getattr(row, "architecture", None) or getattr(row, "catalog_id", None) or "custom"),
             size_gib=(float(byte_size) / 1024**3 if byte_size else None),
             state="RECOVERY_REQUIRED" if recovery_required else state,
-            fit_verdict=getattr(row, "fit_verdict", None),
-            fit_detail=str(getattr(row, "fit_detail", None) or "Fit evidence is unavailable for this custom artifact."),
+            fit_verdict=(
+                getattr(row, "fit_verdict", None)
+                or (installed_fit.verdict if installed_fit is not None else None)
+            ),
+            fit_detail=str(
+                getattr(row, "fit_detail", None)
+                or (installed_fit.detail if installed_fit is not None else None)
+                or "Fit evidence is unavailable for this custom artifact."
+            ),
             support_tier=support_tier,
             description=(
                 f"Managed {getattr(row, 'format', None) or 'GGUF'} artifact · "
@@ -254,16 +282,25 @@ def build_model_items(
             profile_summary=f"Selected workload: {context:,} context · {slots} slot(s)",
             immutable_identity=immutable_identity,
             standard_layout=standard_layout and architecture_compatible,
+            memory_required_gib=(
+                installed_fit.required_gib if installed_fit is not None else None
+            ),
         ))
     for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
             continue
         quants = tuple(entry.allow_globs)
-        quant = "Q5_K_M" if "Q5_K_M" in quants else quants[0]
+        preferred_quant = selected_quants.get(entry.id)
+        quant = (
+            preferred_quant if preferred_quant in quants else
+            "Q5_K_M" if "Q5_K_M" in quants else quants[0]
+        )
+        fit_required_gib = None
         try:
             fit = calculate_fit(entry, quant, context, parallel_slots=slots)
             fit_verdict = fit.verdict
             fit_detail = fit.detail
+            fit_required_gib = fit.required_gib
         except ValueError as exc:
             # A draft may exceed one catalog entry's trained context limit.
             # That is a per-model NO-FIT result, not a reason to discard the
@@ -299,6 +336,7 @@ def build_model_items(
                     for filename in entry.allow_globs.values()
                 )
             ),
+            memory_required_gib=fit_required_gib,
         ))
     candidates = []
     for item in items:
@@ -375,13 +413,29 @@ class ModelsPage(ttk.Frame):
         self._install_starting_name: str | None = None
         self._install_terminal_message: str | None = None
         self._install_terminal_ok = False
+        self._available_bytes: int | None = None
+        self._quant_choices: dict[str, str] = {}
         self._route_context = dict(context or {})
         runtime = application.runtime_config.current()
-        self.context_var = tk.IntVar(value=int(runtime.get("context") or 8192))
-        self.slots_var = tk.IntVar(value=int(runtime.get("slots") or 1))
+        initial_context = int(runtime.get("context") or 8192)
+        initial_slots = int(runtime.get("slots") or 1)
+        self.context_var = tk.IntVar(value=initial_context)
+        self.slots_var = tk.IntVar(value=initial_slots)
         self.search_var = tk.StringVar(value="")
-        self.filter_var = tk.StringVar(value="Recommended")
+        # All models are visible by default. Recommendation remains a useful
+        # filter, but never silently hides a requested/imported model.
+        self.filter_var = tk.StringVar(value="All")
+        initial_preset = next(
+            (
+                item.label for item in WORKLOAD_PRESETS
+                if item.context == initial_context and item.slots == initial_slots
+            ),
+            "Custom",
+        )
+        self.preset_var = tk.StringVar(value=initial_preset)
         self.quant_var = tk.StringVar(value="")
+        self.quant_help_var = tk.StringVar(value=quantization_guidance(None))
+        self.result_count_var = tk.StringVar(value="Loading models…")
         self._build()
         self.refresh()
 
@@ -395,6 +449,12 @@ class ModelsPage(ttk.Frame):
         self.search_entry.pack(side="left", padx=(4, 8))
         combo = ttk.Combobox(filters, values=MODEL_FILTERS, state="readonly", textvariable=self.filter_var, width=15)
         combo.pack(side="left")
+        ttk.Label(filters, textvariable=self.result_count_var).pack(
+            side="left", padx=(8, 0)
+        )
+        ttk.Button(
+            filters, text="Show all", command=self._show_all_models
+        ).pack(side="left", padx=(6, 0))
         ttk.Button(filters, text="Import local GGUF…", command=self._import_local).pack(side="right")
         self.search_var.trace_add("write", lambda *_: self._render_list())
         combo.bind("<<ComboboxSelected>>", lambda _event: self._render_list())
@@ -405,6 +465,10 @@ class ModelsPage(ttk.Frame):
         right = ttk.Frame(body, padding=(9, 0, 0, 0))
         body.add(left, weight=3)
         body.add(right, weight=2)
+        ttk.Label(
+            left,
+            text="Models table · use Up/Down to select and Enter for the primary action",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 3))
         self.tree = ttk.Treeview(
             left, columns=("state", "family", "size", "fit"), show="tree headings", height=15
         )
@@ -416,10 +480,18 @@ class ModelsPage(ttk.Frame):
             self.tree.heading(key, text=title)
             self.tree.column(key, width=width, stretch=False)
         self.tree.column("#0", width=260)
-        self.tree.pack(side="left", fill="both", expand=True)
+        self.tree.grid(row=1, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(left, orient="vertical", command=self.tree.yview)
-        scroll.pack(side="right", fill="y")
-        self.tree.configure(yscrollcommand=scroll.set)
+        scroll.grid(row=1, column=1, sticky="ns")
+        horizontal_scroll = ttk.Scrollbar(
+            left, orient="horizontal", command=self.tree.xview
+        )
+        horizontal_scroll.grid(row=2, column=0, sticky="ew")
+        self.tree.configure(
+            yscrollcommand=scroll.set, xscrollcommand=horizontal_scroll.set
+        )
+        left.rowconfigure(1, weight=1)
+        left.columnconfigure(0, weight=1)
         self.tree.bind("<<TreeviewSelect>>", self._select)
         self.tree.bind("<Up>", self._highlight_previous)
         self.tree.bind("<Down>", self._highlight_next)
@@ -431,17 +503,44 @@ class ModelsPage(ttk.Frame):
         self.detail_body = tk.StringVar(value="")
         ttk.Label(right, textvariable=self.detail_title, font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
         ttk.Label(right, textvariable=self.detail_state).pack(anchor="w", pady=(2, 5))
-        ttk.Label(right, textvariable=self.detail_body, wraplength=340, justify="left").pack(anchor="w", fill="x")
+        detail_frame = ttk.Frame(right)
+        detail_frame.pack(fill="both", expand=True)
+        self._detail_text = tk.Text(
+            detail_frame, height=10, wrap="word", state="disabled",
+        )
+        self._detail_text.pack(side="left", fill="both", expand=True)
+        detail_scroll = ttk.Scrollbar(
+            detail_frame, orient="vertical", command=self._detail_text.yview
+        )
+        detail_scroll.pack(side="right", fill="y")
+        self._detail_text.configure(yscrollcommand=detail_scroll.set)
         draft = ttk.LabelFrame(right, text="Activation draft", padding=6)
         draft.pack(fill="x", pady=8)
-        ttk.Label(draft, text="Quant").grid(row=0, column=0, sticky="w")
+        ttk.Label(draft, text="Workload preset").grid(row=0, column=0, sticky="w")
+        preset_box = ttk.Combobox(
+            draft, state="readonly", textvariable=self.preset_var,
+            values=(*tuple(item.label for item in WORKLOAD_PRESETS), "Custom"), width=20,
+        )
+        preset_box.grid(row=0, column=1, sticky="ew", padx=4)
+        preset_box.bind("<<ComboboxSelected>>", self._apply_preset)
+        ttk.Label(draft, text="Quality / size").grid(row=1, column=0, sticky="w")
         self.quant_box = ttk.Combobox(draft, state="readonly", textvariable=self.quant_var, width=12)
-        self.quant_box.grid(row=0, column=1, sticky="w", padx=4)
-        ttk.Label(draft, text="Context per user").grid(row=1, column=0, sticky="w")
-        ttk.Spinbox(draft, from_=512, to=262144, increment=512, textvariable=self.context_var, width=12).grid(row=1, column=1, sticky="w", padx=4)
-        ttk.Label(draft, text="Concurrent user slots").grid(row=2, column=0, sticky="w")
-        ttk.Spinbox(draft, from_=1, to=8, increment=1, textvariable=self.slots_var, width=12).grid(row=2, column=1, sticky="w", padx=4)
-        ttk.Button(draft, text="Recalculate fit", command=self.refresh).grid(row=3, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        self.quant_box.grid(row=1, column=1, sticky="w", padx=4)
+        self.quant_box.bind("<<ComboboxSelected>>", self._quant_changed)
+        ttk.Label(
+            draft, textvariable=self.quant_help_var, wraplength=320,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 4))
+        ttk.Label(draft, text="Context per user").grid(row=3, column=0, sticky="w")
+        ttk.Spinbox(draft, from_=512, to=262144, increment=512, textvariable=self.context_var, width=12).grid(row=3, column=1, sticky="w", padx=4)
+        ttk.Label(draft, text="Concurrent users").grid(row=4, column=0, sticky="w")
+        ttk.Spinbox(draft, from_=1, to=8, increment=1, textvariable=self.slots_var, width=12).grid(row=4, column=1, sticky="w", padx=4)
+        ttk.Label(
+            draft,
+            text="More context or users reserve more GPU memory. Recalculate before applying.",
+            wraplength=320,
+        ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(3, 0))
+        ttk.Button(draft, text="Recalculate fit", command=self.refresh).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        draft.columnconfigure(1, weight=1)
         self.action_bar = ttk.Frame(right)
         self.action_bar.pack(fill="x", pady=(4, 0))
         self._primary_action_code: str | None = None
@@ -453,7 +552,7 @@ class ModelsPage(ttk.Frame):
             self.action_bar, command=self._run_secondary_action,
         )
         self._apply_draft_button = ttk.Button(
-            self.action_bar, text="Apply context / slots",
+            self.action_bar, text="Apply workload",
             command=lambda: self._run_action("activate"),
         )
         self._remove_button = ttk.Button(
@@ -481,6 +580,47 @@ class ModelsPage(ttk.Frame):
             text="View installation details",
             command=lambda: self.shell.navigate(Route.ACTIVITY),
         ).pack(anchor="e")
+        ttk.Label(
+            progress_frame,
+            text="Activity can safely stop, resume, or recover supported installation work.",
+            wraplength=340,
+        ).pack(anchor="w", fill="x")
+
+    def _show_all_models(self) -> None:
+        self.filter_var.set("All")
+        self.search_var.set("")
+        self._render_list()
+
+    def _apply_preset(self, _event=None) -> None:
+        try:
+            preset = workload_preset(self.preset_var.get())
+        except ValueError:
+            return
+        self.context_var.set(preset.context)
+        self.slots_var.set(preset.slots)
+        self.shell.notice_bar.show_notice(Notice(
+            "info", f"{preset.label} workload selected", preset.summary,
+        ))
+        self.refresh()
+
+    def _sync_preset_label(self, context: int, slots: int) -> None:
+        label = next(
+            (
+                item.label for item in WORKLOAD_PRESETS
+                if item.context == context and item.slots == slots
+            ),
+            "Custom",
+        )
+        self.preset_var.set(label)
+
+    def _quant_changed(self, _event=None) -> None:
+        item = self._selected()
+        if item is not None and item.remote and item.catalog_id:
+            selected = self.quant_var.get()
+            if selected in item.available_quants:
+                self._quant_choices[item.catalog_id] = selected
+        self.quant_help_var.set(quantization_guidance(self.quant_var.get()))
+        self.refresh()
 
     def mount(self, parent=None):
         del parent
@@ -501,6 +641,7 @@ class ModelsPage(ttk.Frame):
             slots = int(self.slots_var.get())
         except (ValueError, tk.TclError):
             return
+        self._sync_preset_label(context, slots)
         def observe():
             install_summary, install_detail = self._observe_install_operation()
             home = self.application.home.snapshot().to_dict()
@@ -528,9 +669,18 @@ class ModelsPage(ttk.Frame):
         if self._disposed:
             return
         installed, active, home, readiness, install_summary, install_detail = result
+        storage = ((home.get("cards") or {}).get("storage") or {})
+        available = storage.get("available_bytes")
+        next_available = (
+            int(available) if isinstance(available, (int, float)) else None
+        )
+        if next_available != self._available_bytes:
+            self._detail_was_rendered = False
+        self._available_bytes = next_available
         self._render_observed_install_progress(install_summary, install_detail)
         self._all_items = build_model_items(
             installed, context=context, slots=slots,
+            selected_quants=self._quant_choices,
             operations_active=bool(active.active_count),
             recovery_required=bool(active.recovery_required_count),
             inference_verified=(
@@ -696,6 +846,9 @@ class ModelsPage(ttk.Frame):
         visible = filter_model_items(
             self._all_items, query=self.search_var.get(), category=self.filter_var.get()
         )
+        self.result_count_var.set(
+            f"{len(visible)} shown · {len(self._all_items)} total"
+        )
         self._visible = {item.key: item for item in visible}
         if visible == self._rendered_visible:
             return
@@ -791,13 +944,13 @@ class ModelsPage(ttk.Frame):
         if item is None:
             self.detail_title.set("No models match this view")
             self.detail_state.set("")
-            self.detail_body.set("Change the search or filter.")
+            self._set_detail_body("Change the search or filter.")
             return
         self.detail_title.set(item.display_name)
         recommendation = (
             f"{item.recommendation_label} · " if item.recommendation_label else "")
         self.detail_state.set(
-            f"{recommendation}{item.state} · {item.support_tier} support · "
+            f"{recommendation}{friendly_state(item.state)} · {item.support_tier} support · "
             f"{fit_label(item.fit_verdict)}"
         )
         provenance = item.source_repo or "local managed source"
@@ -807,17 +960,62 @@ class ModelsPage(ttk.Frame):
             "artifact identity resolves during installation"
         )
         recommendation_reasons = " · ".join(item.recommendation_reasons)
-        self.detail_body.set(
+        model_size = (
+            f"about {format_number(item.size_gib, decimals=1)} GiB"
+            if item.size_gib is not None else "size not available"
+        )
+        storage = (
+            f"{format_bytes(self._available_bytes)} free now"
+            if self._available_bytes is not None else
+            "free-space reading unavailable"
+        )
+        if (
+            item.remote and self._available_bytes is not None
+            and item.size_gib is not None
+        ):
+            required = int(item.size_gib * 1024**3) * 3 + (64 << 20)
+            storage += f"; preflight requires about {format_bytes(required)} free (download, validation and publication)"
+            remaining = self._available_bytes - int(item.size_gib * 1024**3)
+            storage += (
+                f"; about {format_bytes(remaining)} remains after the model file, "
+                "before temporary validation space"
+                if remaining >= 0 else
+                f"; the model file alone needs about {format_bytes(-remaining)} more"
+            )
+        if item.memory_required_gib is None:
+            memory_headroom = (
+                "A numeric fast-memory headroom estimate is not available for this artifact."
+            )
+        elif item.memory_required_gib <= FAST_VRAM_GIB:
+            memory_headroom = (
+                f"Approx. {FAST_VRAM_GIB - item.memory_required_gib:.2f} GiB "
+                "fast-memory headroom at this workload."
+            )
+        else:
+            memory_headroom = (
+                f"This workload exceeds fast memory by about "
+                f"{item.memory_required_gib - FAST_VRAM_GIB:.2f} GiB; choose a smaller "
+                "quality option, context, or user count."
+            )
+        install_time = model_install_time_guidance(
+            item.size_gib, installed=not item.remote
+        )
+        self._set_detail_body(
             f"{item.description}\n\n"
-            f"Details: {item.quant or 'quantization not selected'} · {item.profile_summary}\n"
-            f"Fit: {fit_label(item.fit_verdict)} · {item.fit_detail}\n"
-            f"Local evidence: {item.measurement_summary}\n"
-            f"Provenance: {provenance} · {identity}\n"
-            f"Recommendation evidence: {recommendation_reasons}\n"
+            f"WORKLOAD\n{item.profile_summary}\n"
+            f"Quality / size: {item.quant or 'not selected'} — {quantization_guidance(item.quant)}\n\n"
+            f"MEMORY FIT\n{fit_label(item.fit_verdict)} · {item.fit_detail}\n{memory_headroom}\n"
+            "Host RAM is separate from GPU fit. Optional Open WebUI allows up to 2 GiB RAM; the gateway and desktop also need host memory. Stop optional services if host memory is low. These limits are not measured usage.\n\n"
+            f"DOWNLOAD & STORAGE\n{model_size} · {storage}. {install_time} "
+            "Downloads resume from durable checkpoints; Activity provides safe stop, resume, and recovery.\n\n"
+            f"LOCAL PERFORMANCE\n{item.measurement_summary}\n\n"
+            f"TRUST\n{provenance} · {identity}\n"
+            f"Why recommended: {recommendation_reasons or 'No recommendation claim'}\n"
             f"Removal: {'eligible for quarantine' if item.deletion_eligible else ', '.join(item.deletion_blockers) or 'not applicable'}"
         )
         self.quant_box.configure(values=item.available_quants)
         self.quant_var.set(item.quant or (item.available_quants[0] if item.available_quants else ""))
+        self.quant_help_var.set(quantization_guidance(self.quant_var.get()))
         action = model_action(item)
         self._primary_action_code = action.code
         self._primary_action_button.configure(text=action.label)
@@ -830,6 +1028,13 @@ class ModelsPage(ttk.Frame):
             self._apply_draft_button.pack(side="left", padx=5)
         if not item.remote:
             self._remove_button.pack(side="right")
+
+    def _set_detail_body(self, value: str) -> None:
+        self.detail_body.set(value)
+        self._detail_text.configure(state="normal")
+        self._detail_text.delete("1.0", "end")
+        self._detail_text.insert("1.0", value)
+        self._detail_text.configure(state="disabled")
 
     def _run_primary_action(self) -> None:
         item = self._selected()

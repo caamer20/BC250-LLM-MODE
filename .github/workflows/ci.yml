@@ -34,8 +34,15 @@ jobs:
 
       - name: Install package with test dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -e '.[test]'
+          python -m pip install --require-hashes --only-binary=:all: -r "release/constraints/python-${{ matrix.python-version }}.txt"
+          python -m pip install --no-deps --no-build-isolation -e '.[test]'
+
+      - name: Real Tk route, focus and scale gate
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libtk8.6
+          mkdir -p test-results
+          xvfb-run -a python -m tools.real_tk_smoke > test-results/real-tk.json
 
       - name: Compile check
         run: python -m compileall -q bc250_llm_mode tests
@@ -50,45 +57,23 @@ jobs:
           print("version:", __version__)
           PY
 
-      - name: Unit and component tests
-        # The supported CI/sandbox environments enforce a short per-process
-        # CPU ceiling. Keep one authoritative collection, then execute the
-        # exact default suite in deterministic alphabetical chunks so a killed
-        # monolithic pytest process cannot masquerade as a test failure.
-        run: |
-          PYTHONPATH=. pytest tests --collect-only -q
-          PYTHONPATH=. pytest -q \
-            tests/test_acquisition*.py tests/test_activation*.py \
-            tests/test_architecture.py tests/test_artifact_storage.py \
-            tests/test_bootstrap.py tests/test_catalog.py
-          PYTHONPATH=. pytest -q \
-            tests/test_chat_features.py tests/test_composition.py \
-            tests/test_db_contract.py tests/test_desktop.py \
-            tests/test_disclaimer.py tests/test_download.py tests/test_fsops.py \
-            tests/test_gui*.py tests/test_hardware.py tests/test_hub_source.py
-          PYTHONPATH=. pytest -q \
-            tests/test_import_cli.py tests/test_legacy_schema.py \
-            tests/test_llmmode.py tests/test_local_models.py \
-            tests/test_management.py tests/test_memory_profile.py \
-            tests/test_migration*.py tests/test_model_artifact.py
-          PYTHONPATH=. pytest -q tests/test_operation*.py tests/test_optimize.py
-          PYTHONPATH=. pytest -q \
-            tests/test_packaging.py tests/test_phase*.py tests/test_prepare.py \
-            tests/test_production*.py tests/test_repair_mode.py
-          PYTHONPATH=. pytest -q \
-            tests/test_round*.py tests/test_runtime_adapter.py \
-            tests/test_runtime_architecture.py \
-            tests/test_runtime_command_followthrough.py
-          PYTHONPATH=. pytest -q \
-            tests/test_runtime_crash_matrix.py \
-            tests/test_runtime_exchange_death.py \
-            tests/test_runtime_handoff.py tests/test_runtime_migration.py \
-            tests/test_runtime_process.py tests/test_runtime_repositories.py \
-            tests/test_runtime_service.py tests/test_runtime_workflow.py
-          PYTHONPATH=. pytest -q \
-            tests/test_server.py tests/test_session*.py tests/test_setup_service.py \
-            tests/test_sharing.py tests/test_sqlite*.py tests/test_state*.py \
-            tests/test_thermal_service.py tests/test_worker_lifecycle.py
+      - name: Complete default inventory
+        env:
+          BC250_TEST_INVENTORY: test-results/default-inventory.json
+        run: python -m pytest -p tools.ci_inventory --junitxml=test-results/default.xml
+
+      - name: Slow, security and clean-wheel gates
+        env:
+          BC250_TEST_INVENTORY: test-results/slow-inventory.json
+        run: python -m pytest -p tools.ci_inventory -m slow --junitxml=test-results/slow.xml
+
+      - name: Preserve executed inventory and skip reasons
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: tests-${{ matrix.python-version }}
+          path: test-results/
+          if-no-files-found: error
 
       - name: CLI smoke from installed package
         run: |
@@ -110,12 +95,13 @@ jobs:
           python-version: "3.11"
       - name: Build sdist and wheel
         run: |
-          python -m pip install --upgrade pip build
-          python -m build
+          python -m pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          python -m build --no-isolation
       - name: Install wheel into clean environment and smoke test
         run: |
           python -m venv /tmp/wheel-venv
-          /tmp/wheel-venv/bin/pip install dist/*.whl
+          /tmp/wheel-venv/bin/pip install --require-hashes --only-binary=:all: -r release/constraints/python-3.11.txt
+          /tmp/wheel-venv/bin/pip install --no-deps dist/*.whl
           /tmp/wheel-venv/bin/bc250-llm-mode --version
           /tmp/wheel-venv/bin/python -c "import bc250_llm_mode; print('wheel import ok')"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

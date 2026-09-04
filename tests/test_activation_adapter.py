@@ -334,6 +334,26 @@ def test_full_happy_path_through_production_adapter(world):
         )
 
 
+def test_public_display_alias_proves_local_candidate_identity(world):
+    from bc250_llm_mode.operations.activation import ModelActivateRequestV1
+
+    request = ModelActivateRequestV1(model_alias=world.model_b.id)
+    candidate = world.adapter.resolve_candidate(request)
+    prior = world.adapter.capture_prior(request)
+    world.server.active = True
+    world.server.health_override = {
+        "healthy": True,
+        "model_id": candidate.display_alias,
+        "context_per_slot": candidate.context_per_slot,
+        "parallel_slots": candidate.parallel_slots,
+    }
+
+    observed = world.adapter.observe_restart(candidate, prior)
+
+    assert observed.reason_code == "CANDIDATE_RUNTIME_VERIFIED"
+    assert world.adapter.check_health(candidate).healthy is True
+
+
 def test_wrong_health_identity_rolls_back_to_prior(world):
     record = _enqueue(
         world,

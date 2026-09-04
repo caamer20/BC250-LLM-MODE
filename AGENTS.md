@@ -1,5 +1,19 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 4 corrective review checkpoint
+
+The historical checkpoints below are superseded for current package identity.
+See `docs/current-state.md`, `FULL_APP_REVIEW_IMPLEMENTATION_PLAN.md` and
+`docs/review-implementation-status.md`. RV-0 through RV-9 corrective code and UX
+work are implemented, with local combined qualification of 1,741 passed and two
+expected Linux-only skips, 28 actual Tk route/scale checks, and a clean wheel
+installation. The owner has authorized publishing the reconciled source to
+GitHub and updating the existing BC250 installation to `0.9.0.dev1`.
+Record the exact pushed commit, hosted CI and installed artifact checks after
+they complete. C4 physical four-cell/soak, C5 independent security, C6 human
+acceptance and C8 final release gates remain pending; no 1.0 tag or package
+publication is authorized by this development deployment.
+
 ## Unified native GUI and appliance-experience planning checkpoint
 
 **GUI-1 THROUGH GUI-8 AND EXP-1 THROUGH EXP-8 ARE DEVELOPER-IMPLEMENTED AND

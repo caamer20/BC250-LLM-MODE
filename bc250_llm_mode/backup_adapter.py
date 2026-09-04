@@ -21,13 +21,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
+from contextlib import closing
 import tarfile
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from . import __version__ as APPLICATION_RELEASE
+from .backup_archive import inspect_archive
 from .backup_lifecycle import BackupSetRepository, RestoreAttemptRepository
 from .backup_manifest import (
     BackupManifest,
@@ -79,18 +82,24 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         *,
         clock=utcnow,
         exchange=run_local_profile_exchange,
+        quiesce=None,
     ) -> None:
         self._units = units
         self._paths = paths
         self._clock = clock
         self._exchange = exchange
+        self._quiesce = quiesce
 
     # -- shared helpers -----------------------------------------------------
 
     def _backup_staging_dir(self, operation_id: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", operation_id):
+            raise OperationValidationError("invalid backup operation identity")
         return self._paths.staging_dir / f"backup-{operation_id}"
 
     def _restore_staging_profile(self, operation_id: str) -> Path:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", operation_id):
+            raise OperationValidationError("invalid restore operation identity")
         return self._paths.app_dir.parent / (
             f"{self._paths.app_dir.name}-restore-{operation_id}")
 
@@ -100,7 +109,14 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         if not parts or label.startswith("/") or ".." in parts:
             raise OperationValidationError(
                 "destination_label must be a contained relative path")
-        return self._paths.backups_dir.joinpath(*parts)
+        path = self._paths.backups_dir
+        if path.is_symlink():
+            raise OperationValidationError("BACKUP_INVALID: symlinked archive directory")
+        for part in parts:
+            path = path / part
+            if path.is_symlink():
+                raise OperationValidationError("BACKUP_INVALID: symlinked archive path")
+        return path
 
     # ======================================================================
     # BACKUP_CREATE v1
@@ -128,7 +144,12 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
 
         snapshot = self._backup_staging_dir(ctx.operation_id) / _SNAPSHOT_NAME
         if snapshot.is_file():
-            return ProbeResult(RecoveryClass.COMPLETE, "SNAPSHOT_PRESENT")
+            try:
+                with closing(sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True)) as conn:
+                    if conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok":
+                        return ProbeResult(RecoveryClass.COMPLETE, "SNAPSHOT_PRESENT")
+            except sqlite3.Error:
+                pass
         return ProbeResult(RecoveryClass.ABSENT, "SNAPSHOT_MISSING")
 
     def inventory_and_stage(self, ctx) -> dict[str, Any]:
@@ -148,7 +169,7 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             application_release=APPLICATION_RELEASE,
             database_schema_version=SCHEMA_VERSION,
             created_at=self._clock(),
-            model_bytes_included=bool(ctx.request.include_models),
+            model_bytes_included=False,
             files=files,
         )
         doc = build_backup_manifest(manifest)  # refuses secrets/traversal
@@ -176,7 +197,7 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             raise OperationValidationError(
                 f"BACKUP_COLLISION: {ctx.request.destination_label!r} exists")
         tmp = archive.with_suffix(archive.suffix + ".partial")
-        with tarfile.open(tmp, "w") as tar:
+        with tarfile.open(tmp, "w", format=tarfile.USTAR_FORMAT) as tar:
             tar.add(str(staging / MANIFEST_NAME), arcname=MANIFEST_NAME)
             tar.add(str(staging / _SNAPSHOT_NAME), arcname=_SNAPSHOT_NAME)
         # fsync then no-replace publish.
@@ -206,13 +227,8 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
 
     def verify_archive(self, ctx) -> dict[str, Any]:
         archive = self._archive_path(ctx.request.destination_label)
-        with tarfile.open(archive, "r") as tar:
-            member = tar.extractfile(MANIFEST_NAME)
-            if member is None:
-                raise OperationValidationError("manifest missing in archive")
-            doc = json.loads(member.read().decode("utf-8"))
-        if not verify_manifest_digest(doc):
-            raise OperationValidationError("VERIFY_FAILED: manifest digest")
+        inspected = inspect_archive(archive)
+        doc = inspected.manifest
         return {"verified": True,
                 "manifest_digest": _bare_digest(doc["manifest_digest"])}
 
@@ -229,9 +245,7 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
 
     def record_backup(self, ctx) -> dict[str, Any]:
         archive = self._archive_path(ctx.request.destination_label)
-        with tarfile.open(archive, "r") as tar:
-            doc = json.loads(
-                tar.extractfile(MANIFEST_NAME).read().decode("utf-8"))
+        doc = inspect_archive(archive).manifest
         digest = _bare_digest(doc["manifest_digest"])
         with self._units.begin() as conn:
             repo = BackupSetRepository(conn)
@@ -273,7 +287,7 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
     # BACKUP_RESTORE v1
     # ======================================================================
 
-    def _load_backup(self, backup_id: str) -> tuple[Path, dict[str, Any]]:
+    def _load_backup(self, backup_id: str, *, heartbeat=lambda: None) -> tuple[Path, dict[str, Any]]:
         with self._units.read() as conn:
             row = conn.execute(
                 "SELECT storage_path_label, manifest_digest FROM backup_sets "
@@ -284,13 +298,23 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         archive = self._archive_path(row["storage_path_label"])
         if not archive.is_file():
             raise OperationValidationError("SOURCE_INVALID: archive missing")
-        with tarfile.open(archive, "r") as tar:
-            doc = json.loads(
-                tar.extractfile(MANIFEST_NAME).read().decode("utf-8"))
+        doc = inspect_archive(archive, heartbeat=heartbeat).manifest
         return archive, doc
 
     def validate_source(self, ctx) -> dict[str, Any]:
-        archive, doc = self._load_backup(ctx.request.backup_id)
+        archive, doc = self._load_backup(ctx.request.backup_id, heartbeat=getattr(ctx, "pulse", lambda: None))
+        from .backup_restore import validate_restore
+        from .restore_profile import inventory_local
+        import shutil
+        _, local_bytes = inventory_local(self._paths.app_dir)
+        result = validate_restore(
+            manifest_doc=doc, archive_complete=True, key_matches=True,
+            contained_paths=True, current_schema_version=SCHEMA_VERSION,
+            available_space_bytes=shutil.disk_usage(self._paths.app_dir).free,
+            required_space_bytes=local_bytes + sum(f["size_bytes"] for f in doc["files"]) + 64 * 1024**2,
+            writable_target=os.access(self._paths.app_dir.parent, os.W_OK))
+        if not result.ok:
+            raise OperationValidationError(result.refusal_code or "SOURCE_INVALID")
         if not verify_manifest_digest(doc):
             raise OperationValidationError("SOURCE_INVALID: manifest digest")
         if _bare_digest(doc["manifest_digest"]) != ctx.request.confirmation_digest:
@@ -298,7 +322,8 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                 "SOURCE_INVALID: confirmation_digest does not bind this "
                 "backup (dry-run digest mismatch)")
         return {"manifest_digest": _bare_digest(doc["manifest_digest"]),
-                "archive_path": str(archive)}
+                "archive_path": str(archive),
+                "required_space_bytes": local_bytes + sum(f["size_bytes"] for f in doc["files"]) + 64 * 1024**2}
 
     def probe_source_valid(self, ctx) -> "ProbeResult":
 
@@ -309,7 +334,16 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             return ProbeResult(RecoveryClass.ABSENT, "SOURCE_INVALID")
 
     def stage_candidate(self, ctx) -> dict[str, Any]:
-        archive, doc = self._load_backup(ctx.request.backup_id)
+        with self._units.read() as conn:
+            competing = conn.execute(
+                "SELECT id FROM operations WHERE id != ? AND state IN "
+                "('RUNNING','PREPARING','QUEUED','CANCELLING','ROLLING_BACK','RECOVERY_REQUIRED') LIMIT 1",
+                (ctx.operation_id,)).fetchone()
+        if competing is not None:
+            raise OperationValidationError("PROFILE_BUSY: finish or repair other operations before restore")
+        if self._quiesce is not None and self._quiesce().get("active") is not False:
+            raise OperationValidationError("RESTORE_QUIESCE: model service did not stop")
+        archive, doc = self._load_backup(ctx.request.backup_id, heartbeat=getattr(ctx, "pulse", lambda: None))
         candidate = self._restore_staging_profile(ctx.operation_id)
         if candidate.exists():
             # Idempotent resume: a partially staged candidate is re-staged.
@@ -317,14 +351,9 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             shutil.rmtree(candidate)
         candidate.mkdir(parents=True)
         os.chmod(candidate, 0o700)
-        with tarfile.open(archive, "r") as tar:
-            # Contained extraction only (no absolute/traversal members).
-            for member in tar.getmembers():
-                name = Path(member.name)
-                if member.name.startswith("/") or ".." in name.parts:
-                    raise OperationValidationError(
-                        "STAGING_INCOMPLETE: traversal member")
-            tar.extractall(candidate)
+        inspected = inspect_archive(archive, destination=candidate, heartbeat=ctx.pulse)
+        if _bare_digest(inspected.manifest["manifest_digest"]) != ctx.request.confirmation_digest:
+            raise OperationValidationError("SOURCE_INVALID: confirmation digest changed")
         # Migrate the staged database only (schema forward).
         staged_db = candidate / _SNAPSHOT_NAME
         from .db import initialize, open_database
@@ -333,14 +362,30 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             initialize(conn)
         finally:
             conn.close()
+        from .restore_profile import preserve_local, preserve_current_database
+        preserve_local(self._paths.app_dir, candidate,
+                       heartbeat=ctx.pulse)
+        preserve_current_database(self._paths.database_path, staged_db)
+        from .fsops import atomic_write_text
+        from .restore_profile import directory_identity
+        atomic_write_text(candidate / ".restore-staged.json", json.dumps({
+            "operation_id": ctx.operation_id,
+            "manifest_digest": ctx.request.confirmation_digest,
+            "directory_identity": directory_identity(candidate),
+            "database_digest": _sha256_file(staged_db),
+        }), mode=0o600)
         return {"candidate_profile": str(candidate),
                 "candidate_identity": _sha256_file(staged_db)}
 
     def probe_staged_candidate(self, ctx) -> "ProbeResult":
 
         candidate = self._restore_staging_profile(ctx.operation_id)
-        if (candidate / _SNAPSHOT_NAME).is_file():
-            return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
+        if (candidate / ".restore-staged.json").is_file():
+            try:
+                self.validate_staged(ctx)
+                return ProbeResult(RecoveryClass.COMPLETE, "STAGED")
+            except (OperationValidationError, OSError, ValueError):
+                pass
         return ProbeResult(RecoveryClass.ABSENT, "STAGING_INCOMPLETE")
 
     def validate_staged(self, ctx) -> dict[str, Any]:
@@ -348,6 +393,20 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
         staged_db = candidate / _SNAPSHOT_NAME
         if not staged_db.is_file():
             raise OperationValidationError("STAGED_INVALID: db missing")
+        from .restore_profile import directory_identity
+        try:
+            with (candidate / ".restore-staged.json").open("rb") as source:
+                raw = source.read(4097)
+            if len(raw) > 4096:
+                raise ValueError("size")
+            staged = json.loads(raw)
+            if (staged.get("operation_id") != ctx.operation_id
+                    or staged.get("manifest_digest") != ctx.request.confirmation_digest
+                    or staged.get("directory_identity") != directory_identity(candidate)
+                    or staged.get("database_digest") != _sha256_file(staged_db)):
+                raise ValueError("identity mismatch")
+        except (OSError, ValueError) as exc:
+            raise OperationValidationError("STAGED_INVALID: incomplete or changed staged profile") from exc
         conn = sqlite3.connect(str(staged_db))
         try:
             ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
@@ -403,67 +462,125 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
             dst.close()
 
     def publish_exchange(self, ctx) -> dict[str, Any]:
+        from .restore_profile import (directory_identity, preserve_current_database,
+                                      read_receipt, write_receipt)
         candidate = self._restore_staging_profile(ctx.operation_id)
         active = self._paths.app_dir
-        approved_root = str(active.parent)
-        # Record the restore attempt + identities before the exchange.
-        with self._units.begin() as conn:
-            repo = RestoreAttemptRepository(conn)
-            row = repo.insert(
-                restore_id=f"rs-{ctx.operation_id}",
-                source_manifest_digest=ctx.request.confirmation_digest,
-                created_by_operation_id=ctx.operation_id)
-            repo.set_identities(
-                row.restore_id, expected_revision=row.revision,
-                staging_identity=str(candidate),
-                prior_profile_identity=str(active),
-                candidate_profile_identity=str(candidate))
+        receipt = read_receipt(active, ctx.operation_id)
+        if receipt is not None:
+            probe = self.probe_restore_published(ctx)
+            if probe.classification is RecoveryClass.COMPLETE:
+                return {"exchanged": True, "active_profile": str(active)}
+            if probe.classification is not RecoveryClass.ABSENT:
+                raise OperationValidationError("RESTORE_IDENTITY: publication requires Repair")
+        # Carry the whole current authority graph BEFORE exchange. A process
+        # death immediately after rename therefore cannot lose its operation.
+        if receipt is None:
+            self.validate_staged(ctx)
+        elif _sha256_file(candidate / _SNAPSHOT_NAME) != receipt["candidate_database_digest"]:
+            raise OperationValidationError("RESTORE_IDENTITY: prepared database changed")
+        preserve_current_database(self._paths.database_path, candidate / _SNAPSHOT_NAME)
+        receipt = {"operation_id": ctx.operation_id, "phase": "intent",
+                   "manifest_digest": ctx.request.confirmation_digest,
+                   "prior": directory_identity(active),
+                   "candidate": directory_identity(candidate),
+                   "candidate_database_digest": _sha256_file(candidate / _SNAPSHOT_NAME)}
+        write_receipt(active, receipt)
         try:
-            self._exchange(str(active), str(candidate),
-                           approved_root=approved_root)
+            self._exchange(str(active), str(candidate), approved_root=str(active.parent))
         except (Refusal, SystemExit) as exc:
-            raise OperationValidationError(
-                f"PUBLISH_INCOMPLETE: profile exchange refused ({exc})")
-        # After the swap the prior profile (with the operation record) is under
-        # `candidate`; carry that record into the restored database so the
-        # engine can checkpoint the remaining steps.
-        self._carry_operation_record(
-            ctx.operation_id,
-            prior_db=candidate / _SNAPSHOT_NAME,
-            restored_db=self._paths.database_path)
+            raise OperationValidationError("PUBLISH_INCOMPLETE: profile exchange refused") from exc
+        if directory_identity(active) != receipt["candidate"] or directory_identity(candidate) != receipt["prior"]:
+            raise OperationValidationError("RESTORE_IDENTITY: exchange outcome is uncertain")
+        receipt["phase"] = "published"
+        write_receipt(active, receipt)
         return {"exchanged": True, "active_profile": str(active)}
 
     def probe_restore_published(self, ctx) -> "ProbeResult":
-
-        # After exchange, the active app_dir holds the restored content; the
-        # candidate dir holds the prior profile (retained for rollback).
+        from .restore_profile import directory_identity, read_receipt
         candidate = self._restore_staging_profile(ctx.operation_id)
-        if (self._paths.app_dir / _SNAPSHOT_NAME).is_file() and candidate.exists():
-            return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
-        return ProbeResult(RecoveryClass.ABSENT, "PUBLISH_INCOMPLETE")
+        receipt = read_receipt(self._paths.app_dir, ctx.operation_id)
+        if receipt is None:
+            return ProbeResult(RecoveryClass.ABSENT, "PUBLISH_INCOMPLETE")
+        try:
+            active_id = directory_identity(self._paths.app_dir)
+            candidate_id = directory_identity(candidate)
+            if receipt["phase"] in {"rollback_intent", "rolled_back"} and active_id == receipt["prior"] and candidate_id == receipt["candidate"]:
+                return ProbeResult(RecoveryClass.COMPLETE, "ROLLBACK_PUBLISHED")
+            if active_id == receipt["candidate"] and candidate_id == receipt["prior"]:
+                return ProbeResult(RecoveryClass.COMPLETE, "PUBLISHED")
+            if active_id == receipt["prior"] and candidate_id == receipt["candidate"] and receipt["phase"] == "intent":
+                return ProbeResult(RecoveryClass.ABSENT, "PUBLISH_INCOMPLETE")
+        except (OSError, KeyError):
+            pass
+        return ProbeResult(RecoveryClass.UNCERTAIN_MANUAL, "RESTORE_IDENTITY_UNCERTAIN")
 
     def verify_post_restore(self, ctx) -> dict[str, Any]:
+        from .restore_profile import directory_identity, read_receipt, write_receipt
+        receipt = read_receipt(self._paths.app_dir, ctx.operation_id)
+        if receipt is None:
+            raise OperationValidationError("POST_VERIFY_FAILED: missing exchange receipt")
         db = self._paths.database_path
-        if not db.is_file():
-            raise OperationValidationError("POST_VERIFY_FAILED: db missing")
-        conn = sqlite3.connect(str(db))
+        if receipt["phase"] in {"rollback_intent", "rolled_back"} and directory_identity(self._paths.app_dir) == receipt["prior"]:
+            with closing(sqlite3.connect(f"file:{db}?mode=ro", uri=True)) as conn:
+                if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok" or conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                    raise OperationValidationError("ROLLBACK_UNCERTAIN: prior database invalid")
+            receipt["phase"] = "rolled_back"
+            write_receipt(self._paths.app_dir, receipt)
+            return {"post_integrity": "rolled_back"}
         try:
-            ok = conn.execute("PRAGMA integrity_check").fetchone()[0]
-            if ok != "ok":
-                raise OperationValidationError("POST_VERIFY_FAILED: integrity")
-        finally:
-            conn.close()
+            if receipt["phase"] == "rollback_intent":
+                raise OperationValidationError("POST_VERIFY_FAILED: resume rollback")
+            if directory_identity(self._paths.app_dir) != receipt["candidate"]:
+                raise OperationValidationError("POST_VERIFY_FAILED: wrong active profile")
+            with closing(sqlite3.connect(f"file:{db}?mode=ro", uri=True)) as conn:
+                if conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] != SCHEMA_VERSION:
+                    raise OperationValidationError("POST_VERIFY_FAILED: schema")
+                if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise OperationValidationError("POST_VERIFY_FAILED: integrity")
+                if conn.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                    raise OperationValidationError("POST_VERIFY_FAILED: references")
+        except (OSError, sqlite3.Error, OperationValidationError):
+            candidate = self._restore_staging_profile(ctx.operation_id)
+            if directory_identity(candidate) != receipt["prior"]:
+                raise OperationValidationError("ROLLBACK_UNCERTAIN: prior identity changed")
+            try:
+                self._carry_operation_record(ctx.operation_id, db, candidate / _SNAPSHOT_NAME)
+            except sqlite3.Error:
+                pass  # Recovery resumes from the prior copy if corruption prevents carry.
+            receipt["phase"] = "rollback_intent"
+            write_receipt(self._paths.app_dir, receipt)
+            self._exchange(str(self._paths.app_dir), str(candidate),
+                           approved_root=str(self._paths.app_dir.parent))
+            if directory_identity(self._paths.app_dir) != receipt["prior"]:
+                raise OperationValidationError("ROLLBACK_UNCERTAIN: exchange unconfirmed")
+            with closing(sqlite3.connect(f"file:{db}?mode=ro", uri=True)) as conn:
+                if conn.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                    raise OperationValidationError("ROLLBACK_UNCERTAIN: prior database invalid")
+            receipt["phase"] = "rolled_back"
+            write_receipt(self._paths.app_dir, receipt)
+            return {"post_integrity": "rolled_back"}
+        receipt["phase"] = "verified"
+        write_receipt(self._paths.app_dir, receipt)
         return {"post_integrity": "ok"}
 
     def probe_post_verified(self, ctx) -> "ProbeResult":
-
-        try:
-            self.verify_post_restore(ctx)
-            return ProbeResult(RecoveryClass.COMPLETE, "POST_VERIFIED")
-        except OperationValidationError:
-            return ProbeResult(RecoveryClass.ABSENT, "POST_VERIFY_FAILED")
+        from .restore_profile import read_receipt
+        receipt = read_receipt(self._paths.app_dir, ctx.operation_id)
+        if receipt and receipt["phase"] in {"verified", "promoted", "rolled_back"}:
+            try:
+                with closing(sqlite3.connect(f"file:{self._paths.database_path}?mode=ro", uri=True)) as conn:
+                    if conn.execute("PRAGMA integrity_check").fetchone()[0] == "ok" and conn.execute("PRAGMA foreign_key_check").fetchone() is None:
+                        return ProbeResult(RecoveryClass.COMPLETE, "POST_VERIFIED")
+            except sqlite3.Error:
+                pass
+        return ProbeResult(RecoveryClass.ABSENT, "POST_VERIFY_FAILED")
 
     def promote_or_rollback(self, ctx) -> dict[str, Any]:
+        from .restore_profile import read_receipt, write_receipt
+        receipt = read_receipt(self._paths.app_dir, ctx.operation_id)
+        if receipt and receipt["phase"] == "rolled_back":
+            return {"disposition": CODE_RESTORE_ROLLED_BACK}
         # Post-verification passed (engine only reaches here when verified).
         # The profile database was swapped during the exchange, so the terminal
         # outcome is recorded in the NEW (restored) database — making the
@@ -492,12 +609,20 @@ class BackupHostAdapter(BackupCreateHost, BackupRestoreHost):
                     expected_revision=existing["revision"],
                     publish_state="published", post_verify_state="passed",
                     rollback_state="not_needed")
+        if receipt is None or receipt["phase"] != "verified":
+            raise OperationValidationError("RESTORE_IDENTITY: verification receipt missing")
+        receipt["phase"] = "promoted"
+        write_receipt(self._paths.app_dir, receipt)
         return {"disposition": CODE_RESTORE_PUBLISHED,
                 "retained_prior_profile": str(
                     self._restore_staging_profile(ctx.operation_id))}
 
     def probe_terminal(self, ctx) -> "ProbeResult":
 
+        from .restore_profile import read_receipt
+        receipt = read_receipt(self._paths.app_dir, ctx.operation_id)
+        if receipt and receipt["phase"] in {"promoted", "rolled_back"}:
+            return ProbeResult(RecoveryClass.COMPLETE, "TERMINAL_RECORDED")
         with self._units.read() as conn:
             row = conn.execute(
                 "SELECT publish_state FROM restore_attempts WHERE "

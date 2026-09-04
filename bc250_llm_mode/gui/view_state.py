@@ -25,6 +25,8 @@ class Notice:
             raise ValueError("notice title and message are required")
         if len(self.title) > 160 or len(self.message) > 2048:
             raise ValueError("notice text exceeds its presentation bound")
+        if bool(self.action_label) != bool(self.action_route):
+            raise ValueError("notice action label and route must be supplied together")
         if self.details is not None and len(self.details) > 8192:
             raise ValueError("notice details exceed 8 KiB")
 

@@ -62,7 +62,7 @@ class PrivacyCenterQueryService:
                 "conversations", "Saved conversations",
                 "Conversation titles, roles, prompts, and responses saved explicitly from Chat.",
                 str(paths.conversations_dir),
-                "Up to 200 files; each is bounded to 2,000 messages and 8 MiB. Kept until deleted by the user.",
+                "Creation stops at 200 files; existing larger histories are retained and indexed up to 10,000 files. Each conversation is bounded to 2,000 messages and 8 MiB. Private titles are indexed locally. Nothing is automatically deleted.",
                 "Sent only to the selected model endpoint while chatting; never included in logs, events, notices, or support bundles.",
                 "Manage conversations", "chat",
             ),

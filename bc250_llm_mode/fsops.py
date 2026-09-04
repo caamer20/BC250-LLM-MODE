@@ -42,6 +42,19 @@ def publish_staged(source: str | Path, target: str | Path, *, mode: int = 0o600)
 
 
 def atomic_write_bytes(path: str | Path, data: bytes, *, mode: int = 0o600) -> None:
+    from .profile_access import profile_access, require_writable_profile
+
+    target = Path(path)
+    for parent in target.parents:
+        if (parent / "state.db").is_file():
+            with profile_access(parent):
+                require_writable_profile(parent)
+                _atomic_write_bytes(target, data, mode=mode)
+            return
+    _atomic_write_bytes(target, data, mode=mode)
+
+
+def _atomic_write_bytes(path: str | Path, data: bytes, *, mode: int = 0o600) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(

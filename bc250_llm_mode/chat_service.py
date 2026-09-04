@@ -9,6 +9,7 @@ files; it is never logged or written to operation history.
 from __future__ import annotations
 
 import json
+import socket
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -31,6 +32,42 @@ from .chat_lifecycle import (
 
 MAX_CHAT_MESSAGES = 500
 MAX_CHAT_MESSAGE_BYTES = 256 * 1024
+MAX_SSE_LINE_BYTES = 64 * 1024
+MAX_SSE_BYTES = 8 * 1024 * 1024
+
+
+def _bounded_lines(response):
+    """Bound buffers before decoding, including a peer that never sends LF."""
+    if not hasattr(response, "iter_bytes"):
+        # Compatibility port for the small in-memory transport doubles.
+        total = 0
+        for line in response.iter_lines():
+            size = len(line.encode("utf-8"))
+            total += size
+            if size > MAX_SSE_LINE_BYTES or total > MAX_SSE_BYTES:
+                raise ValueError("SSE size bound exceeded")
+            yield line
+        return
+    pending = bytearray()
+    total = 0
+    for chunk in (response.iter_raw() if hasattr(response, "iter_raw") else response.iter_bytes()):
+        total += len(chunk)
+        if total > MAX_SSE_BYTES:
+            raise ValueError("SSE response exceeds size bound")
+        pending.extend(chunk)
+        while b"\n" in pending:
+            raw, _, rest = pending.partition(b"\n")
+            if len(raw) > MAX_SSE_LINE_BYTES:
+                raise ValueError("SSE line exceeds size bound")
+            pending = bytearray(rest)
+            yield raw.rstrip(b"\r").decode("utf-8", "strict")
+        if len(pending) > MAX_SSE_LINE_BYTES:
+            raise ValueError("SSE line exceeds size bound")
+    if pending:
+        yield pending.decode("utf-8", "strict")
+
+
+from .http_deadline import interrupt_response as _interrupt_response, response_deadline
 
 
 @dataclass(frozen=True)
@@ -140,7 +177,15 @@ class ChatSessionService:
             read=deadline.read_s,
         )
 
-    def stream(
+    def stream(self, state, messages, on_text, **kwargs) -> ChatStreamResult:
+        try:
+            return self._stream(state, messages, on_text, **kwargs)
+        except (ValueError, TypeError, OverflowError):
+            request = ChatRequest(self._request_ids(), str(kwargs.get("conversation_id") or "terminal"))
+            return self._result(request, ChatResultClassification.UNKNOWN, "", 0, 0,
+                                None, 0, 0, 0, error_code="REQUEST_INVALID")
+
+    def _stream(
         self,
         state: Mapping[str, Any],
         messages: Sequence[Mapping[str, str]],
@@ -173,15 +218,18 @@ class ChatSessionService:
                 error_code="THERMAL_LATCH",
             )
 
+        public_alias = next((str(record.get("display_name") or expected_model).replace("\n", " ").strip()
+                             for record in state.get("installed_models", ()) if record.get("id") == expected_model), expected_model)
         payload: dict[str, Any] = {
-            "model": expected_model,
+            "model": public_alias,
             "messages": checked,
             "stream": True,
             "cache_prompt": True,
             "max_tokens": generated_cap,
         }
         if overrides:
-            payload.update({key: value for key, value in overrides.items() if value is not None})
+            allowed = {"temperature", "top_p", "top_k", "min_p", "repeat_penalty", "seed", "stop"}
+            payload.update({key: value for key, value in overrides.items() if key in allowed and value is not None})
         port = int(state.get("server_port") or 8080)
         if not 1 <= port <= 65535:
             raise ValueError("server_port must be within 1..65535")
@@ -195,13 +243,21 @@ class ChatSessionService:
             timings: dict[str, Any] = {}
             first_ms: int | None = None
             malformed = False
+            done = False
+            output_bytes = 0
             try:
                 token.raise_if_cancelled()
+                if self._clock() - start >= deadline.total_s:
+                    raise TimeoutError("chat total deadline exceeded")
                 with self._http.stream(
-                    "POST", url, json=payload, timeout=self._timeout(deadline)
-                ) as response:
+                    "POST", url, json=payload, timeout=self._timeout(deadline),
+                    **({"headers": {"Accept-Encoding": "identity"}} if self._http is httpx else {}),
+                ) as response, response_deadline(response, deadline.total_s - (self._clock() - start)):
                     response.raise_for_status()
-                    for line in response.iter_lines():
+                    if getattr(response, "headers", {}).get("Content-Encoding", "identity") != "identity":
+                        raise ValueError("encoded SSE refused")
+                    token.bind_interrupt(lambda: _interrupt_response(response))
+                    for line in _bounded_lines(response):
                         token.raise_if_cancelled()
                         elapsed = self._clock() - start
                         if elapsed > deadline.total_s:
@@ -215,7 +271,8 @@ class ChatSessionService:
                             )
                         if self._active_model is not None:
                             observed = self._active_model()
-                            if observed and str(observed) != expected_model:
+                            from .server import observed_model_matches_selected
+                            if observed and not observed_model_matches_selected(dict(state), observed):
                                 return self._result(
                                     request, ChatResultClassification.MODEL_MISMATCH,
                                     "".join(chunks), len(chunks), elapsed, first_ms,
@@ -226,21 +283,29 @@ class ChatSessionService:
                             continue
                         data = line[5:].strip()
                         if data == "[DONE]":
+                            done = True
                             break
                         try:
                             event = json.loads(data)
+                            if not isinstance(event, dict) or "error" in event:
+                                raise ValueError("invalid SSE event")
                             choices = event["choices"]
+                            if choices == [] and isinstance(event.get("usage"), dict):
+                                continue
                             delta = choices[0]["delta"]
                             text = delta.get("content") or ""
-                        except (TypeError, KeyError, IndexError, json.JSONDecodeError):
+                        except (TypeError, KeyError, IndexError, ValueError):
                             malformed = True
-                            continue
+                            break
                         if isinstance(event.get("timings"), dict):
-                            timings = dict(event["timings"])
+                            timings = {k: v for k, v in event["timings"].items()
+                                       if k in {"predicted_n", "predicted_ms", "predicted_per_second", "prompt_n", "prompt_ms", "prompt_per_second"}
+                                       and isinstance(v, (int, float))}
                             if on_timings is not None:
                                 on_timings(dict(timings))
                         response_model = event.get("model")
-                        if response_model and str(response_model) != expected_model:
+                        from .server import observed_model_matches_selected
+                        if response_model and not observed_model_matches_selected(dict(state), response_model):
                             return self._result(
                                 request, ChatResultClassification.MODEL_MISMATCH,
                                 "".join(chunks), len(chunks), elapsed, first_ms,
@@ -248,15 +313,23 @@ class ChatSessionService:
                                 timings, "RESPONSE_MODEL_MISMATCH",
                             )
                         if text:
+                            if not isinstance(text, str):
+                                malformed = True
+                                break
+                            output_bytes += len(text.encode("utf-8"))
+                            if output_bytes > min(4 * 1024 * 1024, generated_cap * 16):
+                                malformed = True
+                                break
                             if first_ms is None:
                                 first_ms = int(elapsed * 1000)
                             chunks.append(str(text))
                             on_text(str(text))
                 elapsed = self._clock() - start
-                if malformed and not chunks:
+                token.raise_if_cancelled()
+                if malformed or not done:
                     return self._result(
                         request, ChatResultClassification.MALFORMED_RESPONSE,
-                        "", 0, elapsed, first_ms, 0, prompt_tokens, attempts,
+                        "".join(chunks), len(chunks), elapsed, first_ms, _token_count(chunks), prompt_tokens, attempts,
                         timings, "MALFORMED_SSE",
                     )
                 return self._result(
@@ -273,8 +346,8 @@ class ChatSessionService:
                     "CANCELLED",
                 )
             except Exception as exc:  # transport errors become closed results
-                classification = classify_exception(exc)
-                if should_retry(
+                classification = ChatResultClassification.CANCELLED if token.is_cancelled else classify_exception(exc)
+                if self._clock() - start < deadline.total_s and should_retry(
                     classification,
                     tokens_emitted=_token_count(chunks), attempts=attempts,
                 ):
@@ -285,6 +358,8 @@ class ChatSessionService:
                     elapsed, first_ms, _token_count(chunks), prompt_tokens,
                     attempts, timings, type(exc).__name__,
                 )
+            finally:
+                token.bind_interrupt(None)
         raise AssertionError("bounded chat attempt loop escaped")
 
     @staticmethod
@@ -371,7 +446,8 @@ class ChatObservationService:
             thermal.get("stale")
             or (inference.get("stale") and not live_ready)
         )
-        ready = (durable_ready or live_ready) and not stale and not thermal_blocked
+        # A failed current probe supersedes a historical READY record.
+        ready = (live_ready if self._live_server is not None else durable_ready) and not stale and not thermal_blocked
         if thermal_blocked:
             guidance = "Generation is blocked by thermal safety. Open System."
         elif stale:

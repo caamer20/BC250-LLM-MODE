@@ -16,7 +16,7 @@ from .disclaimer import require_acknowledgment
 from .logging_utils import CommandRunner
 
 FEDORA_IMAGE = "registry.fedoraproject.org/fedora:latest"
-BUILD_PACKAGES = "git cmake ninja-build gcc-c++ vulkan-loader-devel vulkan-tools python3 python3-pip python3-devel"
+BUILD_PACKAGES = "procps-ng git cmake ninja-build gcc-c++ vulkan-loader-devel vulkan-tools python3 python3-pip python3-devel"
 PYTHON_PACKAGES = "huggingface_hub[cli] gguf safetensors numpy sentencepiece protobuf torch --extra-index-url https://download.pytorch.org/whl/cpu"
 
 
