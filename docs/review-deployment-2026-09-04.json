@@ -1,19 +1,19 @@
 {
   "kind": "developer-and-deployment-diagnostic",
-  "recorded_at_utc": "2026-09-05T01:12:01.699626+00:00",
-  "version": "0.9.0.dev4",
-  "source_commit": "317c30deefb30a7d0b51a01d9594cb8af1a9dcca",
-  "source_url": "https://github.com/caamer20/BC250-LLM-MODE/commit/317c30deefb30a7d0b51a01d9594cb8af1a9dcca",
-  "ci_url": "https://github.com/caamer20/BC250-LLM-MODE/actions/runs/33934503955",
+  "recorded_at_utc": "2026-09-05T01:45:55.354313+00:00",
+  "version": "0.9.0.dev5",
+  "source_commit": "c529a2299bdbc2ac21c0128f50df57eb98e02cc2",
+  "source_url": "https://github.com/caamer20/BC250-LLM-MODE/commit/c529a2299bdbc2ac21c0128f50df57eb98e02cc2",
+  "ci_url": "https://github.com/caamer20/BC250-LLM-MODE/actions/runs/33936183892",
   "ci_conclusion": "success",
   "ci_matrix": [
     {
       "default": {
-        "selected": 1702,
-        "finished": 1702,
-        "passed": 1701,
+        "selected": 1703,
+        "finished": 1703,
+        "passed": 1702,
         "skipped": 1,
-        "inventory_sha256": "a9d65dbafd0d351b2259dabe3f6abe58133a9cc96dd1f7cb75eb7d8df36fa894"
+        "inventory_sha256": "c49b0868d694877c411fbc0de20ea09c20c666270c7b159ac985c420a7a7d023"
       },
       "python": "3.11.16",
       "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
@@ -24,8 +24,8 @@
         "skipped": 0,
         "inventory_sha256": "78c0e46ad9be3dd365a1e339df90bd76a0c3cf83a9225c980c9e8e91502b0773"
       },
-      "selected": 1754,
-      "passed": 1753,
+      "selected": 1755,
+      "passed": 1754,
       "skipped": 1,
       "tk": {
         "version": 8.6,
@@ -35,11 +35,11 @@
     },
     {
       "default": {
-        "selected": 1702,
-        "finished": 1702,
-        "passed": 1701,
+        "selected": 1703,
+        "finished": 1703,
+        "passed": 1702,
         "skipped": 1,
-        "inventory_sha256": "a4b04812387d57843dc75706c236b94a7ef08c110d7b216e821da3fdb3f66373"
+        "inventory_sha256": "efb8eba1714113e8de29c03a218548d8865ebe20a9e8cd4259f8612e4c9db84c"
       },
       "python": "3.14.7",
       "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
@@ -50,8 +50,8 @@
         "skipped": 0,
         "inventory_sha256": "2275758210fa3c3de5b2d93f1e84494d156e7f673a5ea4f3003d7f6142c50e6c"
       },
-      "selected": 1754,
-      "passed": 1753,
+      "selected": 1755,
+      "passed": 1754,
       "skipped": 1,
       "tk": {
         "version": 8.6,
@@ -62,24 +62,34 @@
   ],
   "artifacts": [
     {
-      "name": "bc250_llm_mode-0.9.0.dev4.tar.gz",
-      "sha256": "0f794447ebca349f5c872fb0489b7f502bf944daeee96b3f7c0b088128921d71",
-      "size": 1061608
+      "name": "bc250_llm_mode-0.9.0.dev5.tar.gz",
+      "sha256": "5bf48a17d93cef93cb6549cb0842a402c35dc5f17839c303513a602482797902",
+      "size": 1061750
     },
     {
-      "name": "bc250_llm_mode-0.9.0.dev4-py3-none-any.whl",
-      "sha256": "1bfc0091422dfe6e3fb601ebf759bd6362b69c0ac53a04fe26a0cd408ac03d6f",
-      "size": 777253
+      "name": "bc250_llm_mode-0.9.0.dev5-py3-none-any.whl",
+      "sha256": "d29305bdb285ad28817615fcff35e4f51c2422b32c49818f4fce5b0a40418c35",
+      "size": 777250
     }
   ],
   "deployment": {
     "kind": "owner-authorized-development-deployment",
-    "source_commit": "317c30deefb30a7d0b51a01d9594cb8af1a9dcca",
-    "wheel_sha256": "1bfc0091422dfe6e3fb601ebf759bd6362b69c0ac53a04fe26a0cd408ac03d6f",
-    "version": "0.9.0.dev4",
+    "source_commit": "c529a2299bdbc2ac21c0128f50df57eb98e02cc2",
+    "wheel_sha256": "d29305bdb285ad28817615fcff35e4f51c2422b32c49818f4fce5b0a40418c35",
+    "version": "0.9.0.dev5",
     "status": "verified",
-    "rollback_directory": "/var/roothome/.bc250-deployments/20260904-317c30d-final/rollback",
+    "rollback_directory": "/var/roothome/.bc250-deployments/20260904-c529a22/rollback",
     "release_qualification": "pending",
+    "gateway_status": {
+      "active": true,
+      "protocol_ready": true,
+      "enabled": false,
+      "unit_file_state": "static",
+      "listener_addresses": [
+        "127.0.0.1",
+        "10.89.0.1"
+      ]
+    },
     "verification": {
       "runtime": {
         "context": 128000,

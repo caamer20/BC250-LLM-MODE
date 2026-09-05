@@ -9,9 +9,9 @@ work are implemented, with local combined qualification of 1,741 passed and two
 expected Linux-only skips, 28 actual Tk route/scale checks, and a clean wheel
 installation. The owner has authorized publishing the reconciled source to
 GitHub and updating the existing BC250 installation to `0.9.0.dev1`.
-The final deployed version is `0.9.0.dev4`, code commit
-`317c30deefb30a7d0b51a01d9594cb8af1a9dcca`. Hosted CI run `33934503955` passed
-1,753 tests plus one expected skip on each of Python 3.11/3.14 (1,754 selected,
+The final deployed version is `0.9.0.dev5`, code commit
+`c529a2299bdbc2ac21c0128f50df57eb98e02cc2`. Hosted CI run `33936183892` passed
+1,754 tests plus one expected skip on each of Python 3.11/3.14 (1,755 selected,
 including 52 slow), with real Linux Tk and clean-wheel gates. The exact installed
 184-module wheel passed real native chat and authenticated gateway SSE;
 unauthenticated access was rejected. Context remains 128,000 with one slot.

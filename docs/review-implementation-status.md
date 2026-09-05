@@ -1,22 +1,24 @@
 # September 4 review implementation status
 
 The corrective implementation and the existing UX changes are committed and
-pushed. **Version `0.9.0.dev4` is installed and verified on the owner's BC250**,
-from code commit `317c30deefb30a7d0b51a01d9594cb8af1a9dcca`. Owner plans and
+pushed. **Version `0.9.0.dev5` is installed and verified on the owner's BC250**,
+from code commit `c529a2299bdbc2ac21c0128f50df57eb98e02cc2`. Owner plans and
 scratch files were preserved. The local results below at `0.9.0.dev0` are the
 earlier development checkpoint; the final hosted CI and deployment results
 follow here. This development installation does not qualify a final release.
 
 ## GitHub and BC250 deployment
 
-- [Code commit](https://github.com/caamer20/BC250-LLM-MODE/commit/317c30deefb30a7d0b51a01d9594cb8af1a9dcca)
+- [Code commit](https://github.com/caamer20/BC250-LLM-MODE/commit/c529a2299bdbc2ac21c0128f50df57eb98e02cc2)
   includes the completed review work plus the defects found during deployment:
   read-only shared profile locks in the strict gateway sandbox, visible recovery
   for empty/reasoning-only answers, and exact private-address reservation before
-  the Podman bridge activates after reboot.
-- [Final hosted CI](https://github.com/caamer20/BC250-LLM-MODE/actions/runs/33934503955)
-  passed on Python 3.11 and 3.14: **1,753 passed and one expected platform skip
-  per interpreter**, 1,754 selected and finished with no omissions. Each includes
+  the Podman bridge activates after reboot. Final status verification also
+  corrected the display of a static gateway unit as boot-enabled; both services
+  are explicitly started for the current boot.
+- [Final hosted CI](https://github.com/caamer20/BC250-LLM-MODE/actions/runs/33936183892)
+  passed on Python 3.11 and 3.14: **1,754 passed and one expected platform skip
+  per interpreter**, 1,755 selected and finished with no omissions. Each includes
   all 52 slow gates and 28 real Linux Tk 8.6 route/scale checks. The build job
   and clean-wheel checks passed.
 - The deployment wheel was built once from the exact committed source through
@@ -35,7 +37,7 @@ follow here. This development installation does not qualify a final release.
 - Model files, credential files and conversation files are unchanged. Previous
   application copies, service definitions and a consistent database backup are
   retained in the private rollback directory:
-  `/root/.bc250-deployments/20260904-317c30d-final/rollback`.
+  `/root/.bc250-deployments/20260904-c529a22/rollback`.
 
 The [deployment record](review-deployment-2026-09-04.json) binds the source,
 artifact digests, final CI inventory and redacted appliance checks. Earlier

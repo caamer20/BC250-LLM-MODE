@@ -1,7 +1,7 @@
 # BC250 LLM MODE — full application review implementation plan
 
 **Status:** RV-0 through RV-9 developer implementation is committed and pushed;
-local and hosted CI qualification passed. Development version `0.9.0.dev4` is
+local and hosted CI qualification passed. Development version `0.9.0.dev5` is
 installed and verified on the owner's BC250. RV-10 development checks and the
 available deployment checks passed; full physical/security/human and final
 release qualification remain pending.
