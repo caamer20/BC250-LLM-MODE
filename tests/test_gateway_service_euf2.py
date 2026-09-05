@@ -173,6 +173,20 @@ def test_running_service_with_model_down_is_protocol_ready_but_backend_unverifie
     assert status["health_status"] == "degraded"
 
 
+def test_controlled_gateway_start_prepares_external_lock_without_widening_sandbox(world):
+    paths, runner, service = world
+    service.install(runner)
+    lock = paths.app_dir.parent / ("." + paths.app_dir.name + "-access.lock")
+    lock.unlink()
+    service.start(runner)
+    assert lock.is_file()
+    assert lock.stat().st_mode & 0o777 == 0o600
+    unit = service.unit_path.read_text()
+    assert "ProtectHome=read-only" in unit
+    assert "ProtectSystem=strict" in unit
+    assert [line for line in unit.splitlines() if line.startswith("ReadWritePaths=")] == [f'ReadWritePaths="{paths.app_dir}"']
+
+
 def test_unfamiliar_unit_and_port_conflict_are_never_overwritten(world):
     _paths, runner, service = world
     service.unit_path.parent.mkdir(parents=True, exist_ok=True)

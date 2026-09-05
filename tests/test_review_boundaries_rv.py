@@ -232,3 +232,38 @@ def test_applied_idle_policy_survives_unapplied_profile_edit(tmp_path):
         conn.execute("UPDATE workload_profiles SET idle_policy='KEEP_LOADED', stop_after_minutes=NULL, revision=revision+1 WHERE profile_id=?", (profile.profile_id,))
     decision = IdlePolicyService(units, server_active=lambda: True, stop_server=lambda: {'active': False}, now=lambda: '2026-09-04T01:10:00Z').evaluate(last_request_at='2026-09-04T01:00:00Z', active_requests=0)
     assert decision.policy == 'STOP_AFTER' and decision.action == 'STOP'
+
+
+def test_gateway_profile_transaction_works_with_read_only_external_lock(tmp_path, monkeypatch):
+    import errno
+    import os
+    from _native import NativeApp
+    world = NativeApp(tmp_path)
+    units = world.application.units
+    profile = units.database_path.parent
+    lock = profile.parent / ('.' + profile.name + '-access.lock')
+    assert lock.is_file()
+    original_open = os.open
+
+    def sandbox_open(path, flags, *args, **kwargs):
+        if Path(path) == lock and flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT):
+            raise OSError(errno.EROFS, 'Read-only file system')
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'open', sandbox_open)
+    with units.begin() as conn:
+        conn.execute('CREATE TABLE sandbox_probe (value INTEGER)')
+        conn.execute('INSERT INTO sandbox_probe VALUES (1)')
+    with units.read() as conn:
+        assert conn.execute('SELECT value FROM sandbox_probe').fetchone()[0] == 1
+
+
+def test_profile_lock_refuses_fifo_without_waiting_for_a_writer(tmp_path):
+    import os
+    from bc250_llm_mode.profile_access import profile_access, ProfileBusy
+    profile = tmp_path / 'profile'
+    profile.mkdir()
+    os.mkfifo(tmp_path / '.profile-access.lock')
+    with pytest.raises(ProfileBusy, match='regular file'):
+        with profile_access(profile):
+            raise AssertionError('A special file cannot provide the profile lock')

@@ -4,6 +4,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import stat
 import threading
 import time
 from contextlib import contextmanager
@@ -33,9 +34,18 @@ def profile_access(profile: Path, *, exclusive=False, timeout=10.0):
         yield
         return
     profile.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(profile.parent / ("." + profile.name + "-access.lock"),
-                 os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    lock_path = profile.parent / ("." + profile.name + "-access.lock")
+    # Shared flock needs only a readable descriptor. The gateway's strict
+    # systemd sandbox deliberately keeps the profile parent read-only; its
+    # installer prepares this stable inode before starting the process.
+    flags = (os.O_RDWR if exclusive else os.O_RDONLY) | os.O_NOFOLLOW | os.O_NONBLOCK
     try:
+        fd = os.open(lock_path, flags)
+    except FileNotFoundError:
+        fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ProfileBusy("Profile lock is not a regular file")
         deadline = time.monotonic() + timeout
         while True:
             try:

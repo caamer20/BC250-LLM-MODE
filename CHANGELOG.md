@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0.dev2 — gateway sandbox correction
+
+- A physical Bazzite development deployment found that shared profile locks
+  requested write access outside the gateway's permitted profile directory.
+  Shared locks now open an existing regular file read-only, and controlled
+  gateway starts prepare the lock before entering the sandbox. Special files
+  are refused without blocking. `ProtectSystem=strict` and
+  `ProtectHome=read-only` remain intact.
+- The unsuccessful dev1 deployment retained its rollback copy; the dev0 app,
+  model and gateway were restored and verified before preparing this fix.
+
 ## 0.9.0.dev1 — September 4 review deployment
 
 - Integrates the review corrections and the existing end-user UX work described

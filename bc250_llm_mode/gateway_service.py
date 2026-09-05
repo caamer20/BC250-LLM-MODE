@@ -354,6 +354,7 @@ class GatewayService:
                 raise GatewayServiceError(
                     "Port 9071 already has an unfamiliar listener; it was left unchanged."
                 )
+        self._prepare_profile_lock()
         was_active = self._systemd_properties(runner).get("active") is True
         atomic_write_text(self.launcher_path, launcher, mode=0o700)
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as handle:
@@ -573,6 +574,7 @@ class GatewayService:
 
     def start(self, runner: CommandRunner) -> dict[str, Any]:
         self._require_owned()
+        self._prepare_profile_lock()
         bridge = self._bridge_observer()
         runner.run(elevated(["systemctl", "disable", GATEWAY_SERVICE_NAME]), check=False)
         runner.run(elevated(["systemctl", "start", GATEWAY_SERVICE_NAME]))
@@ -586,10 +588,19 @@ class GatewayService:
 
     def restart(self, runner: CommandRunner) -> dict[str, Any]:
         self._require_owned()
+        self._prepare_profile_lock()
         bridge = self._bridge_observer()
         runner.run(elevated(["systemctl", "disable", GATEWAY_SERVICE_NAME]), check=False)
         runner.run(elevated(["systemctl", "restart", GATEWAY_SERVICE_NAME]))
         return self._wait_until_listening(runner, bridge.gateway)
+
+    def _prepare_profile_lock(self) -> None:
+        # Creation belongs to the controlling process. The sandboxed gateway
+        # can share an existing read-only lock without write access to HOME.
+        from .profile_access import profile_access
+
+        with profile_access(self.paths.app_dir):
+            pass
 
     def remove(self, runner: CommandRunner) -> dict[str, Any]:
         self._require_owned()
