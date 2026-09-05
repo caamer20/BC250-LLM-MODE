@@ -9,8 +9,15 @@ work are implemented, with local combined qualification of 1,741 passed and two
 expected Linux-only skips, 28 actual Tk route/scale checks, and a clean wheel
 installation. The owner has authorized publishing the reconciled source to
 GitHub and updating the existing BC250 installation to `0.9.0.dev1`.
-Record the exact pushed commit, hosted CI and installed artifact checks after
-they complete. C4 physical four-cell/soak, C5 independent security, C6 human
+The final deployed version is `0.9.0.dev4`, code commit
+`317c30deefb30a7d0b51a01d9594cb8af1a9dcca`. Hosted CI run `33934503955` passed
+1,753 tests plus one expected skip on each of Python 3.11/3.14 (1,754 selected,
+including 52 slow), with real Linux Tk and clean-wheel gates. The exact installed
+184-module wheel passed real native chat and authenticated gateway SSE;
+unauthenticated access was rejected. Context remains 128,000 with one slot.
+See `docs/review-deployment-2026-09-04.json` and the status document for digests,
+rollback location and deployment-discovered corrections. C4 physical
+four-cell/soak, C5 independent security, C6 human
 acceptance and C8 final release gates remain pending; no 1.0 tag or package
 publication is authorized by this development deployment.
 

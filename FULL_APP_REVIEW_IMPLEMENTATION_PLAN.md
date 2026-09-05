@@ -1,8 +1,10 @@
 # BC250 LLM MODE — full application review implementation plan
 
-**Status:** Corrective implementation is in the working tree and local
-qualification passed. Hosted CI, candidate freeze, and physical/external RV-10
-gates remain pending.
+**Status:** RV-0 through RV-9 developer implementation is committed and pushed;
+local and hosted CI qualification passed. Development version `0.9.0.dev4` is
+installed and verified on the owner's BC250. RV-10 development checks and the
+available deployment checks passed; full physical/security/human and final
+release qualification remain pending.
 Created 2026-09-04. See [implementation status](docs/review-implementation-status.md)
 for the delivered changes, operating details and qualification scope.
 
