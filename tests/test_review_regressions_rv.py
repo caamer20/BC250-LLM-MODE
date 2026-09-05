@@ -131,6 +131,15 @@ def test_chat_requires_explicit_sse_completion(lines):
     assert result.classification is ChatResultClassification.MALFORMED_RESPONSE
 
 
+@pytest.mark.parametrize('delta', [{}, {'content': '  '}, {'reasoning_content': 'internal synthetic reasoning'}])
+def test_chat_does_not_report_reasoning_only_or_empty_answers_as_completed(delta):
+    lines = ['data: ' + json.dumps({'choices': [{'delta': delta, 'finish_reason': 'length'}]}), 'data: [DONE]']
+    result = ChatSessionService(http_client=SequenceHttp([lines])).stream(_state(), _messages(), lambda _: None)
+    assert not result.ok and result.error_code == 'EMPTY_RESPONSE'
+    assert 'without a visible answer' in result.message
+    assert 'internal synthetic reasoning' not in result.text
+
+
 def test_chat_accepts_only_the_selected_models_public_alias():
     state = {**_state(), "current_model": "internal", "installed_models": [{"id": "internal", "display_name": "Public model"}]}
     lines = ['data: {"model":"Public model","choices":[{"delta":{"content":"ok"}}]}', 'data: [DONE]']

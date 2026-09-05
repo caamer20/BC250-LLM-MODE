@@ -91,6 +91,12 @@ class ChatStreamResult:
 
     @property
     def message(self) -> str:
+        if self.error_code == "EMPTY_RESPONSE":
+            return (
+                "The model finished without a visible answer. Retry with a "
+                "shorter request or a larger response allowance. "
+                f"(request {self.request_id})"
+            )
         return recoverable_message(self.classification, self.request_id)
 
     def event_record(self) -> ChatEventRecord:
@@ -331,6 +337,13 @@ class ChatSessionService:
                         request, ChatResultClassification.MALFORMED_RESPONSE,
                         "".join(chunks), len(chunks), elapsed, first_ms, _token_count(chunks), prompt_tokens, attempts,
                         timings, "MALFORMED_SSE",
+                    )
+                if not "".join(chunks).strip():
+                    return self._result(
+                        request, ChatResultClassification.MALFORMED_RESPONSE,
+                        "".join(chunks), len(chunks), elapsed, first_ms,
+                        _token_count(chunks), prompt_tokens, attempts, timings,
+                        "EMPTY_RESPONSE",
                     )
                 return self._result(
                     request, ChatResultClassification.COMPLETED,

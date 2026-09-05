@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0.dev3 — empty-answer recovery
+
+- Native chat now returns a recoverable empty-response result when a completed
+  stream contains no visible answer, including a reasoning-only response that
+  exhausts its generation allowance. Private reasoning stays hidden. This was
+  found by the physical deployment probe using a deliberately small allowance;
+  the installed app and services were restored before retrying qualification.
+
 ## 0.9.0.dev2 — gateway sandbox correction
 
 - A physical Bazzite development deployment found that shared profile locks
