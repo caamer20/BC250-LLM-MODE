@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0.dev5 — accurate gateway boot status
+
+- A systemd `static` gateway unit is no longer labelled boot-enabled. The
+  gateway has no installation target and remains an explicitly started
+  current-boot service. This corrects status reporting; service enablement and
+  network behavior are unchanged.
+
 ## 0.9.0.dev4 — gateway cold-start correction
 
 - After an intervening BC250 reboot, the saved Podman network existed but its

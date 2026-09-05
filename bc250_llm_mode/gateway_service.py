@@ -404,7 +404,7 @@ class GatewayService:
             "active_state": fields["ActiveState"] or "unknown",
             "sub_state": fields["SubState"] or "unknown",
             "enabled": fields["UnitFileState"] in {
-                "enabled", "enabled-runtime", "static"},
+                "enabled", "enabled-runtime"},
             "unit_file_state": fields["UnitFileState"] or "unknown",
             "invocation_marker": fields["ExecMainStartTimestamp"] or None,
         }

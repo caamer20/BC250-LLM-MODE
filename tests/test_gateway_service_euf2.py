@@ -173,6 +173,25 @@ def test_running_service_with_model_down_is_protocol_ready_but_backend_unverifie
     assert status["health_status"] == "degraded"
 
 
+def test_static_gateway_unit_is_not_reported_as_enabled_for_boot(world):
+    _paths, runner, service = world
+    service.install(runner)
+    original = runner.run
+
+    def static_unit(command, **kwargs):
+        result = original(command, **kwargs)
+        if '--property=UnitFileState' in command:
+            return subprocess.CompletedProcess(command, 0, 'static\n', '')
+        return result
+
+    runner.run = static_unit
+    runner.active = True
+    status = service.status(runner)
+    assert status['unit_file_state'] == 'static'
+    assert status['active'] and status['current_boot_only']
+    assert status['enabled'] is False
+
+
 def test_controlled_gateway_start_prepares_external_lock_without_widening_sandbox(world):
     paths, runner, service = world
     service.install(runner)
