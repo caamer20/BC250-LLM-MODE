@@ -28,7 +28,7 @@ The [September 4 review implementation record](docs/review-implementation-status
 is the current corrective checkpoint. Historical qualification counts do not
 qualify this changed checkout; physical and external gates remain pending.
 
-Current version: **0.9.0.dev3** (development line; not `1.0.0`). Status
+Current version: **0.9.0.dev4** (development line; not `1.0.0`). Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 (all executable local/CI checks pass), *evidence pending* (hardware/human/
 external evidence absent), *release blocked* (a policy-required item is

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.0.dev4 — gateway cold-start correction
+
+- After an intervening BC250 reboot, the saved Podman network existed but its
+  bridge address did not exist until Open WebUI started. The gateway now
+  reserves only its validated private IPv4 address with Linux `IP_FREEBIND`.
+  This removes the gateway/Open WebUI startup dependency cycle while preserving
+  explicit startup, exact private bindings, authentication and strict sandboxing.
+
 ## 0.9.0.dev3 — empty-answer recovery
 
 - Native chat now returns a recoverable empty-response result when a completed

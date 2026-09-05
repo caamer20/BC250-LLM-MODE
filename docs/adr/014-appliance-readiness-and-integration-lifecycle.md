@@ -93,6 +93,14 @@ bridge address. It never binds a wildcard/LAN address and never hard-codes a
 bridge address. Missing, ambiguous, host/default, or changed network topology
 fails closed.
 
+September 4 cold-start correction: an existing validated Podman network can
+temporarily lack its Linux interface after reboot, until its first container
+starts. The gateway reserves only that exact observed RFC1918 IPv4 address
+using Linux `IP_FREEBIND`, alongside ordinary loopback binding. It does not
+assign an address, create an interface, start Open WebUI, enable autostart or
+bind a wildcard. Missing or changed network definitions still fail closed.
+This allows gateway → optional Open WebUI startup in the declared order.
+
 The runtime uses ADR 009 named-client authentication. Secret bytes remain in
 mode-0600 files and never enter unit text, argv, environment, journal, support
 bundles, or durable events. The active application slot owns the executable;

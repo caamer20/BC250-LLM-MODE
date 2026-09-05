@@ -301,8 +301,8 @@ def run_gateway_runtime(
     # enters its ProtectSystem=strict sandbox.  Rootful Podman takes write
     # locks even for `network inspect`, so repeating that command inside the
     # service would require granting the HTTP process write access to the
-    # container store.  Binding the captured gateway still fails closed if
-    # that address is no longer present.
+    # container store. The exact validated private address can be reserved
+    # before Podman activates its bridge; no wildcard or host address is used.
     bridge = expected_bridge or bridge_observer()
     if bridge.identity != expected_network_identity:
         raise GatewayRuntimeError("The managed Open WebUI bridge identity changed.")
@@ -319,7 +319,7 @@ def run_gateway_runtime(
         servers.append(server_factory(
             gateway, host="127.0.0.1", port=GATEWAY_PORT))
         servers.append(server_factory(
-            gateway, host=bridge.gateway, port=GATEWAY_PORT))
+            gateway, host=bridge.gateway, port=GATEWAY_PORT, allow_unassigned=True))
     except BaseException:
         for server in servers:
             server.server_close()

@@ -267,3 +267,23 @@ def test_profile_lock_refuses_fifo_without_waiting_for_a_writer(tmp_path):
     with pytest.raises(ProfileBusy, match='regular file'):
         with profile_access(profile):
             raise AssertionError('A special file cannot provide the profile lock')
+
+
+def test_linux_gateway_reserves_exact_private_address_before_bridge_activation():
+    import sys
+    from bc250_llm_mode.gateway import make_gateway_socket_server
+    if not sys.platform.startswith('linux'):
+        pytest.skip('Linux IP_FREEBIND private bridge reservation')
+    server = make_gateway_socket_server(None, host='10.254.254.253', allow_unassigned=True)
+    try:
+        assert server.server_address[0] == '10.254.254.253'
+        assert server.server_address[1] > 0
+    finally:
+        server.server_close()
+
+
+@pytest.mark.parametrize('address', ['0.0.0.0', '127.0.0.1', '8.8.8.8', '100.115.57.31'])
+def test_gateway_never_reserves_unassigned_wildcard_public_tailnet_or_loopback(address):
+    from bc250_llm_mode.gateway import make_gateway_socket_server
+    with pytest.raises(ValueError, match='exact private bridge'):
+        make_gateway_socket_server(None, host=address, allow_unassigned=True)

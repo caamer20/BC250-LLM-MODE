@@ -1119,9 +1119,28 @@ class _BoundedGatewayServer(http.server.ThreadingHTTPServer):
     request_queue_size = 16
     allow_reuse_address = True
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, allow_unassigned=False, **kwargs):
         self._admission = threading.BoundedSemaphore(16)
+        self._allow_unassigned = allow_unassigned
         super().__init__(*args, **kwargs)
+
+    def server_bind(self):
+        if self._allow_unassigned:
+            import ipaddress
+            import socket
+            import sys
+
+            address = ipaddress.ip_address(self.server_address[0])
+            private_ranges = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            if address.version != 4 or not any(address in ipaddress.ip_network(cidr) for cidr in private_ranges):
+                raise ValueError("Only an exact private bridge address can be reserved")
+            if not sys.platform.startswith("linux"):
+                raise OSError("Private bridge reservation requires Linux")
+            # Linux IP_FREEBIND reserves this exact validated address while
+            # Podman's bridge is down after reboot. It never binds a wildcard
+            # or assigns an address; Open WebUI activates its own network later.
+            self.socket.setsockopt(socket.IPPROTO_IP, getattr(socket, "IP_FREEBIND", 15), 1)
+        super().server_bind()
 
     def process_request(self, request, client_address):
         # Bound accepted sockets BEFORE ThreadingMixIn allocates a thread.
@@ -1145,8 +1164,8 @@ class _BoundedGatewayServer(http.server.ThreadingHTTPServer):
 
 
 def make_gateway_socket_server(gateway: "GatewayServer", *, host: str = "127.0.0.1",
-                               port: int = 0) -> "http.server.ThreadingHTTPServer":
+                               port: int = 0, allow_unassigned: bool = False) -> "http.server.ThreadingHTTPServer":
     """Bind a real loopback socket server wired to the gateway (exit gate)."""
-    server = _BoundedGatewayServer((host, port), _SocketHandler)
+    server = _BoundedGatewayServer((host, port), _SocketHandler, allow_unassigned=allow_unassigned)
     server.gateway = gateway  # type: ignore[attr-defined]
     return server
