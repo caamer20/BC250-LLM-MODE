@@ -1,5 +1,26 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 17 dev11 isolated fresh-setup correction
+
+`0.9.0.dev11` on `codex/fresh-setup-dev11` is an isolated correction of the
+initial runtime/model dependency. Read `docs/fresh-runtime-setup-2026-09-17.md`
+and ADR 004's September 17 addendum. Qualification is in progress. Initial
+runtime installation stays unpromoted with its service stopped; after model
+activation Setup finishes the same durable runtime workflow against the
+prepared build's exact source and identity, without rebuilding. Full receipt,
+model/context/slots and inference checks still gate promotion. No request can
+skip those checks or manufacture known-good state.
+
+Local production-adapter journeys use a native compiler and Darwin atomic
+operation fixture; separate real Linux/CMake tests remain pending. Automatic
+approval review rejected transfer of the draft code/test archive to the BC250
+for lack of explicit payload-export authorization. That copy did not run;
+isolated-test approval was requested. Do not bypass the rejection. Dev10
+activation/runtime rebuilding and GitHub publication retain their separate
+approval blocks below. The tested dev10 branch and artifacts are unchanged;
+the BC250 remains on dev9. No dev11 device test or deployment is authorized by
+this checkpoint. Physical, human, security and release gates remain pending.
+
 ## September 17 dev10 staged qualification checkpoint
 
 `0.9.0.dev10` at `ff26fb306b5a13e928d13ee8a292046fb613b0d1`, branch

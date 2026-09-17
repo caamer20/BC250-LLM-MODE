@@ -44,6 +44,7 @@ from .operations.runtime_lifecycle import (
     SmokeEvidenceV1,
     TreeExchangeEvidenceV1,
     CODE_ACTIVE_RUNTIME_UNPROVEN,
+    CODE_THERMAL_LATCH_STOPPED,
     CODE_ACTIVE_TREE_CHANGED,
     CODE_SOURCE_COMMIT_UNAVAILABLE,
     DEFAULT_REQUESTED_REF,
@@ -272,6 +273,7 @@ class RuntimeLifecycleHostAdapter:
             requested_ref=requested_ref,
             source_commit=commit,
             resolution="COMMIT" if _COMMIT_RE.fullmatch(requested_ref) else "PIN",
+            prepared_build_id=self._prepared_build_for_source(commit),
         )
 
     def _resolve_ref_to_commit(self, requested_ref: str) -> str | None:
@@ -314,6 +316,8 @@ class RuntimeLifecycleHostAdapter:
         self, request: Any, evidence: ResolvedRuntimeSourceV1
     ) -> ProbeResult:
         current = self._resolve_ref_to_commit(evidence.requested_ref)
+        if evidence.prepared_build_id and self._prepared_build_for_source(evidence.source_commit) != evidence.prepared_build_id:
+            return ProbeResult(RecoveryClass.UNCERTAIN_MANUAL, "PREPARED_RUNTIME_CHANGED")
         if current == evidence.source_commit:
             return ProbeResult(
                 RecoveryClass.COMPLETE, "SOURCE_REF_RESOLVED",
@@ -373,13 +377,66 @@ class RuntimeLifecycleHostAdapter:
             return False
         if manifest.get("source_commit") != resolved.source_commit:
             return False
-        if (manifest.get("recipe_version") != RECIPE_VERSION
-                or manifest.get("recipe_digest") != _digest(RECIPE_DIGEST_SEED)
-                or manifest.get("cmake_generator") != self._cmake_generator
-                or manifest.get("cmake_options") != list(self._cmake_options)
-                or manifest.get("cmake_targets") != list(self._cmake_targets)):
+        if not self._recipe_matches(manifest):
             return False
         return self._observed_tree(self._loc.active_root, promoted) is not None
+
+    def _recipe_matches(self, manifest: dict[str, Any]) -> bool:
+        return (manifest.get("recipe_version") == RECIPE_VERSION
+                and manifest.get("recipe_digest") == _digest(RECIPE_DIGEST_SEED)
+                and manifest.get("cmake_generator") == self._cmake_generator
+                and manifest.get("cmake_options") == list(self._cmake_options)
+                and manifest.get("cmake_targets") == list(self._cmake_targets))
+
+    def _prepared_build_for_source(self, source_commit: str | None = None) -> str | None:
+        with self._units.read() as conn:
+            component = RuntimeComponentRepository(conn).current() or {}
+            if component.get("promoted_build_id") or component.get("rollback_build_id"):
+                return None
+            tree = RuntimeTreeRepository(conn).prepared_by_locator(
+                self._loc.active_root.lstrip("/"), self._loc.container_name)
+            if tree is None:
+                return None
+            record = RuntimeBuildRepository(conn).require(tree["build_id"])
+        manifest = record["manifest"]
+        if (record["provenance_class"] != "IMMUTABLE_SOURCE"
+                or (source_commit is not None and record["source_commit"] != source_commit)
+                or not self._recipe_matches(manifest)
+                or not self._observed_tree(self._loc.active_root, record["build_id"])
+                or not self._all_binaries_match(manifest)):
+            return None
+        return record["build_id"]
+
+    def _all_binaries_match(self, manifest: dict[str, Any]) -> bool:
+        """Bounded hashes/stat checks for the three regular owned executables."""
+        binaries = manifest.get("binaries") or []
+        expected_paths = {f"build/bin/{name}" for name in self._cmake_targets}
+        if len(binaries) != len(expected_paths) or {b.get("path") for b in binaries} != expected_paths:
+            return False
+        script = (
+            "import hashlib,json,os,pathlib,stat,sys;"
+            "base=pathlib.Path(sys.argv[1]);root=pathlib.Path(sys.argv[2]);"
+            "assert root in base.parents and base.resolve()==base;"
+            "entries=json.loads(sys.argv[3]);paths=[base/e['path'] for e in entries];"
+            "assert all(base in p.parents and not any(x.is_symlink() for x in (p,*p.parents) "
+            "if x==base or base in x.parents) for p in paths);"
+            "infos=[p.stat() for p in paths];"
+            "assert all(stat.S_ISREG(s.st_mode) and s.st_uid==os.geteuid() and s.st_size==e['size'] "
+            "and stat.S_IMODE(s.st_mode)==int(e['mode'],8) and s.st_mode&0o111 "
+            "for s,e in zip(infos,entries));"
+            # At most three handles. Process exit also closes them on refusal.
+            "streams=[p.open('rb') for p in paths];"
+            "assert all(hashlib.file_digest(f,'sha256').hexdigest()==e['sha256'] "
+            "for f,e in zip(streams,entries));"
+            "[f.close() for f in streams];print('verified')"
+        )
+        try:
+            return self._run_remote(CommandKind.OBSERVE, (
+                "python3", "-c", script, self._loc.active_root, self._loc.approved_root,
+                _json.dumps(binaries, sort_keys=True),
+            )).stdout_tail.strip() == "verified"
+        except ProcessFailure:
+            return False
 
     # ==========================================================================
     # Port: preflight + legacy adoption
@@ -483,11 +540,13 @@ class RuntimeLifecycleHostAdapter:
             kind=CommandKind.CLEANUP,
             argv=self._exec_argv((
                 "python3", "-c",
-                "import sys,pathlib,hashlib;"
+                "import os,sys,pathlib,hashlib,tempfile;"
                 "data=sys.stdin.buffer.read();"
                 "p=pathlib.Path(sys.argv[1]);"
-                "p.write_bytes(data);p.chmod(0o500);"
-                "print(hashlib.sha256(data).hexdigest())",
+                "fd,tmp=tempfile.mkstemp(dir=p.parent);f=os.fdopen(fd,'wb');"
+                "f.write(data);f.flush();os.fsync(f.fileno());f.close();"
+                "os.chmod(tmp,0o500);os.replace(tmp,p);"
+                "print(hashlib.sha256(p.read_bytes()).hexdigest())",
                 destination,
             ), stdin=True),
             stdin_payload=HELPER_SOURCE,
@@ -1115,6 +1174,10 @@ class RuntimeLifecycleHostAdapter:
             active_tree = trees.by_locator(self._loc.active_root.lstrip("/"))
             targets = trees.for_build(target_build_id) if target_build_id else []
             targets = [row for row in targets if row["locator"] != self._loc.active_root.lstrip("/")]
+        if target_build_id == active_build_id and active_build_id and not promoted:
+            if self._prepared_build_for_source() != active_build_id:
+                raise StepFailure("PREPARED_RUNTIME_CHANGED", "prepared build changed before activation",
+                                  mutation_possible=False)
         if target_build_id != active_build_id and len(targets) != 1:
             raise StepFailure(CODE_ACTIVE_RUNTIME_UNPROVEN, "target tree is ambiguous", mutation_possible=False)
         target = active_tree if target_build_id == active_build_id else targets[0]
@@ -1128,6 +1191,16 @@ class RuntimeLifecycleHostAdapter:
             inference_ok = self.server_port.inference(self._view(), timeout=20.0).get("ok") is True
             if not active_build_id or not self._health_matches(health) or not inference_ok:
                 raise StepFailure(CODE_ACTIVE_RUNTIME_UNPROVEN, "running prior runtime cannot be restored with verified settings", mutation_possible=False)
+        view = self._view()
+        installation_only = not view.get("current_model")
+        if installation_only:
+            prior_prepared = active_build_id is None or self._prepared_build_for_source() == active_build_id
+            if (active or self.server_port.capture(view).get("active") is not False
+                    or known_good is not None or promoted or (component or {}).get("rollback_build_id")
+                    or not prior_prepared):
+                raise StepFailure("INITIAL_INSTALLATION_UNPROVEN",
+                                  "no-model installation requires absent or prepared runtime and a stopped service",
+                                  mutation_possible=False)
         return PriorRuntimeSnapshotV1(
             service_state=(
                 "ACTIVE_VERIFIED" if active and health.get("healthy")
@@ -1156,7 +1229,40 @@ class RuntimeLifecycleHostAdapter:
             target_locator=(target or {}).get("locator"),
             rollback_tree_id=(component or {}).get("rollback_tree_id"),
             known_good_payload=known_good,
+            installation_only=installation_only,
+            installation_fingerprint=self._installation_fingerprint(view) if installation_only else None,
         )
+
+    @staticmethod
+    def _installation_fingerprint(view: dict[str, Any]) -> str:
+        from .runtime_handoff import runtime_fingerprint
+
+        return runtime_fingerprint(view)
+
+    def observe_initial_installation(self, snapshot, target_build_id) -> ProbeResult:
+        """Files installed without a model is never live or known-good proof."""
+        view = self._view()
+        with self._units.read() as conn:
+            component = RuntimeComponentRepository(conn).current() or {}
+            record = RuntimeBuildRepository(conn).require(target_build_id)
+        same = (
+            snapshot.installation_only
+            and bool(snapshot.installation_fingerprint)
+            and self._installation_fingerprint(view) == snapshot.installation_fingerprint
+            and not view.get("current_model")
+            and self.server_port.capture(view).get("active") is False
+            and component.get("promoted_build_id") is None
+            and component.get("rollback_build_id") is None
+            and self._known_good() is None
+            and self.renderer.observe(require_v2=False) == snapshot.handoff_payload
+            and record["provenance_class"] == "IMMUTABLE_SOURCE"
+            and self._observed_tree(self._loc.active_root, target_build_id) is not None
+            and self._all_binaries_match(record["manifest"])
+        )
+        if not same:
+            return ProbeResult(RecoveryClass.REVERTIBLE, "INITIAL_INSTALLATION_CHANGED")
+        return ProbeResult(RecoveryClass.COMPLETE, "INITIAL_RUNTIME_INSTALLED",
+                           output={"installation_verified": True, "inference_deferred": True})
 
     def _health_match_fields(self, health: dict[str, Any]) -> tuple[bool, bool, bool]:
         from .server import observed_model_matches_selected
@@ -1174,14 +1280,24 @@ class RuntimeLifecycleHostAdapter:
         return bool(health.get("healthy")) and all(self._health_match_fields(health))
 
     def verify_activation_boundary(self, request, snapshot, target_build_id) -> None:
+        if not self._thermal_ok():
+            raise StepFailure(CODE_THERMAL_LATCH_STOPPED, "thermal stop before runtime activation",
+                              mutation_possible=False)
         expected = getattr(request, "expected_active_build_id", None)
         if expected is not None \
-                and snapshot.promoted_build_id != expected:
+                and (snapshot.promoted_build_id or snapshot.active_build_id) != expected:
             raise StepFailure(
                 CODE_ACTIVE_TREE_CHANGED,
-                "promoted build changed before the activation boundary",
+                "expected active build changed before the activation boundary",
                 mutation_possible=False,
             )
+        if snapshot.installation_only:
+            view = self._view()
+            if (view.get("current_model")
+                    or self._installation_fingerprint(view) != snapshot.installation_fingerprint
+                    or self.server_port.capture(view).get("active") is not False):
+                raise StepFailure("INITIAL_INSTALLATION_UNPROVEN", "initial setup changed before publication",
+                                  mutation_possible=False)
         if snapshot.service_state == PRIOR_ABSENT and target_build_id is not None \
                 and snapshot.active_build_id is not None:
             raise StepFailure(
@@ -1208,7 +1324,7 @@ class RuntimeLifecycleHostAdapter:
         if not snapshot.target_locator or not snapshot.target_tree_id:
             return ProbeResult(RecoveryClass.UNCERTAIN_MANUAL, "EXCHANGE_BINDING_MISSING")
         active = self._observed_tree(self._loc.active_root)
-        if (active and active["build_id"] == target_build_id == snapshot.promoted_build_id == snapshot.active_build_id
+        if (active and active["build_id"] == target_build_id == snapshot.active_build_id
                 and snapshot.target_tree_id == snapshot.active_tree_id
                 and snapshot.target_locator == self._loc.active_root.lstrip("/")):
             return ProbeResult(RecoveryClass.COMPLETE, "UNCHANGED_ACTIVE_TREE")
@@ -1622,7 +1738,7 @@ class RuntimeLifecycleHostAdapter:
             target = RuntimeTreeRepository(conn).require(snapshot.target_tree_id)
         arrangement = self._classify_arrangement(snapshot, target["build_id"])
         stages = []
-        if arrangement.classification is RecoveryClass.COMPLETE:
+        if arrangement.classification is RecoveryClass.COMPLETE and snapshot.target_tree_id != snapshot.active_tree_id:
             helper = self._stage_helper(operation_id=f"restore-{restoration_id}"[:40])
             if snapshot.active_build_id is None:
                 argv = build_helper_invocation(helper, "/" + snapshot.target_locator,
@@ -1632,11 +1748,13 @@ class RuntimeLifecycleHostAdapter:
                                                "/" + snapshot.target_locator, self._loc.approved_root)
             self._run_remote(CommandKind.ATOMIC, tuple(argv))
             stages.append("REVERSE_EXCHANGED")
-        elif arrangement.classification is not RecoveryClass.ABSENT:
+        elif arrangement.classification not in (RecoveryClass.ABSENT, RecoveryClass.COMPLETE):
             raise StepFailure("RUNTIME_RESTORATION_UNCERTAIN", arrangement.reason_code, mutation_possible=True)
         else:
             stages.append("TREE_ALREADY_PRIOR")
-        if self._classify_arrangement(snapshot, target["build_id"]).classification is not RecoveryClass.ABSENT:
+        restored_arrangement = self._classify_arrangement(snapshot, target["build_id"])
+        unchanged = snapshot.target_tree_id == snapshot.active_tree_id and restored_arrangement.reason_code == "UNCHANGED_ACTIVE_TREE"
+        if restored_arrangement.classification is not RecoveryClass.ABSENT and not unchanged:
             raise StepFailure("RUNTIME_RESTORATION_UNCERTAIN", "reverse exchange unproven", mutation_possible=True)
         self._record_pair_locations(snapshot, forward=False)
         observed_handoff = self.renderer.observe(require_v2=False)

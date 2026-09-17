@@ -141,6 +141,23 @@ def test_image_identity_is_observed_on_host_for_actual_container(real_adapter):
     }
 
 
+def test_exchange_helper_refresh_is_atomic_and_never_follows_destination_symlink(real_adapter, tmp_path):
+    from bc250_llm_mode.runtime_exchange_helper import HELPER_SOURCE
+
+    adapter, _, _ = real_adapter
+    path = Path(adapter._stage_helper(operation_id="repeat-helper"))
+    assert path.read_bytes() == HELPER_SOURCE.encode()
+    assert path.stat().st_mode & 0o777 == 0o500
+    assert adapter._stage_helper(operation_id="repeat-helper") == str(path)
+    outside = tmp_path / "preserve.txt"
+    outside.write_text("owner data")
+    path.unlink()
+    path.symlink_to(outside)
+    adapter._stage_helper(operation_id="repeat-helper")
+    assert not path.is_symlink() and path.read_bytes() == HELPER_SOURCE.encode()
+    assert outside.read_text() == "owner data"
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux compiler and binary-stat recipe")
 def test_real_cmake_builds_fetched_source_and_recovers_manifest(real_adapter):
     if not all(shutil.which(tool) for tool in ("cmake", "make", "cc")):

@@ -533,6 +533,25 @@ class RuntimeTreeRepository:
             raise RuntimeBuildError("TREE_IDENTITY_CONFLICT", "ambiguous tree locator")
         return dict(rows[0]) if rows else None
 
+    def prepared_by_locator(self, locator: str, container_profile: str) -> dict[str, Any] | None:
+        """A completed initial installation, still awaiting live promotion.
+
+        This is a bounded database observation, not proof of current files.
+        The host must independently revalidate the manifest and binaries.
+        """
+        row = self.by_locator(locator)
+        if not row or row["role"] != "ACTIVE_OBSERVED" \
+                or row["container_profile"] != container_profile \
+                or row["ownership_class"] != "OPERATION_OWNED":
+            return None
+        operation = self.conn.execute(
+            "SELECT state, operation_type, result_code FROM operations WHERE id=?",
+            (row["created_by_operation_id"],),
+        ).fetchone()
+        if not operation or tuple(operation) != ("SUCCEEDED", "RUNTIME_UPDATE", "RUNTIME_INSTALLED"):
+            return None
+        return row
+
     def for_build(self, build_id: str) -> list[dict[str, Any]]:
         return [dict(row) for row in self.conn.execute(
             "SELECT * FROM runtime_trees WHERE build_id=? AND role!='QUARANTINED' "

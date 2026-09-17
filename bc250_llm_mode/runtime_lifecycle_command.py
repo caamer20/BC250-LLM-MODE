@@ -191,6 +191,30 @@ class RuntimeLifecycleCommandService:
         outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="ROLLBACK")
 
+    def verify_prepared(self, *, requested_by: str = "setup") -> RuntimeLifecycleOutcome | None:
+        """Finish the first runtime through the same durable update workflow.
+
+        Setup calls this after model activation. The exact prepared build and
+        commit are selected from durable installation evidence, then checked
+        independently by the host at the activation boundary. No direct host
+        call or component-state write is allowed here.
+        """
+        report = self.status()
+        if report.get("promoted"):
+            return None
+        prepared = report.get("prepared")
+        if not prepared:
+            return RuntimeLifecycleOutcome(None, "BUSY", "VERIFY", {
+                "reason": "No completed runtime installation is available to verify; resume runtime setup.",
+            })
+        outcome = self.update(requested_ref=prepared["source_commit"],
+                              expected_active_build_id=prepared["build_id"], requested_by=requested_by)
+        if outcome.ok and outcome.detail.get("result_code") == "RUNTIME_INSTALLED":
+            return RuntimeLifecycleOutcome(outcome.operation_id, "BUSY", "VERIFY", {
+                **outcome.detail, "reason": "Select and activate a model before runtime verification.",
+            })
+        return outcome
+
     def _detach(self, operation_id: str, *, action: str,
                 spawner: Any | None) -> RuntimeLifecycleOutcome:
         """U1.3: hand the queued operation to ONE detached worker host."""
@@ -267,6 +291,7 @@ class RuntimeLifecycleCommandService:
             result: dict[str, Any] = {
                 "generation": (component or {}).get("generation"),
                 "promoted": None,
+                "prepared": None,
                 "rollback": None,
                 "known_good_identity": (
                     KnownGoodRuntimeRepository(conn).get()
@@ -275,6 +300,21 @@ class RuntimeLifecycleCommandService:
                 "recovery_barrier": None,
                 "active_operation": None,
             }
+            if not (component or {}).get("promoted_build_id") and not (component or {}).get("rollback_build_id"):
+                from .repositories import SettingsRepository
+
+                settings = SettingsRepository(conn)
+                locator = str(settings.get("llama_cpp_path") or "/root/llama.cpp").lstrip("/")
+                container = str(settings.get("container_name") or "llm")
+                tree = trees.prepared_by_locator(locator, container)
+                if tree is not None:
+                    record = builds.require(tree["build_id"])
+                    if record["provenance_class"] == "IMMUTABLE_SOURCE":
+                        result["prepared"] = {
+                            "build_id": record["build_id"], "source_commit": record["source_commit"],
+                            "short": record["build_id"].rsplit(":", 1)[-1][:12],
+                            "model_verification_pending": True,
+                        }
             for key in ("promoted", "rollback"):
                 build_id = (component or {}).get(f"{key}_build_id")
                 if not build_id:
@@ -401,6 +441,9 @@ class RuntimeLifecycleCommandService:
             )
         if status == "SUCCEEDED" and record.result_code == "RUNTIME_ALREADY_ACTIVE":
             detail["already_active"] = True
+        elif status == "SUCCEEDED" and record.result_code == "RUNTIME_INSTALLED":
+            detail["model_verification_pending"] = True
+            detail["reason"] = "Runtime installed. Activate a model, then run runtime update to finish verification."
         elif status == "FAILED_ROLLED_BACK":
             detail["reason"] = (
                 "The runtime change failed; the previous working runtime "

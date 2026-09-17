@@ -1,5 +1,14 @@
 # Current implementation state
 
+Source version `0.9.0.dev11` on `codex/fresh-setup-dev11` corrects the
+fresh-install model/runtime dependency and is in local qualification.
+It is isolated from the frozen dev10 candidate. See the
+[setup correction and validation limits](fresh-runtime-setup-2026-09-17.md).
+No dev11 source was transferred or deployed: automatic approval review
+rejected the draft source/test transfer pending explicit authorization.
+The active BC250 application remains dev9. The records below are historical
+candidate evidence and do not qualify the changed dev11 package.
+
 Source version `0.9.0.dev10` at `ff26fb3` is developer-qualified and staged on
 `codex/runtime-identity-dev10`. Its 1,844-test inventory passes on macOS
 (1,831 passed / 13 skips) and Bazzite (1,841 passed / three skips); all 52 slow

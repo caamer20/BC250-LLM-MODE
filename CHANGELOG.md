@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.9.0.dev11 — first runtime installation before model selection (unreleased)
+
+- Complete fresh runtime installation without starting an empty-model service
+  or claiming promotion. Preserve the stopped service, handoff and absent
+  known-good state, and report that model verification is pending.
+- Reuse the exact prepared build when Setup resumes. After model activation,
+  finish the same durable runtime workflow with its immutable source/build
+  identity; require a new invocation, correct model/context/slots and inference
+  before advancing Setup or promoting the runtime. No second build is needed.
+- Recheck configuration, thermal state and executable identities at the
+  activation boundary. Restore the prior state if verification fails, retain
+  all potentially useful files, and recover interrupted initial publication.
+- Refresh the fixed exchange helper by atomic replacement and verify its file
+  digest; repeated staging and hostile destination symlinks are covered.
+- Add production-adapter setup/recovery journeys with explicit platform and
+  model-service fixtures. Linux execution, device deployment, participant and
+  release gates remain pending; dev9 remains the active physical installation.
+
 ## 0.9.0.dev10 — runtime build and recovery corrections (unreleased)
 
 - Resolve tags, branches and exact commits through real Git; refuse ambiguous
