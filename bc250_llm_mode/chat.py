@@ -265,8 +265,9 @@ def export_conversation(
     if system_prompt:
         lines += ["> **System:** " + system_prompt.replace("\n", "\n> "), ""]
     for message in conversation:
+        from .document_service import message_with_sources
         role = "You" if message["role"] == "user" else "Model"
-        lines += [f"## {role}", "", message["content"], ""]
+        lines += [f"## {role}", "", message_with_sources(message)["content"], ""]
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
@@ -322,7 +323,7 @@ def _print_help(console) -> None:
             "/system [text|clear]            show, set, or clear the system prompt",
             "/temp <0.0-2.0|off>             per-request temperature override",
             "/think on|off                   hide (or show) <think> reasoning blocks",
-            "/trim [messages]                drop oldest turns (auto-trim also runs near the context limit)",
+            "/trim [messages]                explicitly remove oldest turns from this session",
             "/export [name]                  export this conversation as Markdown",
             "/retry                          regenerate the last answer",
             "/clear                          clear this session's conversation",
@@ -344,16 +345,24 @@ def run_chat(application) -> None:
     conversation: list[dict[str, str]] = []
     overrides: dict[str, Any] = {}
     system_prompt: str | None = None
+    response_tokens = 2048
     think_hidden = False
 
     def request_history() -> list[dict[str, str]]:
-        # Auto-trim so long sessions stay inside the per-slot context budget.
-        conversation[:] = trim_conversation(conversation, int(state.get("current_ctx", 8192)))
+        from .document_service import message_with_sources
+        history = [message_with_sources(message) for message in conversation]
         if system_prompt:
-            return [{"role": "system", "content": system_prompt}, *conversation]
-        return list(conversation)
+            return [{"role": "system", "content": system_prompt}, *history]
+        return history
 
     def generate() -> None:
+        plan = application.chat_context.prepare(state, request_history(), response_tokens=response_tokens)
+        if not plan.fits:
+            console.print("[yellow]The newest message and instructions exceed the context allowance. Save this history and shorten the message or start a new conversation.[/yellow]")
+            return
+        if plan.excluded:
+            console.print(plan.description)
+            console.print("Saved history is retained; only the recent turns and instructions reach this request.")
         console.print("[bold green]assistant>[/bold green] ", end="")
         filter_ = ThinkFilter() if think_hidden else None
 
@@ -370,11 +379,13 @@ def run_chat(application) -> None:
 
         result = application.chat_sessions.stream(
             state,
-            request_history(),
+            list(plan.messages),
             printer,
             overrides=overrides,
             on_timings=show_timings,
             conversation_id="terminal",
+            max_generated_tokens=response_tokens,
+            context_plan=plan,
         )
         if filter_ is not None:
             tail = filter_.flush()
@@ -608,9 +619,11 @@ def run_chat(application) -> None:
             parts = prompt.split(maxsplit=1)
             name = parts[1] if len(parts) > 1 else "default"
             try:
+                from .chat_preferences import ConversationOptions
                 record = application.conversations.save_named(
                     name, conversation,
                     last_model=state.get("current_model"),
+                    options=ConversationOptions(system_prompt or "", overrides.get("temperature"), response_tokens),
                 )
                 path = application.paths.conversations_dir / f"{record.conversation_id}.json"
                 console.print(f"Saved to [cyan]{path}[/cyan]")
@@ -623,9 +636,13 @@ def run_chat(application) -> None:
             try:
                 loaded_record = application.conversations.load(name)
                 loaded = [dict(message) for message in loaded_record.messages]
-                system_prompt = next(
-                    (item["content"] for item in loaded if item["role"] == "system"), system_prompt
-                )
+                system_prompt = loaded_record.options.instructions or next(
+                    (item["content"] for item in loaded if item["role"] == "system"), None)
+                response_tokens = loaded_record.options.response_tokens
+                if loaded_record.options.temperature is None:
+                    overrides.pop("temperature", None)
+                else:
+                    overrides["temperature"] = loaded_record.options.temperature
                 conversation.clear()
                 conversation.extend(item for item in loaded if item["role"] != "system")
                 console.print(f"Loaded {len(conversation)} message(s) from {name!r}.")
@@ -695,11 +712,17 @@ def run_chat(application) -> None:
                 console.print(f"[red]{exc}[/red]")
             continue
         if prompt == "/retry":
-            while conversation and conversation[-1]["role"] == "assistant":
-                conversation.pop()
-            if not conversation:
+            last_user = next((message for message in reversed(conversation) if message["role"] == "user"), None)
+            if last_user is None:
                 console.print("[red]Nothing to retry yet.[/red]")
                 continue
+            from .conversation_service import MAX_STORED_BYTES, MAX_STORED_MESSAGES
+            if (len(conversation) >= MAX_STORED_MESSAGES - 1
+                    or len(json.dumps(conversation, ensure_ascii=False).encode())
+                    + len(json.dumps(last_user, ensure_ascii=False).encode()) + 256 * 1024 > MAX_STORED_BYTES):
+                console.print("[yellow]Save this conversation, then start a new session before retrying. The local size limit was reached.[/yellow]")
+                continue
+            conversation.append(dict(last_user))
             try:
                 generate()
             except (httpx.HTTPError, OSError, RuntimeError, ValueError, KeyError) as exc:
@@ -711,6 +734,11 @@ def run_chat(application) -> None:
             continue
         if prompt.startswith("/"):
             console.print("Unknown command; use /help")
+            continue
+        from .conversation_service import MAX_STORED_BYTES, MAX_STORED_MESSAGES
+        if (len(prompt.encode("utf-8")) > 32768 or len(conversation) >= MAX_STORED_MESSAGES - 1
+                or len(json.dumps(conversation, ensure_ascii=False).encode()) + len(prompt.encode()) + 256 * 1024 > MAX_STORED_BYTES):
+            console.print("[yellow]This conversation reached its local size limit. Use /save, then /clear to start a new one; no history was removed.[/yellow]")
             continue
         conversation.append({"role": "user", "content": prompt})
         try:

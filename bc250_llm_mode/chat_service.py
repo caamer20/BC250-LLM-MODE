@@ -128,17 +128,13 @@ def estimate_message_tokens(messages: Sequence[Mapping[str, str]]) -> int:
 def trim_messages(
     messages: Sequence[Mapping[str, str]], token_budget: int, *, reserve: int = 512
 ) -> list[dict[str, str]]:
-    if token_budget <= reserve:
-        raise ValueError("context token budget must exceed the response reserve")
-    trimmed = [dict(message) for message in messages[-MAX_CHAT_MESSAGES:]]
-    while len(trimmed) > 2 and estimate_message_tokens(trimmed) + reserve > token_budget:
-        drop = 2 if trimmed[0].get("role") == "user" else 1
-        trimmed = trimmed[drop:]
-    return trimmed
+    from .chat_context import select_context
+    return list(select_context(messages, token_budget, reserve,
+                               counter=estimate_message_tokens).messages)
 
 
 def _validated_messages(
-    messages: Sequence[Mapping[str, str]], request: ChatRequest
+    messages: Sequence[Mapping[str, str]], request: ChatRequest, *, prompt_tokens=None
 ) -> list[dict[str, str]]:
     if not messages or len(messages) > MAX_CHAT_MESSAGES:
         raise ValueError(f"messages must contain 1..{MAX_CHAT_MESSAGES} entries")
@@ -151,7 +147,7 @@ def _validated_messages(
         if len(content.encode("utf-8")) > MAX_CHAT_MESSAGE_BYTES:
             raise ValueError("one chat message exceeds the 256 KiB bound")
         checked.append({"role": str(role), "content": content})
-    if estimate_message_tokens(checked) > request.max_prompt_tokens:
+    if (estimate_message_tokens(checked) if prompt_tokens is None else prompt_tokens) > request.max_prompt_tokens:
         raise ValueError("chat prompt exceeds the request token cap")
     return checked
 
@@ -204,10 +200,13 @@ class ChatSessionService:
         request_id: str | None = None,
         deadline: ChatDeadline = DEFAULT_CHAT_DEADLINE,
         max_generated_tokens: int = 2048,
+        context_plan=None,
     ) -> ChatStreamResult:
         token = cancellation or ChatCancellation()
         expected_model = str(state.get("current_model") or "local")
         context = int(state.get("current_ctx") or 8192)
+        if type(max_generated_tokens) is not int or not 1 <= max_generated_tokens <= 8192:
+            raise ValueError("Response allowance must be within 1–8192 tokens")
         generated_cap = min(max_generated_tokens, max(64, context // 2))
         request = ChatRequest(
             request_id=request_id or self._request_ids(),
@@ -216,7 +215,15 @@ class ChatSessionService:
             max_prompt_tokens=max(128, context - generated_cap),
             max_generated_tokens=generated_cap,
         )
-        checked = _validated_messages(messages, request)
+        prepared_tokens = None
+        if context_plan is not None:
+            from .chat_context import ContextPlan
+            if (not isinstance(context_plan, ContextPlan) or tuple(messages) != context_plan.messages
+                    or context_plan.response_tokens != generated_cap
+                    or context_plan.prompt_limit != context - generated_cap or not context_plan.fits):
+                raise ValueError("Context preflight does not match this request")
+            prepared_tokens = context_plan.prompt_tokens
+        checked = _validated_messages(messages, request, prompt_tokens=prepared_tokens)
         if self._thermal_ok is not None and not self._thermal_ok():
             return self._result(
                 request, ChatResultClassification.THERMAL_STOP, "", 0, 0,
@@ -241,7 +248,7 @@ class ChatSessionService:
             raise ValueError("server_port must be within 1..65535")
         url = f"http://127.0.0.1:{port}/v1/chat/completions"
         start = self._clock()
-        prompt_tokens = estimate_message_tokens(checked)
+        prompt_tokens = estimate_message_tokens(checked) if prepared_tokens is None else prepared_tokens
         attempts = 0
         while attempts < 2:
             attempts += 1

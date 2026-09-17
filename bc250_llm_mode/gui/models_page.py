@@ -178,7 +178,9 @@ def _measurement_summary(row: Any, *, now=None) -> tuple[bool, str]:
         value = summary.get(key)
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
             parts.append(f"{label} {float(value):.1f}{suffix}")
-    return (True, "Measured locally: " + " · ".join(parts)) if parts else (
+    # Legacy library summaries do not bind a workload/runtime fingerprint.
+    # They must not count as current evidence in recommendation ranking.
+    return (False, "Historical benchmark (profile/runtime not recorded): " + " · ".join(parts)) if parts else (
         False, "Not measured on this machine")
 
 
@@ -503,6 +505,7 @@ class ModelsPage(ttk.Frame):
         self.detail_body = tk.StringVar(value="")
         ttk.Label(right, textvariable=self.detail_title, font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
         ttk.Label(right, textvariable=self.detail_state).pack(anchor="w", pady=(2, 5))
+        ttk.Button(right, text="Compare local profile measurements…", command=self._compare_measurements).pack(anchor="w", pady=(0, 5))
         detail_frame = ttk.Frame(right)
         detail_frame.pack(fill="both", expand=True)
         self._detail_text = tk.Text(
@@ -590,6 +593,28 @@ class ModelsPage(ttk.Frame):
         self.filter_var.set("All")
         self.search_var.set("")
         self._render_list()
+
+    def _compare_measurements(self):
+        item = self._selected()
+        if item is None or item.remote or not item.alias:
+            self.shell.drawer.show_details("Local measurements", "Select an installed model. A download or memory-fit estimate does not establish its speed on this machine.")
+            return
+        alias, name = item.alias, item.display_name
+        def show(cards):
+            body = self.shell.drawer.show_form(f"Local profile measurements — {name}")
+            ttk.Label(body, text="Measurements match this model artifact, runtime and profile. Context is the setting used for the short trial; it is not a full-context or soak qualification. Fit remains an estimate.", wraplength=760).pack(anchor="w")
+            for card in cards:
+                preview = card["preview"]
+                frame = ttk.LabelFrame(body, text=preview["profile"]["name"], padding=4)
+                frame.pack(fill="x", pady=3)
+                ttk.Label(frame, text=f"{preview['fit_verdict']} · estimated memory {preview['required_gib']:.2f} GiB · context {preview['context_per_slot']:,} × {preview['slots']}", wraplength=720).pack(anchor="w")
+                ttk.Label(frame, text=card["summary"], wraplength=720).pack(anchor="w")
+                if card["measurement"]["recorded_at"]:
+                    ttk.Label(frame, text="Recorded " + card["measurement"]["recorded_at"]).pack(anchor="w")
+                ttk.Button(frame, text="Review profile / calibrate…", command=lambda p=preview: self.shell.navigate(
+                    Route.PROFILES, {"profile_id": p["profile_id"], "model_alias": alias})).pack(anchor="e")
+            ttk.Button(body, text="Close", command=self.shell.drawer.clear).pack(anchor="e")
+        self.shell.request_observation(lambda: self.application.model_guidance.compare(alias), show)
 
     def _apply_preset(self, _event=None) -> None:
         try:

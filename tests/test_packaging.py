@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import bc250_llm_mode
+from package_build_fixture import clean_build_source as _clean_build_source
 
 try:  # Tk is an optional system dependency (mirrors the Linux-gated skips).
     import tkinter  # noqa: F401
@@ -19,7 +20,7 @@ def test_pyproject_declares_entry_point_and_metadata():
     assert 'bc250-llm-mode = "bc250_llm_mode.__main__:cli"' in text
     assert "requires-python" in text
     assert 'readme = "README.md"' in text
-    for dependency in ("gguf", "httpx", "prompt-toolkit", "rich"):
+    for dependency in ("gguf", "httpx", "prompt-toolkit", "rich", "pypdf"):
         assert dependency in text, f"missing declared dependency: {dependency}"
 
 
@@ -80,7 +81,7 @@ def test_clean_wheel_smoke_includes_operations(tmp_path):
     wheel_dir.mkdir()
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-         "--wheel-dir", str(wheel_dir), str(Path(__file__).parent.parent)],
+         "--wheel-dir", str(wheel_dir), str(_clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -90,7 +91,7 @@ def test_clean_wheel_smoke_includes_operations(tmp_path):
     target = tmp_path / "site"
     target.mkdir()
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )
@@ -176,7 +177,7 @@ def test_clean_wheel_executes_runtime_workflows_and_migration_005(tmp_path):
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps",
          "--no-build-isolation", "--wheel-dir", str(wheel_dir),
-         str(Path(__file__).parent.parent)],
+         str(_clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -185,7 +186,7 @@ def test_clean_wheel_executes_runtime_workflows_and_migration_005(tmp_path):
     target = tmp_path / "site2"
     target.mkdir()
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )

@@ -147,6 +147,31 @@ def test_symlink_and_external_paths_are_never_candidates(tmp_path):
     assert (outside / "valuable").read_text(encoding="utf-8") == "keep"
 
 
+def test_cleanup_preview_remains_valid_between_seconds_until_window_expires(tmp_path):
+    app = _app(tmp_path)
+    clock = Clock()
+    app.storage_cleanup._clock = clock.now
+    app.storage_cleanup._adapter._clock = clock.now
+    _stage(app, "stable-preview")
+    preview = app.storage_cleanup.preview()
+    clock.advance(31)
+    current = app.storage_cleanup.preview()
+    assert current.preview_digest == preview.preview_digest
+    assert current.selected[0]["retention_until"] == "2026-09-06T12:15:00Z"
+    outcome = app.storage_cleanup.apply(
+        preview_digest=preview.preview_digest,
+        confirmation_token=preview.confirmation_token,
+    )
+    assert outcome.ok
+    _stage(app, "expired-preview")
+    expired = app.storage_cleanup.preview()
+    clock.advance(900)
+    assert app.storage_cleanup.apply(
+        preview_digest=expired.preview_digest,
+        confirmation_token=expired.confirmation_token,
+    ).result_code == "CLEANUP_PREVIEW_STALE"
+
+
 def test_expired_quarantine_requires_explicit_purge_and_keeps_receipt(tmp_path):
     app = _app(tmp_path)
     _stage(app, "purge-stage", b"purge-me")

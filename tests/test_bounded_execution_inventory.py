@@ -34,6 +34,19 @@ DISPOSITIONS = {
     "hub_source.py": "migrate_http_transport",
     "chat.py": "migrate_http_transport",
     "chat_service.py": "already_bounded",
+    # Dev6: explicit local template/tokenization requests, six-second total
+    # preflight and bounded raw JSON, with an identified estimate fallback.
+    "chat_context.py": "already_bounded",
+    # Dev6: explicit query-only SearXNG POST, no redirects/page fetching,
+    # 15-second deadline, 1 MiB response and four inert excerpts.
+    "web_search.py": "already_bounded",
+    # Dev6: fixed interpreter/worker argv, PDF on stdin, bounded temporary
+    # output, 12-second kill/reap and child CPU/address-space/file limits.
+    "document_service.py": "already_bounded",
+    # Dev6 JSON preflight/search worker bounds the whole request including
+    # DNS and trickled headers before an HTTP response object exists.
+    "bounded_json_http.py": "already_bounded",
+    "json_http_worker.py": "already_bounded",
     # EXP-3 calibration streams only the bundled fixed prompt through finite
     # connect/read/write timeouts and applies an independent SSE line bound.
     "calibration_adapter.py": "already_bounded",
@@ -125,6 +138,16 @@ FROZEN_BASELINE = {
                 "shell_kwargs": 0, "timeout_none": 0},
     "chat_service.py": {"proc_calls": 0, "http_module": True,
                         "shell_kwargs": 0, "timeout_none": 0},
+    "chat_context.py": {"proc_calls": 0, "http_module": True,
+                        "shell_kwargs": 0, "timeout_none": 0},
+    "web_search.py": {"proc_calls": 0, "http_module": True,
+                      "shell_kwargs": 0, "timeout_none": 0},
+    "document_service.py": {"proc_calls": 1, "http_module": False,
+                            "shell_kwargs": 0, "timeout_none": 0},
+    "bounded_json_http.py": {"proc_calls": 1, "http_module": False,
+                            "shell_kwargs": 0, "timeout_none": 0},
+    "json_http_worker.py": {"proc_calls": 0, "http_module": True,
+                            "shell_kwargs": 0, "timeout_none": 0},
     "calibration_adapter.py": {"proc_calls": 0, "http_module": True,
                                "shell_kwargs": 0, "timeout_none": 0},
     "hardware.py": {"proc_calls": 1, "http_module": False,

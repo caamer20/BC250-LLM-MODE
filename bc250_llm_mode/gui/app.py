@@ -150,6 +150,9 @@ class GuiBase(tk.Tk):
                                 ))
             except queue.Empty:
                 pass
+            reap = getattr(lanes, "reap_completed", None)
+            if reap is not None:
+                reap()
 
     def _build_shell(self) -> None:
         """Build the concrete shell supplied by :class:`ApplicationWindow`."""

@@ -16,6 +16,39 @@ outside the diagnostic database. See
 [the implementation record](docs/review-implementation-status.md) for pending
 physical qualification and the [restore matrix](docs/restore-preservation-contract.md).
 
+## September experience boundaries
+
+`chat_context.py` preserves stored history while selecting whole turns for the
+request, retaining instructions and reporting omitted turns. Runtime template
+and tokenizer calls have a single deadline with an explicit estimate fallback.
+`chat_preferences.py` stores conversation controls and private prompt templates.
+`chat_markdown.py` emits bounded presentation spans; it executes no HTML or code.
+Branches and reviewed summaries create independent conversation files.
+
+`document_service.py` extracts explicit text/Markdown/PDF inputs. PDF parsing
+runs in `document_worker.py` with fixed argv, private stdin/output, a 12-second
+deadline, Linux memory/CPU limits, and file/page/text bounds. `web_search.py`
+posts only an explicitly entered query to an opt-in SearXNG provider. Selected
+search excerpts become reviewable sources; the app never crawls their URLs.
+Both web and tokenization HTTP use `bounded_json_http.py` and its isolated
+worker so DNS, headers, body reads and cancellation share an enforceable
+deadline. Private payloads never enter argv or diagnostics.
+
+`portable_backup.py` is separate from database restore: it verifies a held
+archive, stages canonical records, and imports atomic new conversation files
+with content-bound retry identities. Only selected display preferences and
+templates transfer; credentials and machine authority do not. Conversation
+schema 2 reads schema 1; older dev5 cannot read schema 2, so downgrade does not
+provide access to newly saved conversations. Export Markdown before downgrade
+when that access is needed.
+
+`model_guidance.py` compares bounded existing calibration records by exact
+artifact/profile/runtime identity and freshness. It cannot invent or refresh
+hardware measurements. Tk task holders retain worker closures/results until
+the UI thread releases them, including under result-queue backpressure.
+See [the feature contract](docs/chat-and-portable-recovery.md) and
+[web-search setup](docs/web-search.md) for limits and pending physical checks.
+
 ## Module map
 
 | Module | Responsibility |

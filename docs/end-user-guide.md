@@ -68,13 +68,20 @@ auto-start.
   goals plus bounded custom profiles. Preview before Apply.
 - **Chat** streams locally without opening a browser, preserves unsent drafts
   when you leave, and stores conversations in private local files. It can copy,
-  retry, and explicitly export either redacted or full Markdown.
+  retry, and explicitly export either redacted or full Markdown. **Conversation**
+  contains editing into a branch and reviewed summaries; **Chat settings**
+  manages instructions/templates and response controls; **Add source** accepts
+  local documents or an explicit SearXNG web search. **Sources** reviews/removes
+  sources before sending. **Response** contains copying, code copying and retry.
+  See [chat, sources and portable recovery](chat-and-portable-recovery.md).
 - **Connections** shows exact Open WebUI/OpenAI-compatible client values and
   creates one independently revocable key per client. Connection Doctor turns
   model/gateway/Tailscale/key failures into one safe next action.
 - **Activity** is the durable source of progress, cancellation, retry, resume,
   and recovery truth.
 - **Maintenance** prioritizes safety and recovery before routine suggestions.
+  **Backups** offers database backup/restore and separate portable conversation
+  export/import. Portable imports preserve existing conversations and services.
 - **System** controls the one model service, optional Open WebUI, optional
   Tailscale, tailnet HTTPS, current-boot host mode, runtime, and backups.
 - **Settings** stages workload/appearance changes and contains Privacy.

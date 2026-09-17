@@ -536,6 +536,27 @@ class UserPreferencesService:
                 )
         return checked
 
+    def apply_portable(self, values, *, expected) -> dict[str, Any]:
+        """Restore selected display preferences without touching notifications.
+
+        Comparison and the patch share a transaction. A retry is harmless when
+        a previous attempt already applied the selected values.
+        """
+        from .repositories import SettingsRepository
+        allowed = {"appearance", "ui_scale_percent", "reduced_motion"}
+        if not isinstance(values, dict) or set(values) - allowed or not isinstance(expected, dict):
+            raise ValueError("A display-preference preview is required.")
+        checked = self.validate(values)
+        with self._units.begin() as conn:
+            settings = SettingsRepository(conn)
+            current = {k: settings.get(k, self.DEFAULTS[k]) for k in values}
+            target = {k: checked[k] for k in values}
+            if current != target and current != {k: expected.get(k) for k in values}:
+                raise ValueError("Display preferences changed after preview.")
+            settings.set_many(target)
+            settings.set_revision(settings.revision() + 1)
+        return self.current()
+
 
 class MaintenanceService:
     """Uninstall/desktop-safe teardown with exact destructive targets."""

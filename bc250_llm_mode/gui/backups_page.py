@@ -4,7 +4,8 @@ from __future__ import annotations
 import time
 import uuid
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
+from pathlib import Path
 
 from .view_state import Confirmation, Notice
 
@@ -24,6 +25,11 @@ class BackupsPage(ttk.Frame):
         self.create_button.pack(side="left")
         ttk.Button(actions, text="Verify selected", command=self._verify).pack(side="left", padx=6)
         ttk.Button(actions, text="Preview restore…", command=self._preview).pack(side="left")
+        portable = ttk.Frame(self)
+        portable.pack(fill="x", pady=(8, 0))
+        ttk.Button(portable, text="Export conversations and settings…", command=self._portable_export).pack(side="left")
+        ttk.Button(portable, text="Import portable backup…", command=self._portable_import).pack(side="left", padx=6)
+        ttk.Label(self, text="Portable backups can protect conversations and drafts on another disk. They import as new conversations and do not restore machine services or credentials.", wraplength=680).pack(anchor="w", pady=5)
         self.status = tk.StringVar(value="Reading local backups…")
         ttk.Label(self, textvariable=self.status, wraplength=680).pack(anchor="w", pady=8)
         self.tree = ttk.Treeview(self, columns=("created", "size", "verification"), show="headings", selectmode="browse", height=12)
@@ -68,6 +74,108 @@ class BackupsPage(ttk.Frame):
             self.status.set("Select a backup first.")
             return None
         return selection[0]
+
+    def _portable_run(self, work, done):
+        if self.shell.busy:
+            return
+        result = {}
+        def action():
+            try:
+                result["value"] = work()
+            except Exception:
+                result["failed"] = True
+        def complete():
+            if self._disposed:
+                return
+            if result.get("failed"):
+                self.status.set("Portable backup could not finish. Check the selected file, available storage, and the 200-conversation/128 MiB limits. Existing conversations were not replaced; keep the original archive and retry after correcting the issue.")
+            else:
+                done(result["value"])
+        self.shell._work(action, complete)
+
+    @staticmethod
+    def _preference_choices(body, available):
+        labels = {"appearance": "Appearance", "ui_scale_percent": "Interface scale", "reduced_motion": "Reduced motion"}
+        choices = {}
+        for key, label in labels.items():
+            if key in available:
+                choices[key] = tk.BooleanVar(value=False)
+                ttk.Checkbutton(body, text=label, variable=choices[key]).pack(anchor="w")
+        return choices
+
+    def _portable_export(self):
+        body = self.shell.drawer.show_form("Export a portable backup")
+        ttk.Label(body, text="Includes all saved conversations, drafts and their instructions. The file contains readable private text; choose a location you trust, preferably on another disk. Current model services and credentials are excluded.", wraplength=760).pack(anchor="w")
+        ttk.Label(body, text="Also include these optional settings:").pack(anchor="w", pady=(6, 0))
+        choices = self._preference_choices(body, ("appearance", "ui_scale_percent", "reduced_motion"))
+        templates = tk.BooleanVar(value=False)
+        ttk.Checkbutton(body, text="Reusable prompt templates", variable=templates).pack(anchor="w")
+        def choose():
+            path = filedialog.asksaveasfilename(parent=self, title="Save private portable backup",
+                defaultextension=".tar", initialfile=time.strftime("bc250-conversations-%Y%m%d.tar"),
+                filetypes=(("Portable backup", "*.tar"),))
+            if not path:
+                return
+            selected = tuple(key for key, value in choices.items() if value.get())
+            include_templates = bool(templates.get())
+            def complete(preview):
+                self.shell.drawer.clear()
+                self.status.set(f"Portable backup verified and saved: {len(preview.conversations)} conversations, {len(preview.templates)} templates, {len(preview.preferences)} selected display settings. Keep this file to recover on another installation.")
+            self._portable_run(lambda: self.application.portable_backup.export(Path(path),
+                preference_keys=selected, include_templates=include_templates), complete)
+        actions = ttk.Frame(body)
+        actions.pack(fill="x", pady=5)
+        ttk.Button(actions, text="Cancel", command=self.shell.drawer.clear).pack(side="right")
+        ttk.Button(actions, text="Choose destination…", command=choose).pack(side="right", padx=5)
+
+    def _portable_import(self):
+        path = filedialog.askopenfilename(parent=self, title="Inspect portable backup", filetypes=(("Portable backup", "*.tar"),))
+        if path:
+            self._portable_run(lambda: (self.application.portable_backup.inspect(Path(path)), self.application.preferences.current()),
+                lambda result: self._portable_preview(Path(path), *result))
+
+    def _portable_preview(self, path, preview, baseline):
+        body = self.shell.drawer.show_form("Verified portable backup contents")
+        drafts = sum(row["has_draft"] for row in preview.conversations)
+        ttk.Label(body, text=f"{len(preview.conversations)} conversations · {drafts} drafts · {preview.size_bytes / 1024**2:.1f} MiB. Import creates new conversations; existing conversations remain unchanged. Repeating this exact import resumes it without duplicates.", wraplength=760).pack(anchor="w")
+        frame = ttk.Frame(body)
+        frame.pack(fill="both", expand=True)
+        contents = tk.Text(frame, height=5, wrap="word")
+        contents.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(frame, orient="vertical", command=contents.yview)
+        scroll.pack(side="right", fill="y")
+        contents.configure(yscrollcommand=scroll.set)
+        for row in preview.conversations:
+            contents.insert("end", f"{row['title']} · {row['message_count']} messages" + (" · draft" if row["has_draft"] else "") + "\n")
+        contents.configure(state="disabled")
+        ttk.Label(body, text="Optional settings to import:").pack(anchor="w")
+        choices = self._preference_choices(body, preview.preferences)
+        templates = tk.BooleanVar(value=False)
+        if preview.templates:
+            ttk.Checkbutton(body, text=f"Import {len(preview.templates)} prompt templates (keep existing versions)", variable=templates).pack(anchor="w")
+        def run():
+            selected = tuple(key for key, variable in choices.items() if variable.get())
+            include_templates = bool(templates.get())
+            def work():
+                result = self.application.portable_backup.import_archive(path, preview.digest,
+                    preference_keys=selected, include_templates=include_templates, expected_preferences=baseline)
+                return result, self.application.preferences.current()
+            def done(value):
+                result, preferences = value
+                self.shell.drawer.clear()
+                if result.preferences_applied:
+                    self.shell.apply_preferences(preferences)
+                message = f"Imported {result.imported} conversations; {result.already_present} already present. "
+                if result.complete:
+                    message += "Portable import complete. Open Chat to find the imported conversations."
+                else:
+                    message += f"{result.remaining} conversations and/or optional settings still need attention. Free storage or resolve the settings/template conflict, then inspect and retry this same archive safely."
+                self.status.set(message)
+            self._portable_run(work, done)
+        actions = ttk.Frame(body)
+        actions.pack(fill="x", pady=5)
+        ttk.Button(actions, text="Cancel", command=self.shell.drawer.clear).pack(side="right")
+        ttk.Button(actions, text="Import as new conversations", command=run).pack(side="right", padx=5)
 
     def _run(self, work, done):
         box = {}

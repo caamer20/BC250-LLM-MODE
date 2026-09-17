@@ -11,8 +11,7 @@ from typing import Any, Callable, Iterable
 from .legacy_import import utcnow
 from .operations.model import OperationState, OperationType
 from .operations.repositories import OperationRepository
-
-PREVIEW_SECONDS = 15 * 60
+from .operations.storage_cleanup import PREVIEW_SECONDS
 
 
 @dataclass(frozen=True)

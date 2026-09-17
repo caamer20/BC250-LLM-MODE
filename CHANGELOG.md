@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.9.0.dev6 — conversation and recovery improvements (unreleased)
+
+- Added explicit context omission previews, bounded model/template token
+  counting with a labelled estimate fallback, preserved instructions and
+  saved history, and reviewed summaries into separate conversations.
+- Added bounded native Markdown/code rendering, code copying, editable prompt
+  branches, per-conversation instructions/response limits/temperature, and a
+  private editable template library. Consolidated secondary actions into
+  native menus to keep the composer and Send visible.
+- Added verified portable conversation/draft/source backups and selected
+  display/template export. Import creates new files with stable source-bound
+  identities, resumes after interruption, and preserves existing conversations,
+  credentials, service settings, and notification consent.
+- Added reviewed local text/Markdown/PDF sources, with file/text/page/process
+  limits and private persistence. PDF extraction uses a hash-pinned pypdf
+  dependency in a short-lived resource-limited child.
+- Added explicit SearXNG searches and selected source excerpts/URLs. Only the
+  edited query goes to the provider; no conversation upload, automatic search,
+  page fetching, or model-controlled host tools were added.
+- Added exact model/runtime/profile measurement comparisons and honest missing
+  or stale states. Calibration distinguishes tokens/s from chunk-rate fallback;
+  older unattributed measurements cannot rank a current profile as measured.
+- Fixed worker closure cleanup so Tk objects are finalized by the UI thread,
+  including when completion queues are full. Added real Tk experience journeys.
+- Fixed cleanup previews becoming stale merely because a second elapsed:
+  proposed retention is stable within the existing confirmation window.
+- Clean-wheel gates now exclude ignored historical build output and verify the
+  current package version with hash-locked dependencies.
+- This is a new development candidate. Existing dev5 deployment evidence and
+  physical/security/human/release gates do not qualify these changes.
+
 ## 0.9.0.dev5 — accurate gateway boot status
 
 - A systemd `static` gateway unit is no longer labelled boot-enabled. The

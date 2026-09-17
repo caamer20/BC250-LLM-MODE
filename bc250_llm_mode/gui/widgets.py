@@ -199,6 +199,20 @@ class NoticeBar(ttk.Frame):
         self.pack_forget()
 
 
+class MenuAction:
+    """A fixed menu command with the same state/label update surface as a button."""
+
+    def __init__(self, menu, *, text, command, state="normal"):
+        self.menu = menu
+        menu.add_command(label=text, command=command, state=state)
+        self.index = menu.index("end")
+
+    def configure(self, **values):
+        if "text" in values:
+            values["label"] = values.pop("text")
+        self.menu.entryconfigure(self.index, **values)
+
+
 class BottomDrawer(ttk.Frame):
     def __init__(self, parent) -> None:
         super().__init__(parent, padding=8)
@@ -217,6 +231,42 @@ class BottomDrawer(ttk.Frame):
         self._log_search.set("")
         self._palette_query.set("")
         self.pack_forget()
+
+    def show_form(self, title: str):
+        """Open an in-window form; callers own its bounded controls."""
+        self.clear()
+        ttk.Label(self._content, text=title, style="DrawerTitle.TLabel").pack(anchor="w")
+        body = ttk.Frame(self._content)
+        body.pack(fill="both", expand=True)
+        self.pack(fill="both")
+        return body
+
+    def show_editor(self, title: str, content: str, *, help_text: str,
+                    action_label: str, on_save, max_bytes: int = 32768):
+        body = self.show_form(title)
+        ttk.Label(body, text=help_text, wraplength=760).pack(anchor="w")
+        row = ttk.Frame(body)
+        row.pack(fill="both", expand=True)
+        editor = tk.Text(row, height=8, wrap="word", undo=True, maxundo=20)
+        editor.insert("1.0", content)
+        editor.pack(side="left", fill="both", expand=True)
+        scroll = ttk.Scrollbar(row, orient="vertical", command=editor.yview)
+        scroll.pack(side="right", fill="y")
+        editor.configure(yscrollcommand=scroll.set)
+        error = tk.StringVar(value="")
+        ttk.Label(body, textvariable=error, wraplength=760).pack(anchor="w")
+        def apply():
+            value = editor.get("1.0", "end-1c")
+            if not value.strip() or len(value.encode()) > max_bytes:
+                error.set(f"Enter text within {max_bytes // 1024} KiB. Your edit is kept here.")
+                return
+            on_save(value)
+        actions = ttk.Frame(body)
+        actions.pack(fill="x")
+        ttk.Button(actions, text="Cancel", command=self.clear).pack(side="right")
+        ttk.Button(actions, text=action_label, command=apply).pack(side="right", padx=5)
+        editor.focus_set()
+        return editor
 
     def show_palette(
         self, commands: tuple[PaletteCommand, ...], on_open,

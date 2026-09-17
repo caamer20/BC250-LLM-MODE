@@ -58,3 +58,16 @@ Prompts, responses, credential values, authorization headers, and raw remote
 bodies are excluded from logs, durable events, notifications, metrics, and
 support bundles. A support bundle is generated only on request and is never
 uploaded by the application.
+
+Dev6 adds conversation instructions, source attachments and prompt templates
+under the same private-content boundary. Native menus expose secondary chat
+actions; the composer and Send remain visible at the tested scales. The code
+copy selector and document/source previews are keyboard operable. A real-widget
+fixture checks these journeys; physical screen-reader acceptance remains pending.
+
+Optional SearXNG search sends only an explicitly entered query to the configured
+provider and its engines. Selected excerpts/URLs are saved only when attached
+to a conversation. Local document text and history are not sent to search.
+Portable conversation backups contain readable private content and go only to
+an explicit user-selected destination; database backups still exclude it.
+See [the detailed controls and bounds](chat-and-portable-recovery.md).

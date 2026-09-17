@@ -22,7 +22,7 @@ from .legacy_import import utcnow
 from .operations.model import OperationState
 from .operations.recovery import RecoveryClass
 from .operations.repositories import OperationRepository
-from .operations.storage_cleanup import StorageCleanupHost
+from .operations.storage_cleanup import PREVIEW_SECONDS, StorageCleanupHost
 from .operations.validation import OperationValidationError
 from .operations.workflow import EffectContext, ProbeResult
 from .paths import AppPaths
@@ -189,6 +189,13 @@ class StorageCleanupHostAdapter(StorageCleanupHost):
 
     def discover(self) -> list[dict[str, Any]]:
         candidates: list[dict[str, Any]] = []
+        # New quarantine retention must be stable for the whole confirmation
+        # window. Using now+7d made an unchanged preview stale every second.
+        # Anchor at the window end so retention remains at least seven days.
+        window = int(_parse_time(self._clock()).timestamp()) // PREVIEW_SECONDS
+        retention_until = _format_time(_datetime.datetime.fromtimestamp(
+            (window + 1) * PREVIEW_SECONDS, tz=_datetime.timezone.utc,
+        ) + _datetime.timedelta(days=RETENTION_DAYS))
         staging = self._paths.model_staging_dir
         for entry in self._bounded_children(staging):
             if len(candidates) >= MAX_DISCOVERY_ENTRIES:
@@ -215,10 +222,7 @@ class StorageCleanupHostAdapter(StorageCleanupHost):
                 "expected_files": identity["files"],
                 "owner_operation_id": operation.id,
                 "quarantine_operation_id": None,
-                "retention_until": _format_time(
-                    _parse_time(self._clock())
-                    + _datetime.timedelta(days=RETENTION_DAYS)
-                ),
+                "retention_until": retention_until,
                 "eligible_modes": ["QUARANTINE"],
                 "default_selected": True,
                 "reason_code": "TERMINAL_OPERATION_STAGING",

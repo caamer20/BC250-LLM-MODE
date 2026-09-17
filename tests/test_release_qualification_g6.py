@@ -1,7 +1,7 @@
 """G6 §G6.1/§G6.2 (RELEASE_GATE_AND_PIPELINE_REMEDIATION plan): qualify the
 release tooling from a clean built candidate.
 
-Slow gate: builds the real wheel from the repository root (offline,
+Slow gate: builds the real wheel from a clean copy of repository inputs (offline,
 ``pip wheel --no-deps --no-build-isolation`` — the same mechanism as the
 clean-wheel gate), emits the release set (inventory v2, checksums,
 subject-bound SBOM, blocked draft manifest v3), runs the FULL ``verify``
@@ -23,6 +23,8 @@ import sys
 from pathlib import Path
 
 import pytest
+from bc250_llm_mode import __version__
+from package_build_fixture import clean_build_source
 
 _ROOT = Path(__file__).resolve().parent.parent
 
@@ -76,12 +78,12 @@ def _run_cli(args: list[str], env_extra: dict[str, str]) -> subprocess.Completed
 
 @pytest.mark.slow
 def test_clean_candidate_qualification_reports_only_external_gates(tmp_path):
-    # 1. Build the wheel exactly once from the repository root.
+    # 1. Build once from a fresh copy of current build inputs.
     wheel_dir = tmp_path / "dist"
     wheel_dir.mkdir()
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps",
-         "--no-build-isolation", "--wheel-dir", str(wheel_dir), str(_ROOT)],
+         "--no-build-isolation", "--wheel-dir", str(wheel_dir), str(clean_build_source(tmp_path))],
         capture_output=True, text=True, timeout=600)
     assert build.returncode == 0, build.stderr[-2000:]
     wheels = list(wheel_dir.glob("*.whl"))
@@ -98,7 +100,7 @@ def test_clean_candidate_qualification_reports_only_external_gates(tmp_path):
         (_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     wheel = next(a for a in inventory.artifacts if a.name.endswith(".whl"))
     sbom = build_sbom(package_name="bc250-llm-mode",
-                      package_version="0.9.0.dev0",
+                      package_version=__version__,
                       dependencies=deps,
                       build_requires=[("setuptools", ">=68")],
                       subject_sha256=wheel.sha256)
@@ -114,7 +116,7 @@ def test_clean_candidate_qualification_reports_only_external_gates(tmp_path):
     # 3. Decision-derived blocked draft manifest v3.
     manifest_path = wheel_dir / "release-manifest.json"
     manifest = _run_cli(
-        ["manifest", "--candidate", "0.9.0.dev0", "--source-commit", commit,
+        ["manifest", "--candidate", __version__, "--source-commit", commit,
          "--source-ref", "refs/heads/main", "--artifacts", str(wheel_dir),
          "--output", str(manifest_path)], env_extra)
     assert manifest.returncode == 0, manifest.stderr[-2000:]
@@ -130,7 +132,7 @@ def test_clean_candidate_qualification_reports_only_external_gates(tmp_path):
 
     # 5. The authoritative evaluator from those exact outputs.
     evaluate = _run_cli(
-        ["evaluate", "--candidate", "0.9.0.dev0", "--source-commit", commit,
+        ["evaluate", "--candidate", __version__, "--source-commit", commit,
          "--source-ref", "refs/heads/main", "--artifacts", str(wheel_dir),
          "--level", "rc"], env_extra)
     assert evaluate.returncode == 1  # ineligible: external gates pending
