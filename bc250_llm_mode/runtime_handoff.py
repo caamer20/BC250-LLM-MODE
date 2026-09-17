@@ -253,6 +253,13 @@ class RuntimeHandoffRenderer:
     def needs_update(self, fingerprint: str) -> bool:
         return self.stored_fingerprint() != fingerprint
 
+    def restore_snapshot(self, payload: dict | None) -> None:
+        """Restore an operation's previously observed artifact through its owner."""
+        if payload is None:
+            self.path.unlink(missing_ok=True)
+        else:
+            atomic_write_text(self.path, json.dumps(payload, indent=2, sort_keys=True))
+
     def publish(
         self,
         state: dict,

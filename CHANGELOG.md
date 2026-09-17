@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.9.0.dev10 — runtime build and recovery corrections (unreleased)
+
+- Resolve tags, branches and exact commits through real Git; refuse ambiguous
+  names, changed refs and dirty worktrees. Fetch the frozen commit with lease
+  heartbeats and bind compilation to that source and the observed container.
+- Fix stdin delivery, bounded output tails, process cleanup and the shipped
+  exchange helper's argv handling. Guest build processes now require host
+  heartbeats, because killing a Podman client can leave its guest running.
+- Build the selected CMake targets at their actual paths, use static llama.cpp
+  libraries for relocation, and smoke-test the quantizer's supported help
+  command. Publish durable manifests with bytes and atomic replacement.
+- Preserve the displaced runtime at the original exchange location. Bind both
+  trees into the durable snapshot, verify manifests and server hashes during
+  recovery, and update tree locations and component pointers accurately.
+  Finalization retains trees instead of deleting uncertain candidates.
+- Record legacy binaries as observed and unverified; require actual launch
+  receipts, model/context/slot agreement and inference before promotion.
+  Restore the prior component and known-good configuration exactly on failure.
+- Add real Git/CMake/filesystem and production-workflow regression coverage.
+  Qualification and deployment are recorded separately; dev9 remains the
+  installed development build until a later verified cutover is recorded.
+
 ## 0.9.0.dev9 — acquired-model profile identity correction (unreleased)
 
 - The physical model inventory exposed a representation mismatch: verified

@@ -227,6 +227,8 @@ class BuildEnvironmentEvidenceV1:
     toolchain: dict[str, str] = field(default_factory=dict)
     target_arch: str = ""
     build_dir_locator: str = ""
+    # Older receipts without a source binding are safely refused by the host.
+    source_commit: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,6 +266,10 @@ class PriorRuntimeSnapshotV1:
     observed_context_total: int | None = None
     observed_slots: int | None = None
     inference_verified: bool = False
+    target_tree_id: str | None = None
+    target_locator: str | None = None
+    rollback_tree_id: str | None = None
+    known_good_payload: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -502,7 +508,7 @@ class RuntimeLifecycleHost(Protocol):
         mode: str,
     ) -> ProbeResult: ...
     def verify_runtime_identity(
-        self, snapshot: PriorRuntimeSnapshotV1, target_build_id: str
+        self, snapshot: PriorRuntimeSnapshotV1, target_build_id: str, pulse: Any = None
     ) -> RuntimeIdentityEvidenceV1: ...
     def verify_runtime_inference(
         self, target_build_id: str
@@ -948,9 +954,9 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
         target = _target_build_id(ctx)
-        identity = host.verify_runtime_identity(snapshot, target)
+        identity = host.verify_runtime_identity(snapshot, target, pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(target)
-        if not identity.component_ok or not identity.health_ok:
+        if not identity.component_ok or not identity.binary_digest_ok or not identity.health_ok:
             from .workflow import StepFailure
 
             raise StepFailure(
@@ -984,7 +990,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
         target = _target_build_id(ctx)
-        identity = host.verify_runtime_identity(snapshot, target)
+        identity = host.verify_runtime_identity(snapshot, target, pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(target)
         ok = (
             identity.component_ok
@@ -1424,11 +1430,11 @@ def _rollback_step_callbacks(host: RuntimeLifecycleHost):
         snapshot = _resolve_output(
             ctx, "capture_rollback_boundary", PriorRuntimeSnapshotV1
         )
-        identity = host.verify_runtime_identity(snapshot, _target_id(ctx))
+        identity = host.verify_runtime_identity(snapshot, _target_id(ctx), pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(_target_id(ctx))
         from .workflow import StepFailure
 
-        if not identity.component_ok or not identity.health_ok:
+        if not identity.component_ok or not identity.binary_digest_ok or not identity.health_ok:
             raise StepFailure(
                 CODE_RUNTIME_COMPONENT_MISMATCH,
                 "live component identity mismatch",
@@ -1452,7 +1458,7 @@ def _rollback_step_callbacks(host: RuntimeLifecycleHost):
         snapshot = _resolve_output(
             ctx, "capture_rollback_boundary", PriorRuntimeSnapshotV1
         )
-        identity = host.verify_runtime_identity(snapshot, _target_id(ctx))
+        identity = host.verify_runtime_identity(snapshot, _target_id(ctx), pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(_target_id(ctx))
         ok = (
             identity.component_ok

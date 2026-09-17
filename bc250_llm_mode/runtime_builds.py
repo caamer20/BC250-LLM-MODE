@@ -264,6 +264,8 @@ class RuntimeBuildRepository:
         digest = hashlib.sha256(blob.encode("utf-8")).hexdigest()
         existing = self.get(legacy_id)
         if existing is not None:
+            if existing["manifest_json"] != blob:
+                raise RuntimeBuildError("BUILD_RECORD_CORRUPTION", "legacy observation changed")
             return existing
         self.conn.execute(
             """
@@ -435,6 +437,15 @@ class RuntimeTreeRepository:
             )
         if container_profile and len(container_profile) > 128:
             raise RuntimeBuildError("TREE_PROFILE_INVALID")
+        existing = self.get(tree_id) or self.by_locator(locator)
+        if existing is not None:
+            expected = {"build_id": build_id, "container_profile": container_profile,
+                        "locator": locator, "manifest_digest": manifest_digest,
+                        "server_binary_digest": server_binary_digest,
+                        "ownership_class": ownership_class}
+            if any(existing[key] != value for key, value in expected.items()):
+                raise RuntimeBuildError("TREE_IDENTITY_CONFLICT", "registered tree differs")
+            return existing
         self.conn.execute(
             """
             INSERT INTO runtime_trees (
@@ -515,10 +526,36 @@ class RuntimeTreeRepository:
         return self.require(tree_id)
 
     def by_locator(self, locator: str) -> dict[str, Any] | None:
-        row = self.conn.execute(
-            "SELECT * FROM runtime_trees WHERE locator = ?", (locator,)
-        ).fetchone()
-        return dict(row) if row is not None else None
+        rows = self.conn.execute(
+            "SELECT * FROM runtime_trees WHERE locator = ? LIMIT 2", (locator,)
+        ).fetchall()
+        if len(rows) > 1:
+            raise RuntimeBuildError("TREE_IDENTITY_CONFLICT", "ambiguous tree locator")
+        return dict(rows[0]) if rows else None
+
+    def for_build(self, build_id: str) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.conn.execute(
+            "SELECT * FROM runtime_trees WHERE build_id=? AND role!='QUARANTINED' "
+            "ORDER BY tree_id LIMIT 3", (build_id,),
+        ).fetchall()]
+
+    def relocate(self, tree_id: str, locator: str, role: str) -> dict[str, Any]:
+        """Record an independently observed tree move in the caller's transaction.
+
+        Both sides of an exchange must be updated in that same transaction.
+        Build identity/digests/ownership are never changed by a move.
+        """
+        if (not locator or len(locator) > 256 or locator.startswith("/")
+                or any(part in ("", ".", "..") for part in locator.split("/"))):
+            raise RuntimeBuildError("TREE_LOCATOR_INVALID")
+        if role not in self.ROLES:
+            raise RuntimeBuildError("TREE_ROLE_INVALID")
+        self.require(tree_id)
+        self.conn.execute(
+            "UPDATE runtime_trees SET locator=?, role=?, last_observed_at=? WHERE tree_id=?",
+            (locator, role, self.clock(), tree_id),
+        )
+        return self.require(tree_id)
 
     def protected_tree_ids(
         self, *, exclude_operation_id: str | None = None
@@ -583,7 +620,7 @@ class RuntimeComponentRepository:
         expected_generation: int,
         expected_promoted_build_id: str | None,
         expected_rollback_build_id: str | None,
-        promoted_build_id: str,
+        promoted_build_id: str | None,
         rollback_build_id: str | None,
         promoted_tree_id: str | None = None,
         rollback_tree_id: str | None = None,
@@ -613,8 +650,8 @@ class RuntimeComponentRepository:
             UPDATE runtime_component_state SET
                 promoted_build_id = ?, rollback_build_id = ?,
                 generation = generation + 1,
-                promoted_tree_id = COALESCE(?, promoted_tree_id),
-                rollback_tree_id = COALESCE(?, rollback_tree_id),
+                promoted_tree_id = ?,
+                rollback_tree_id = ?,
                 last_operation_id = COALESCE(?, last_operation_id),
                 updated_at = ?
             WHERE component = ? AND generation = ?
@@ -646,7 +683,7 @@ class RuntimeComponentRepository:
         expected_generation: int,
         expected_promoted_build_id: str | None,
         expected_rollback_build_id: str | None,
-        restored_promoted_build_id: str,
+        restored_promoted_build_id: str | None,
         new_rollback_build_id: str | None,
         promoted_tree_id: str | None = None,
         rollback_tree_id: str | None = None,

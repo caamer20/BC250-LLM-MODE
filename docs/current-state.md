@@ -1,8 +1,13 @@
 # Current implementation state
 
-The active development work is
-[September experience improvements](experience-improvements-2026-09.md),
-source version `0.9.0.dev9`. It builds on
+Source version `0.9.0.dev10` is undergoing runtime build and recovery
+qualification on `codex/runtime-identity-dev10`; it is not yet deployed.
+See [the corrective work](runtime-recovery-corrections-2026-09-17.md).
+The installed development version remains `0.9.0.dev9` and its artifact
+identity and results below remain unchanged.
+
+The [September experience improvements](experience-improvements-2026-09.md)
+build on
 [the full application review plan](../FULL_APP_REVIEW_IMPLEMENTATION_PLAN.md)
 and the GUI, appliance-experience and end-user-friendliness implementations.
 The exact dev9 wheel is installed on the existing Bazzite BC250. See
@@ -22,9 +27,11 @@ also exposed a digest-format mismatch: acquisition stores `sha256:<hex>`,
 while profile identities use bare hex. Dev9 normalizes that verified input
 without changing existing profile fingerprints or trusting unverified models.
 Calibration still requires a real promoted runtime/known-good identity; the
-legacy runtime does not yet provide one. The small active model also lacks a
-verified managed artifact identity. Profile measurements were not invented or
-run past those safeguards.
+legacy runtime does not yet provide one. After dev9 deployment, the supported
+local-import operation verified a separate managed copy of the small model as
+`lfm25-26b-verified`; the active alias and original source were preserved.
+The runtime adapter corrections must qualify before establishing a promoted
+runtime. Profile measurements were not invented or run past those safeguards.
 
 The installed code commit is `d3fcf3bf9cd3fbb39b8c6f6749330973990a076c`, on
 `codex/chat-experience-dev6`. Its exact wheel SHA-256 is

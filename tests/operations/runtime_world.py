@@ -978,7 +978,7 @@ class FakeRuntimeHost:
             )),
         )
 
-    def verify_runtime_identity(self, snapshot, target_build_id) -> RuntimeIdentityEvidenceV1:
+    def verify_runtime_identity(self, snapshot, target_build_id, pulse=None) -> RuntimeIdentityEvidenceV1:
         service = self.service()
         tree = self._tree_for_build(target_build_id)
         running_target = service.get("build_id") == target_build_id

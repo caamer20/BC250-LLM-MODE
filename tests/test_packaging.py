@@ -438,7 +438,7 @@ class MiniHost:
             return ProbeResult(RecoveryClass.COMPLETE, "INVOKED")
         return ProbeResult(RecoveryClass.REVERTIBLE, "INACTIVE")
 
-    def verify_runtime_identity(self, snap, target):
+    def verify_runtime_identity(self, snap, target, pulse=None):
         from bc250_llm_mode.operations.runtime_lifecycle import RuntimeIdentityEvidenceV1
         return RuntimeIdentityEvidenceV1(True, True, True, True, True, True, "")
 

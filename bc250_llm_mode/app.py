@@ -549,10 +549,10 @@ class Application:
 
                 return stop_service(view, application.runner())
 
-            def health(self, view, *, timeout: int = 120):
+            def health(self, view, *, timeout: int = 120, pulse=None):
                 from .server import health_check
 
-                return health_check(view, timeout=timeout)
+                return health_check(view, timeout=timeout, pulse=pulse)
 
             def inference(self, view, *, timeout: float = 20.0):
                 from .server import minimal_inference_probe

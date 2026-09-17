@@ -29,7 +29,7 @@ developer qualification and the installed appliance. Historical qualification
 counts do not qualify a changed candidate; physical and external gates remain
 pending.
 
-Current source version: **0.9.0.dev9** (development line; not `1.0.0`). The
+Current source version: **0.9.0.dev10** (development line; not `1.0.0`). The
 [September experience work](docs/experience-improvements-2026-09.md) tracks
 the candidate, deployment corrections and outstanding evidence. Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*

@@ -52,6 +52,7 @@ class FakeProcessRunner:
         self.specs: list[object] = []
         self.scripted: list[object] = []   # exceptions / results to replay
         self.counter = 0
+        self.checkout_present = False
 
     def run(self, spec, *, cancel_requested=None):
         self.specs.append(spec)
@@ -67,6 +68,17 @@ class FakeProcessRunner:
 
         argv = list(spec.argv)
         payload = spec.stdin_payload
+        from bc250_llm_mode.runtime_process_helper import PROCESS_HELPER_SOURCE, PROCESS_HELPER_DIGEST
+        if payload == PROCESS_HELPER_SOURCE:
+            return ProcessResult(0, PROCESS_HELPER_DIGEST + "\n", "", False, False, 0)
+        if "test" in argv and argv[-1].endswith("/manifest.json"):
+            from bc250_llm_mode.runtime_process import ProcessFailure
+            raise ProcessFailure("PROCESS_EXIT_UNEXPECTED", "no manifest in this scripted fixture")
+        if "test" in argv and "/worktrees/" in argv[-1] and not self.checkout_present:
+            from bc250_llm_mode.runtime_process import ProcessFailure
+            raise ProcessFailure("PROCESS_EXIT_UNEXPECTED", "not yet checked out")
+        if "worktree" in argv and "add" in argv:
+            self.checkout_present = True
         # Digest echo for helper staging.
         if payload == HELPER_SOURCE and any(
             "hashlib" in part for part in argv
@@ -79,22 +91,31 @@ class FakeProcessRunner:
             return ProcessResult(exit_code=0, stdout_tail="deadbeef\n",
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
-        if "rev-parse" in argv and argv[-1].endswith("^{commit}"):
+        if "ls-remote" in argv:
             self.counter += 1
             commit = COMMIT_B if self.counter >= 2 else COMMIT_A
-            return ProcessResult(exit_code=0, stdout_tail=commit + "\n",
+            return ProcessResult(exit_code=0, stdout_tail=commit + "\trefs/tags/b7598\n",
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
-        if "rev-parse" in argv and "HEAD" in argv:
+        if "rev-parse" in argv and ("HEAD" in argv or "FETCH_HEAD^{commit}" in argv):
             return ProcessResult(exit_code=0, stdout_tail=COMMIT_A + "\n",
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
-        if argv[-4:-2] == ["--format"] or "image" in argv:
+        if "--is-bare-repository" in argv:
+            return ProcessResult(0, "true\n", "", False, False, 0)
+        if "remote.origin.url" in argv:
+            return ProcessResult(0, UPSTREAM_REPOSITORY + "\n", "", False, False, 0)
+        if "--show-toplevel" in argv:
+            return ProcessResult(0, argv[argv.index("-C") + 1] + "\n", "", False, False, 0)
+        if argv[:3] == ["podman", "container", "inspect"]:
+            return ProcessResult(0, "sha256:" + "a" * 64 + "\n", "", False, False, 0)
+        if "image" in argv:
             return ProcessResult(exit_code=0,
-                                 stdout_tail=("sha256:image-id-000000000000000 "
-                                              "sha256:digest-deadbeef\n"),
+                                 stdout_tail=("sha256:" + "a" * 64 + " sha256:" + "b" * 64 + "\n"),
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
+        if "--help" in argv:
+            return ProcessResult(1, "usage: llama-quantize fixture\n", "", False, False, 0)
         if "--version" in argv or argv[-1] in ("--version",):
             return ProcessResult(exit_code=0, stdout_tail="version 1\n",
                                  stderr_tail="", truncated_stdout=False,
@@ -103,7 +124,7 @@ class FakeProcessRunner:
             return ProcessResult(exit_code=0, stdout_tail="1234 755\n",
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
-        if "df" in argv:
+        if any("os.statvfs" in arg for arg in argv):
             return ProcessResult(exit_code=0, stdout_tail="Avail\n99999999999\n",
                                  stderr_tail="", truncated_stdout=False,
                                  truncated_stderr=False, duration_seconds=0.0)
@@ -122,6 +143,8 @@ class FakeProcessRunner:
                 stderr_tail="", truncated_stdout=False,
                 truncated_stderr=False, duration_seconds=0.0,
             )
+        if "mktemp" in argv:
+            return ProcessResult(0, argv[-1].replace("XXXXXXXXXXXX", "0001") + "\n", "", False, False, 0)
         return ProcessResult(exit_code=0, stdout_tail="", stderr_tail="",
                              truncated_stdout=False, truncated_stderr=False,
                              duration_seconds=0.0)
@@ -170,13 +193,12 @@ def test_resolve_source_uses_typed_git_argv_and_peels_the_ref(env):
     resolved = env.adapter.resolve_source(RuntimeUpdateRequestV1(requested_by="cli"))
     assert resolved.source_commit == COMMIT_A
     assert resolved.resolution == "PIN"
-    # The fake reports an existing bare clone, so no clone spec appears;
-    # fetch + peel must always run.
-    fetch_specs = [s for s in env.runner.specs if "fetch" in s.argv]
-    peel_specs = [s for s in env.runner.specs if s.argv[-1].endswith("^{commit}")]
-    assert fetch_specs and peel_specs
-    joined = " ".join(fetch_specs[0].argv)
-    assert "refs/tags/b7598" in joined and "--force" in joined
+    # Ref observation requests exact tag/head names and the annotated peel.
+    remote_specs = [s for s in env.runner.specs if "ls-remote" in s.argv]
+    assert remote_specs
+    joined = " ".join(remote_specs[0].argv)
+    assert "refs/tags/b7598" in joined and "refs/tags/b7598^{}" in joined
+    assert not any("fetch" in s.argv for s in env.runner.specs)
     # The reviewed upstream is the ONLY clone source, used for the bare
     # mirror (never per-request URLs).
     from bc250_llm_mode.runtime_lifecycle_adapter import (
@@ -223,6 +245,7 @@ def test_fetch_checks_out_exact_commit_and_verifies_head(env):
 
 
 def test_compile_uses_only_fixed_recipe_options(env):
+    env.runner.checkout_present = True
     environment = env.adapter.configure_build(
         RuntimeUpdateRequestV1(), COMMIT_A, lambda **kw: None
     )
@@ -259,6 +282,7 @@ def _seed_operation(units, operation_id: str) -> None:
 
 
 def test_smoke_registers_immutable_build_tree_and_verification(env):
+    env.runner.checkout_present = True
     _seed_operation(env.units, "op-smoke-1")
     environment = env.adapter.configure_build(
         RuntimeUpdateRequestV1(), COMMIT_A, lambda **kw: None
@@ -281,6 +305,7 @@ def test_smoke_registers_immutable_build_tree_and_verification(env):
 
 
 def test_smoke_registration_is_idempotent_per_content(env):
+    env.runner.checkout_present = True
     _seed_operation(env.units, "op-a")
     _seed_operation(env.units, "op-b")
     environment = env.adapter.configure_build(
@@ -306,10 +331,10 @@ def test_legacy_active_adoption_registers_unverified_row_without_trusting_git(en
             "llamacpp", "b7598", COMMIT_A
         )
     adopted = env.adapter.ensure_runtime_registered()
-    assert adopted == "legacy:llamacpp"
+    assert adopted.startswith("legacy:llamacpp:")
     with env.units.read() as conn:
         builds = RuntimeBuildRepository(conn)
-        record = builds.require("legacy:llamacpp")
+        record = builds.require(adopted)
         trees = RuntimeTreeRepository(conn)
         row = trees.by_locator("root/llama.cpp")
     assert record["provenance_class"] == "LEGACY_UNVERIFIED"
