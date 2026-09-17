@@ -63,7 +63,7 @@ provider address. Clearing that address does not delete previously saved sources
 The search adapter follows no redirects and fetches no result pages. It accepts
 at most 1 MiB of provider JSON, returns up to four HTTP(S) sources, and has a
 15-second total request deadline, including DNS and response headers. A
-short-lived HTTP child enforces that deadline and a 256 MiB Linux address-space
+short-lived HTTP child enforces that deadline and a 384 MiB Linux address-space
 limit; requests/replies use private descriptors, with no query text in argv.
 HTML markup/scripts are stripped from
 excerpts. Retrieved text is marked as source material, not system instructions;

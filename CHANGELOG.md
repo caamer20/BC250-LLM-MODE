@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0.dev7 — Bazzite HTTP worker correction (unreleased)
+
+- Physical Bazzite validation found that Fedora Python's initial virtual
+  footprint left too little headroom under the 256 MiB HTTP-child limit to
+  import its dependencies. Raised the finite limit to 384 MiB, matching the PDF
+  child ceiling, while preserving request, response, CPU and elapsed-time bounds.
+- Added a Linux regression that reserves a large interpreter baseline before
+  executing the real HTTP worker against a local endpoint.
+- This changes the candidate identity; dev6 local evidence is historical and
+  must not be used to qualify the corrected package.
+
 ## 0.9.0.dev6 — conversation and recovery improvements (unreleased)
 
 - Added explicit context omission previews, bounded model/template token

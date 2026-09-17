@@ -1,6 +1,7 @@
 # Chat, sources and portable recovery
 
-These features are part of the dev6 development source. The recorded dev5
+These features were introduced in dev6; dev7 corrects the HTTP worker's Linux
+memory limit for Fedora Python's virtual-memory baseline. The recorded dev5
 installation predates them. Developer tests and real Tk fixtures do not qualify
 inference, accessibility, or recovery on a physical appliance.
 

@@ -12,7 +12,9 @@ def main():
     resource.setrlimit(resource.RLIMIT_FSIZE, (17 * 1024 * 1024, 17 * 1024 * 1024))
     resource.setrlimit(resource.RLIMIT_NOFILE, (64, 64))
     if sys.platform.startswith("linux"):
-        resource.setrlimit(resource.RLIMIT_AS, (256 * 1024 * 1024, 256 * 1024 * 1024))
+        # Fedora Python 3.14 can reserve ~238 MiB before importing httpx.
+        # Keep a finite ceiling with room for its libraries and bounded reply.
+        resource.setrlimit(resource.RLIMIT_AS, (384 * 1024 * 1024, 384 * 1024 * 1024))
     logging.disable(logging.CRITICAL)
     try:
         import httpx

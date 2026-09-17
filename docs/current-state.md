@@ -2,13 +2,20 @@
 
 The active development work is
 [September experience improvements](experience-improvements-2026-09.md),
-source version `0.9.0.dev6`. It builds on
+source version `0.9.0.dev7`. It builds on
 [the full application review plan](../FULL_APP_REVIEW_IMPLEMENTATION_PLAN.md)
 and the GUI, appliance-experience and end-user-friendliness implementations.
 The changed package is a new candidate. No dev6 device deployment, human
 acceptance, independent security review, or final release is claimed.
 
-The locally committed implementation is
+Physical Bazzite access became available on September 17. Initial dev6 testing
+found that Fedora Python's virtual-memory baseline exceeded the HTTP worker's
+available import headroom. The dev7 correction keeps a bounded 384 MiB ceiling;
+its Linux regression and real model-counting probe pass. Full candidate
+qualification and deployment are in progress; the active installation remains
+dev5 until the verified cutover is recorded.
+
+The previous locally qualified dev6 implementation is
 `376f3f4ae220c7fd1adf1aec933605a0819101a0` on
 `codex/chat-experience-dev6`. Developer qualification selected 1,815 tests:
 1,812 passed and three expected Linux-only skips on macOS/Python 3.14.7.
