@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0.dev9 — acquired-model profile identity correction (unreleased)
+
+- The physical model inventory exposed a representation mismatch: verified
+  acquired artifacts use `sha256:<hex>`, but profile identity validation
+  expected bare hex. Normalize the acquisition representation at the profile
+  boundary, preserving existing fingerprints and all trust/validation checks.
+- Calibration adapter tests now use the same algorithm-qualified digest as
+  production acquisition, with malformed/unverified input regression cases.
+
 ## 0.9.0.dev8 — native GUI collection correction (unreleased)
 
 - Real Linux Tk journeys exposed cyclic dialog objects being finalized by

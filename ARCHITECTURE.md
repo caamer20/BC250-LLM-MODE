@@ -45,7 +45,10 @@ when that access is needed.
 `model_guidance.py` compares bounded existing calibration records by exact
 artifact/profile/runtime identity and freshness. It cannot invent or refresh
 hardware measurements. Tk task holders retain worker closures/results until
-the UI thread releases them, including under result-queue backpressure. While
+the UI thread releases them, including under result-queue backpressure. Model
+artifact digests from acquisition (`sha256:<hex>`) are normalized to the
+existing bare-hex profile identity contract only after trust checks.
+While
 GUI workers exist, automatic cyclic GC is paused; the same refresh coordinator
 collects on the UI thread. Closed lanes with an unfinished bounded observation
 retain their closures until a later UI poll/close reaps them. GC preferences

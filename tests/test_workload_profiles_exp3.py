@@ -15,11 +15,27 @@ from bc250_llm_mode.workload_profiles import (
     ProfileResolutionIdentity,
     WorkloadProfileError,
     WorkloadProfileRepository,
+    WorkloadProfileQueryService,
 )
 
 
 NOW = "2026-08-29T18:00:00Z"
 CUSTOM = "1" * 32
+
+
+@pytest.mark.parametrize("digest,expected", [
+    ("sha256:" + "a" * 64, "a" * 64),
+    ("a" * 64, "a" * 64),
+    ("sha256:short", None),
+    ("sha512:" + "a" * 64, None),
+    ("sha256:sha256:" + "a" * 64, None),
+])
+def test_verified_acquisition_digest_has_one_profile_identity(digest, expected):
+    model = {"content_digest": digest, "artifact_trust_state": "VERIFIED",
+             "validation_status": "verified"}
+    assert WorkloadProfileQueryService._verified_digest(model) == expected
+    model["artifact_trust_state"] = "UNVERIFIED"
+    assert WorkloadProfileQueryService._verified_digest(model) is None
 
 
 def _fresh(tmp_path):

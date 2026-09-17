@@ -2,7 +2,7 @@
 
 The active development work is
 [September experience improvements](experience-improvements-2026-09.md),
-source version `0.9.0.dev8`. It builds on
+source version `0.9.0.dev9`. It builds on
 [the full application review plan](../FULL_APP_REVIEW_IMPLEMENTATION_PLAN.md)
 and the GUI, appliance-experience and end-user-friendliness implementations.
 The changed package is a new candidate. No dev6 device deployment, human
@@ -15,7 +15,12 @@ its Linux regression and real model-counting probe pass. Linux Tk journeys
 then exposed cyclic Tk dialog objects being finalized by Python on a worker.
 Dev8 routes cyclic collection through the UI's existing refresh coordinator,
 including safe retention when a worker outlives the short close budget. The
-corrected real Tk journeys pass on Linux and macOS. Full candidate
+corrected real Tk journeys pass on Linux and macOS. The live model inventory
+also exposed a digest-format mismatch: acquisition stores `sha256:<hex>`,
+while profile identities use bare hex. Dev9 normalizes that verified input
+without changing existing profile fingerprints or trusting unverified models.
+Calibration still requires a real promoted runtime/known-good identity; the
+legacy installation does not yet provide one. Full candidate
 qualification and deployment are in progress; the active installation remains
 dev5 until the verified cutover is recorded.
 
