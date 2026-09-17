@@ -93,3 +93,35 @@ Open WebUI can separately use SearXNG through its own settings; follow the
 upstream guide for the installed version. That path has a distinct data owner,
 web loader, configuration and qualification surface. Native search does not
 change the existing Open WebUI container or its authenticated model gateway.
+
+## September 17 Bazzite development installation
+
+The existing BC250 now runs a separately installed `bc250-searxng` container
+from the official image pinned to
+`sha256:56d6ce4c64e76ca0b78ab21884d25b6112f81c68a3838afdc9945ad3d315e4c6`.
+Its provider address, `http://127.0.0.1:8888`, is saved for the installed dev9
+native Chat. Use **Add source → Web search…**, enter a query, review the
+excerpts and attach the ones you want. Search is never performed automatically.
+
+The container publishes only to loopback and runs with a read-only root,
+dropped capabilities, no-new-privileges, 384 MiB memory, one CPU and 128 PID
+limits. It used about 98 MB immediately after the recovery search; that is a
+short observation, not a guarantee for every engine/workload. Configured
+engines are DuckDuckGo, Brave and Wikipedia. No query logs are retained by the
+container's log driver; upstream engines still receive the explicit query.
+
+There is no boot service or automatic restart. On the BC250, under the same
+account that owns the installation:
+
+```bash
+podman start bc250-searxng  # Start again after reboot, when web search is wanted.
+podman stop bc250-searxng   # Stop the optional provider.
+```
+
+Live native Chat returned the supplied source URL before and after dev9
+activation. A stopped provider produced a bounded error in 0.27 seconds, and
+search recovered after restart. A previous 512-token diagnostic exhausted its
+allowance without a visible answer; the native Standard (2,048-token) setting
+passed. Response quality and citation correctness still depend on the model
+and supplied excerpts. These results do not qualify every engine or model.
+See the [exact deployment record](experience-deployment-2026-09-17.json).

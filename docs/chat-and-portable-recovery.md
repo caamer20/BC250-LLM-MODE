@@ -1,9 +1,9 @@
 # Chat, sources and portable recovery
 
-These features were introduced in dev6; dev7 corrects the HTTP worker's Linux
-memory limit for Fedora Python's virtual-memory baseline. The recorded dev5
-installation predates them. Developer tests and real Tk fixtures do not qualify
-inference, accessibility, or recovery on a physical appliance.
+These features were introduced in dev6 and are installed on the existing
+Bazzite BC250 as dev9. The [deployment record](experience-deployment-2026-09-17.md)
+distinguishes actual model/provider checks from fixtures and remaining physical,
+accessibility, recovery and human acceptance gates.
 
 ## Long conversations
 
@@ -80,9 +80,9 @@ The 200-file creation quota never deletes existing history. A full Markdown
 export includes saved instructions and source text; a redacted export excludes
 them. Portable backups include complete conversation files, including drafts.
 
-Conversation files saved by dev6 use format version 2. Existing version-1 files
+Conversation files saved by dev6 and later use format version 2. Existing version-1 files
 load without being rewritten until saved. A dev5 rollback cannot open a
-version-2 conversation and leaves the file intact; use dev6 again or its full
+version-2 conversation and leaves the file intact; use dev6 or later again or its full
 Markdown/portable export to access that content. Do not treat the unchanged
 database schema as proof that older application versions understand new private
 conversation formats. This compatibility boundary must be included in physical

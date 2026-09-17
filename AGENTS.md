@@ -1,6 +1,61 @@
 # Continuation guide for BC250 LLM MODE
 
-## September 17 experience development checkpoint
+## September 17 physical development deployment checkpoint
+
+Version `0.9.0.dev9` is installed on the existing Bazzite BC250 from code commit
+`d3fcf3bf9cd3fbb39b8c6f6749330973990a076c`, branch
+`codex/chat-experience-dev6`. Read `docs/current-state.md`,
+`docs/experience-deployment-2026-09-17.json`,
+`docs/experience-deployment-2026-09-17.md`,
+`docs/chat-and-portable-recovery.md` and `docs/web-search.md` before continuing.
+This supersedes dev5/dev6 as the current development installation, not the
+external release gates. No GitHub push, tag, signing or package publication
+occurred. The device's local checkout was fast-forwarded to the code commit.
+
+Exact wheel SHA-256:
+`b9059ec6715d7e357b82359daabd6e0ad316b87459984eec85193b951b1a8554`.
+Combined default/slow inventories select **1,823** tests: Bazzite/Python 3.14.6
+**1,822 passed + 1 expected skip**; macOS/Python 3.14.7 **1,819 passed + 4
+expected Linux-only skips**. All 52 slow gates pass on each. A fresh hash-locked
+Bazzite environment verified all 194 Python modules/195 package files against
+the clean source and wheel, 50 installed feature checks, 28 actual Tk
+route/scale checks, and native source/summary/branch/portable-backup journeys.
+The real Tk window also used the real model and SearXNG successfully before and
+after cutover. These used an isolated Xvfb display; desktop/human acceptance
+remains pending. The temporary display container has been removed.
+
+Device checks found three corrected defects: dev7 raises the finite JSON HTTP
+worker address-space ceiling to 384 MiB for Fedora Python; dev8 collects Tk
+cycles on the UI refresh coordinator instead of worker threads; dev9 accepts
+the verified acquisition `sha256:` prefix without changing profile fingerprints.
+The model and authenticated gateway are active; anonymous gateway access is
+401. Context remains 128,000 with one slot, the service units and boot states
+are unchanged, and all 14 snapshotted private files are byte-identical.
+The original dev5 environment and private database/files remain under
+`/root/.bc250-deployments/20260917-d3fcf3b/rollback` on the BC250. Never overwrite
+new user data during rollback. An isolated restore passed. The actual dev5
+reader refuses schema-2 conversations without changing them; schema 14 is
+unchanged. Preserve this downgrade limitation in acceptance.
+
+SearXNG is installed separately as container `bc250-searxng`, digest-pinned,
+loopback-only at `127.0.0.1:8888`, with 384 MiB/one-CPU limits, and saved in
+native Chat settings. Live cited answers and provider stop/restart recovery
+pass. It has no boot service or restart policy; `podman start bc250-searxng`
+resumes it after a reboot. No autonomous model browsing or shell access exists.
+
+Hardware profile comparisons remain ESTIMATED: the small model has no verified
+artifact identity, and the installed legacy runtime has no promoted build /
+identity-bound known-good restoration record. Do not manufacture those records
+or bypass fit/TIGHT approval to run calibration. Bazzite/CachyOS four-cell,
+small/9B profile measurements, long-context stress, phone, desktop/reboot,
+interruption/recovery, thermal/soak, keyboard/screen-reader, independent security,
+non-developer acceptance and signed release gates remain pending. No CachyOS
+access or interactive participant was supplied. Ten owner-controlled untracked
+files were preserved. Release remains BLOCKED; these unsigned reports are not
+signed release evidence. No final tag, trust root, automatic updater enablement
+or package publication is authorized by this checkpoint.
+
+## September 17 dev6 local checkpoint (historical)
 
 Source version `0.9.0.dev6` is implemented and locally developer-qualified at
 `376f3f4ae220c7fd1adf1aec933605a0819101a0`, branch
