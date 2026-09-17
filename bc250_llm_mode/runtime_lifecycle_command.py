@@ -200,6 +200,16 @@ class RuntimeLifecycleCommandService:
         call or component-state write is allowed here.
         """
         report = self.status()
+        barrier = report.get("recovery_barrier")
+        if barrier:
+            return RuntimeLifecycleOutcome(barrier.get("operation_id"), "RECOVERY_REQUIRED", "VERIFY", {
+                "reason": "Resolve the runtime recovery barrier before finishing setup.",
+            })
+        active = report.get("active_operation")
+        if active:
+            return RuntimeLifecycleOutcome(active.get("operation_id"), "BUSY", "VERIFY", {
+                "reason": "A runtime operation is still in progress; finish it before completing setup.",
+            })
         if report.get("promoted"):
             return None
         prepared = report.get("prepared")
