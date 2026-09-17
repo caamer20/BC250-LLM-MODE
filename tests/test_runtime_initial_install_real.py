@@ -132,24 +132,28 @@ def make_initial_world(real_adapter, tmp_path):
                            view=view, clock=clock, commit=commit, builds=builds, profile=profile)
 
 
-def activate_model(world):
+def activate_model(world, *, expected_state=OperationState.SUCCEEDED):
     model = CATALOG[0]
     path = world.profile / "model.gguf"
     content = gguf_bytes()
-    path.write_bytes(content)
+    if not path.exists():
+        path.write_bytes(content)
+    else:
+        assert path.read_bytes() == content
     with world.units.begin() as conn:
-        ModelArtifactRepository(conn).record_verified(
-            artifact_id="fixture-model", content_digest=hashlib.sha256(content).hexdigest(),
-            byte_size=len(content), canonical_path=str(path), architecture="llama",
-            quantization="Q8_0", tensor_count=1, catalog_id=model.id)
-        ModelInstallationsRepository(conn).install_alias(alias=model.id, artifact_id="fixture-model",
-                                                         quant="Q8_0", display_name=model.display_name)
+        if not any(item["id"] == model.id for item in ModelInstallationsRepository(conn).list()):
+            ModelArtifactRepository(conn).record_verified(
+                artifact_id="fixture-model", content_digest=hashlib.sha256(content).hexdigest(),
+                byte_size=len(content), canonical_path=str(path), architecture="llama",
+                quantization="Q8_0", tensor_count=1, catalog_id=model.id)
+            ModelInstallationsRepository(conn).install_alias(alias=model.id, artifact_id="fixture-model",
+                                                             quant="Q8_0", display_name=model.display_name)
     operation = world.enqueue.enqueue(operation_type="MODEL_ACTIVATE", surface="test", payload={
         "model_alias": model.id, "context_per_slot": 4096, "parallel_slots": 1, "requested_by": "setup"})
     world.engine().execute_one(operation.id)
     with world.units.read() as conn:
         row = OperationRepository(conn).require(operation.id)
-    assert row.state is OperationState.SUCCEEDED, (row.error_code, row.error_detail)
+    assert row.state is expected_state, (row.error_code, row.error_detail)
     return model.id
 
 
@@ -254,3 +258,21 @@ def test_verification_without_a_model_remains_pending(initial_world):
     assert world.command.status()["promoted"] is None
     assert world.command.status()["prepared"]
     assert world.service.restarts == 0 and len(world.builds) == 1
+
+
+def test_first_model_inference_failure_restores_empty_selection_and_allows_retry(initial_world):
+    world = initial_world
+    install(world)
+    original_inference = world.service.inference
+    world.service.inference = lambda *args, **kwargs: {"ok": False}
+    activate_model(world, expected_state=OperationState.FAILED_ROLLED_BACK)
+    assert world.view()["current_model"] is None and not world.service.active
+    assert world.renderer.observe() is None and not world.renderer.path.exists()
+    with world.units.read() as conn:
+        assert KnownGoodRuntimeRepository(conn).get() is None
+        assert not (RuntimeComponentRepository(conn).current() or {}).get("promoted_build_id")
+    assert world.command.status()["prepared"]
+    world.service.inference = original_inference
+    activate_model(world)
+    assert world.command.verify_prepared().ok
+    assert len(world.builds) == 1

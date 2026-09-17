@@ -12,6 +12,9 @@
 - Recheck configuration, thermal state and executable identities at the
   activation boundary. Restore the prior state if verification fails, retain
   all potentially useful files, and recover interrupted initial publication.
+- Restore an explicit empty model selection after failed first inference,
+  preserving the model inventory, prior settings and thermal latch. Retry can
+  proceed without an artificial recovery barrier or a second runtime build.
 - Refresh the fixed exchange helper by atomic replacement and verify its file
   digest; repeated staging and hostile destination symlinks are covered.
 - Add production-adapter setup/recovery journeys with explicit platform and

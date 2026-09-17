@@ -944,6 +944,9 @@ class RuntimeConfigurationService:
         """
         desired = dict(prior_config)
         content_of = desired.pop("restored_content_of_revision", None)
+        if "model_alias" in desired and desired["model_alias"] is None:
+            return self._restore_empty_content(desired, expected_revision=expected_revision,
+                                               content_of=content_of)
         desired["_replace_optimizations"] = True
         result = self.apply(desired, expected_revision=expected_revision)
         if content_of is not None:
@@ -952,6 +955,50 @@ class RuntimeConfigurationService:
                     {"restored_content_of_revision": int(content_of)}
                 )
         return result
+
+    def _restore_empty_content(self, desired, *, expected_revision, content_of) -> ApplyResult:
+        """Restore the explicit pre-model state without selecting a fallback.
+
+        Normal candidate resolution deliberately inherits omitted values.
+        Recovery must preserve an explicit absence instead. The activation
+        adapter owns service stopping and exact handoff restoration; this
+        transaction changes only desired configuration and revision lineage.
+        """
+        from .operations.activation import CONTEXT_RANGE, SLOT_RANGE
+
+        context, slots = desired.get("context"), desired.get("slots")
+        for name, value, bounds in (("context", context, CONTEXT_RANGE), ("slots", slots, SLOT_RANGE)):
+            if type(value) is not int or not bounds[0] <= value <= bounds[1]:
+                raise RuntimeValidationError(f"empty restoration {name} is invalid")
+        if any(desired.get(key) is not None for key in ("profile_id", "profile_revision", "profile_fingerprint")):
+            raise RuntimeValidationError("empty restoration cannot bind a model profile")
+        if content_of is not None and (type(content_of) is not int or content_of < 0):
+            raise RuntimeValidationError("restoration revision is invalid")
+        options = deepcopy(desired.get("optimizations_patch"))
+        if options is None:
+            options = {}
+        if not isinstance(options, dict):
+            raise RuntimeValidationError("empty restoration settings are invalid")
+        try:
+            validate_settings(normalized_settings(options))
+        except (ValueError, TypeError, KeyError) as exc:
+            raise RuntimeValidationError("empty restoration settings are invalid") from exc
+        with self._units.begin() as conn:
+            settings = SettingsRepository(conn)
+            revision = settings.revision()
+            if expected_revision is not None and expected_revision != revision:
+                raise RevisionConflict(f"Runtime revision conflict: expected {expected_revision}, current {revision}")
+            updates = {"current_model": None, "current_ctx": context, "optimizations": options}
+            if content_of is not None:
+                updates["restored_content_of_revision"] = content_of
+            settings.set_many(updates)
+            RuntimeConfigRepository(conn).update(model_alias=None, context=context, slots=slots)
+            settings.set_revision(revision + 1)
+        return ApplyResult(status="committed_candidate", revision=revision + 1,
+                           resolved={"model_alias": None, "context_per_slot": context, "slots": slots,
+                                     "optimizations": options, "profile_id": None,
+                                     "profile_revision": None, "profile_fingerprint": None},
+                           restart_required=False, host_tuning_changes=False, handoff_published=False)
 
     def apply(
         self,

@@ -232,6 +232,11 @@ promote a known-good runtime because no model exists for inference yet.
   observes the completed model activation and finishes runtime verification.
   Failed verification restores the prior service/configuration identity and
   preserves the unpromoted runtime for inspection or retry.
+- If the first model activation fails, its restoration explicitly restores
+  the prior absence of a selected model rather than inheriting the failed
+  candidate through ordinary settings defaults. Revision lineage advances;
+  model files, prior settings and the thermal latch are preserved. The
+  activation adapter owns service stopping and exact handoff restoration.
 
 No new database schema, operation type, free-form build settings or alternate
 installation route is introduced. CLI/System status labels an installed but

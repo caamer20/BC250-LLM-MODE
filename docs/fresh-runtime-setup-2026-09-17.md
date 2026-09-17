@@ -40,6 +40,17 @@ atomically replaces the destination and checks the resulting file digest.
 Repeating staging works without write permission on the previous file, and a
 destination symlink cannot redirect the write into another file.
 
+An extra failure check on the first built dev11 wheel found that the existing
+model activation restoration path treated an explicit absent model as an
+omitted setting and inherited the failed candidate. That left a recovery
+barrier after first inference failure. Empty-model restoration now uses a
+validated, revision-fenced content transaction that preserves the absence,
+model inventory, prior optimization values and thermal latch. The activation
+adapter still owns handoff removal and stopping the failed service. A failed
+first activation can be retried using the retained model and prepared runtime.
+The earlier `daabbf8` wheel and its passing preliminary reports are preserved
+as diagnostics; they are superseded and must not be deployed.
+
 ## Verification boundary
 
 Local end-to-end tests use the production runtime adapter, durable engine,

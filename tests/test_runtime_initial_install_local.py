@@ -121,3 +121,7 @@ def test_local_changed_prepared_binary_is_refused(local_world):
 
 def test_local_no_model_verification_remains_pending(local_world):
     journeys.test_verification_without_a_model_remains_pending(local_world)
+
+
+def test_local_first_model_failure_restores_empty_selection_and_allows_retry(local_world):
+    journeys.test_first_model_inference_failure_restores_empty_selection_and_allows_retry(local_world)
