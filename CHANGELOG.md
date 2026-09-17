@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.0.dev8 — native GUI collection correction (unreleased)
+
+- Real Linux Tk journeys exposed cyclic dialog objects being finalized by
+  Python's automatic collector on a worker, stalling a later action. GUI task
+  lanes now pause automatic cyclic collection and use the existing UI refresh
+  coordinator for collection. The prior GC setting is restored after workers
+  finish; delayed completions retain their UI owners for main-thread cleanup.
+- Added regressions for worker allocation pressure and a task completing after
+  the window's short close budget. Real native journeys pass on Linux and macOS.
+
 ## 0.9.0.dev7 — Bazzite HTTP worker correction (unreleased)
 
 - Physical Bazzite validation found that Fedora Python's initial virtual

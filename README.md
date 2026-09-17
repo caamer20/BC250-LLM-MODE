@@ -24,14 +24,14 @@ journey and resource qualification uses the deliberately pending
 
 ## Release status
 
-The [September 4 review implementation record](docs/review-implementation-status.md)
-is the current corrective checkpoint. Historical qualification counts do not
-qualify this changed checkout; physical and external gates remain pending.
+The [current state record](docs/current-state.md) distinguishes source,
+developer qualification and the installed appliance. Historical qualification
+counts do not qualify a changed candidate; physical and external gates remain
+pending.
 
-Current source version: **0.9.0.dev7** (development line; not `1.0.0`). The last
-recorded physical deployment remains `0.9.0.dev5`; it does not qualify this
-changed source. The [September experience work](docs/experience-improvements-2026-09.md)
-tracks the new candidate and outstanding evidence. Status
+Current source version: **0.9.0.dev8** (development line; not `1.0.0`). The
+[September experience work](docs/experience-improvements-2026-09.md) tracks
+the candidate, deployment corrections and outstanding evidence. Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 (all executable local/CI checks pass), *evidence pending* (hardware/human/
 external evidence absent), *release blocked* (a policy-required item is

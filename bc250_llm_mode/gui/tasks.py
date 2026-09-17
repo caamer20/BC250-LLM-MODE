@@ -9,11 +9,52 @@ from __future__ import annotations
 
 import queue
 import threading
+import gc
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 MAX_RESULT_EVENTS = 512
+
+# Cyclic collection can run on whichever thread happens to allocate next.
+# Tk variables/fonts/interpreters must instead be finalized by the UI thread.
+# Suspend automatic collection while GUI workers exist; the existing refresh
+# coordinator calls reap_completed() and collects here, without another timer.
+_collection_users: set[object] = set()
+_retired_lanes: list["TaskLanes"] = []
+_previous_gc_enabled: bool | None = None
+_last_collection = 0.0
+
+
+def _pause_worker_collection(token: object) -> None:
+    global _previous_gc_enabled
+    if _previous_gc_enabled is None:
+        _previous_gc_enabled = gc.isenabled()
+    gc.disable()
+    _collection_users.add(token)
+
+
+def _collect_on_ui(*, force: bool = False) -> None:
+    global _previous_gc_enabled, _last_collection
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("GUI cycles must be collected on the UI thread")
+    for lanes in tuple(_retired_lanes):
+        for lane in lanes._lanes:
+            lane.reap_completed()
+        if all(not lane._thread.is_alive() for lane in lanes._lanes):
+            lanes._discard_results()
+            _retired_lanes.remove(lanes)
+            force = True
+    finished = not _collection_users and not _retired_lanes
+    now = time.monotonic()
+    if force or finished or now - _last_collection >= 1.0:
+        gc.collect()
+        _last_collection = now
+    if finished and _previous_gc_enabled is not None:
+        if _previous_gc_enabled:
+            gc.enable()
+        _previous_gc_enabled = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +173,11 @@ class TaskLanes:
     """Exactly three worker lanes and one bounded result queue."""
 
     def __init__(self) -> None:
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("GUI task lanes must be created on the UI thread")
+        self._closed = False
+        self._collection_token = object()
+        _pause_worker_collection(self._collection_token)
         self.results: "queue.Queue[TaskResult]" = queue.Queue(MAX_RESULT_EVENTS)
         self.action = BoundedTaskLane("action", self.results)
         self.observation = BoundedTaskLane("observation", self.results, coalesce=True)
@@ -139,11 +185,26 @@ class TaskLanes:
         self._lanes = (self.action, self.observation, self.chat)
 
     def close(self) -> None:
+        if self._closed:
+            _collect_on_ui(force=True)
+            return
+        self._closed = True
         for lane in self._lanes:
             lane.close()
         # Discard queued completions on the UI thread, after producers close.
         # Keeping them in a root/callback cycle defers Tk finalizers to a later
         # garbage collection that might run on a worker.
+        self._discard_results()
+        _collection_users.discard(self._collection_token)
+        if any(lane._thread.is_alive() for lane in self._lanes):
+            # An observation can outlive the short UI close budget. Retain its
+            # Tk-owning closures until a later UI poll/close can release them.
+            # If the process exits first, Python tears them down on its main
+            # thread. Never re-enable worker collection while they are live.
+            _retired_lanes.append(self)
+        _collect_on_ui(force=True)
+
+    def _discard_results(self) -> None:
         while True:
             try:
                 self.results.get_nowait()
@@ -153,3 +214,4 @@ class TaskLanes:
     def reap_completed(self) -> None:
         for lane in self._lanes:
             lane.reap_completed()
+        _collect_on_ui()

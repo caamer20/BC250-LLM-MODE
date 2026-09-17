@@ -4,7 +4,73 @@ import queue
 import threading
 import time
 
-from bc250_llm_mode.gui.tasks import BoundedTaskLane
+from bc250_llm_mode.gui.tasks import BoundedTaskLane, TaskLanes
+
+
+def test_cyclic_ui_owners_are_collected_on_ui_thread_not_allocating_worker():
+    finalized = []
+    owner = threading.get_ident()
+    enabled = gc.isenabled()
+    thresholds = gc.get_threshold()
+    class UIReference:
+        def __del__(self):
+            finalized.append(threading.get_ident())
+    lanes = TaskLanes()
+    try:
+        value = UIReference()
+        value.cycle = value
+        del value
+        gc.set_threshold(1, 1, 1)
+        def allocate():
+            garbage = []
+            for _ in range(10000):
+                child = []
+                child.append(child)
+                garbage.append(child)
+            return len(garbage)
+        assert lanes.action.submit(1, allocate)
+        assert lanes.results.get(timeout=2).value == 10000
+        assert not finalized
+        lanes.close()
+        assert finalized == [owner]
+        assert gc.isenabled() == enabled
+    finally:
+        lanes.close()
+        gc.set_threshold(*thresholds)
+
+
+def test_close_retains_running_ui_owners_until_main_thread_reaps_them():
+    started, finish = threading.Event(), threading.Event()
+    finalized = []
+    owner = threading.get_ident()
+    enabled = gc.isenabled()
+    class UIReference:
+        def __del__(self):
+            finalized.append(threading.get_ident())
+    lanes = TaskLanes()
+    def submit():
+        reference = UIReference()
+        def work():
+            started.set()
+            finish.wait(timeout=2)
+            return reference
+        assert lanes.action.submit(1, work)
+    try:
+        submit()
+        assert started.wait(timeout=1)
+        lanes.close()
+        assert not finalized and not gc.isenabled()
+        finish.set()
+        lanes.action._thread.join(timeout=1)
+        assert not lanes.action._thread.is_alive()
+        assert not finalized
+        lanes.close()
+        assert finalized == [owner]
+        assert gc.isenabled() == enabled
+    finally:
+        finish.set()
+        lanes.action._thread.join(timeout=1)
+        lanes.close()
 
 
 def test_completed_task_closures_are_finalized_on_submitting_thread():

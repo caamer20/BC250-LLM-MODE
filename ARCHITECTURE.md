@@ -45,7 +45,11 @@ when that access is needed.
 `model_guidance.py` compares bounded existing calibration records by exact
 artifact/profile/runtime identity and freshness. It cannot invent or refresh
 hardware measurements. Tk task holders retain worker closures/results until
-the UI thread releases them, including under result-queue backpressure.
+the UI thread releases them, including under result-queue backpressure. While
+GUI workers exist, automatic cyclic GC is paused; the same refresh coordinator
+collects on the UI thread. Closed lanes with an unfinished bounded observation
+retain their closures until a later UI poll/close reaps them. GC preferences
+are restored after all workers finish, with no new timer or collector thread.
 See [the feature contract](docs/chat-and-portable-recovery.md) and
 [web-search setup](docs/web-search.md) for limits and pending physical checks.
 
