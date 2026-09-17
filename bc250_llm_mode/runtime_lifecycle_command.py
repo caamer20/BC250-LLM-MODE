@@ -456,7 +456,7 @@ class RuntimeLifecycleCommandService:
             detail["reason"] = "Runtime installed. Activate a model, then run runtime update to finish verification."
         elif status == "FAILED_ROLLED_BACK":
             detail["reason"] = (
-                "The runtime change failed; the previous working runtime "
+                "The runtime change failed; the previous runtime state "
                 "was restored and verified."
             )
         elif status == "RECOVERY_REQUIRED":
