@@ -1,6 +1,6 @@
 # Fresh runtime setup correction
 
-This work is isolated on `codex/fresh-setup-dev11`. It has not been copied to
+This work is on `codex/fresh-setup-dev11`. It has not been copied to
 the BC250 or activated. The tested dev10 candidate remains frozen on its
 separate branch; the device's last verified active application is dev9.
 
@@ -70,7 +70,33 @@ export authorization was not established. The copy did not run. Approval was
 requested for isolated tests using temporary directories and fake services;
 no application activation or production-service change is part of that request.
 
-Full candidate qualification remains in progress. These developer fixtures
-do not prove physical fresh installation, CachyOS support, human acceptance,
+## Local qualification
+
+The corrected package at `67202e2ec6f140ad6745735d751e27ac5065e8df` passed
+the full macOS/Python 3.14.7 default and slow suites: **1,875 selected,
+1,856 passed and 19 expected Linux-only skips**. All 52 slow gates passed.
+Default and slow inventories are complete and disjoint. Both suites ran on
+this exact code commit.
+
+A clean source archive was built through an sdist into one wheel. A fresh
+hash-locked environment verified all 195 Python modules / 196 package files
+against the source and wheel, with no broken dependencies. Outside the
+checkout, the installed wheel passed 42 feature checks and 31 runtime/recovery
+checks, including failure of first model inference, empty-state restoration
+and successful retry without rebuilding. Native Tk passed 28 route/scale
+checks and the chat/source/portable-backup journeys at 100% and 200% scale.
+These additional checks overlap the suite and are not added to its inventory.
+
+Wheel SHA-256:
+`2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3`.
+The [qualification record](fresh-runtime-qualification-2026-09-17.json)
+binds artifact and raw-report hashes. Local artifacts and logs are retained
+under `dist/dev11-fresh-setup-20260917`; superseded `daabbf8` diagnostics remain
+under `dist/dev11-daabbf8-diagnostic`. The artifact verifier passes; the release
+evaluator refuses final eligibility because external and attestation evidence
+is still missing. These unsigned reports do not satisfy signed release gates.
+
+These developer fixtures do not prove physical fresh installation, CachyOS
+support, human acceptance,
 profile measurements, phone/reboot/soak, accessibility, independent security
 or signed release acceptance. Release remains BLOCKED.

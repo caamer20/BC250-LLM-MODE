@@ -1,9 +1,17 @@
 # Current implementation state
 
 Source version `0.9.0.dev11` on `codex/fresh-setup-dev11` corrects the
-fresh-install model/runtime dependency and is in local qualification.
-It is isolated from the frozen dev10 candidate. See the
-[setup correction and validation limits](fresh-runtime-setup-2026-09-17.md).
+fresh-install model/runtime dependency and recovery after a failed first
+model activation. Code commit `67202e2` is locally qualified on macOS: 1,875
+tests selected, 1,856 passed and 19 expected Linux-only skips, including all
+52 slow gates. Its fresh installed wheel matches all 195 Python modules /
+196 package files and passes 42 feature checks, 31 runtime/recovery checks,
+28 actual Tk route/scale checks and native experience journeys. The wheel
+SHA-256 is `2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3`.
+See the [setup correction and validation limits](fresh-runtime-setup-2026-09-17.md)
+and [exact qualification record](fresh-runtime-qualification-2026-09-17.json).
+The dev10 branch and candidate remain separately frozen. The earlier dev11
+`daabbf8` artifact is superseded diagnostic material and must not be deployed.
 No dev11 source was transferred or deployed: automatic approval review
 rejected the draft source/test transfer pending explicit authorization.
 The active BC250 application remains dev9. The records below are historical

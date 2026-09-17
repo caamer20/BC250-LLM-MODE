@@ -1,15 +1,30 @@
 # Continuation guide for BC250 LLM MODE
 
-## September 17 dev11 isolated fresh-setup correction
+## September 17 dev11 local fresh-setup qualification
 
-`0.9.0.dev11` on `codex/fresh-setup-dev11` is an isolated correction of the
-initial runtime/model dependency. Read `docs/fresh-runtime-setup-2026-09-17.md`
-and ADR 004's September 17 addendum. Qualification is in progress. Initial
+`0.9.0.dev11` on `codex/fresh-setup-dev11` is locally qualified on macOS at
+code commit `67202e2ec6f140ad6745735d751e27ac5065e8df`. Read
+`docs/fresh-runtime-setup-2026-09-17.md`,
+`docs/fresh-runtime-qualification-2026-09-17.json` and ADR 004's September 17
+addendum. The code corrects the initial runtime/model dependency. Initial
 runtime installation stays unpromoted with its service stopped; after model
 activation Setup finishes the same durable runtime workflow against the
 prepared build's exact source and identity, without rebuilding. Full receipt,
 model/context/slots and inference checks still gate promotion. No request can
 skip those checks or manufacture known-good state.
+
+The combined default/slow inventory selects **1,875** tests: **1,856 passed +
+19 expected Linux-only skips** on macOS/Python 3.14.7. All 52 slow gates pass.
+The clean source → sdist → wheel and fresh hash-locked environment verify
+all 195 Python modules / 196 package files; 42 installed feature checks,
+31 runtime/recovery checks, 28 actual Tk route/scale checks and native
+experience journeys pass. These additional checks overlap the suite.
+Exact wheel SHA-256:
+`2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3`.
+The earlier `daabbf8` wheel is diagnostic only: an extra first-model inference
+failure exposed incorrect restoration of an empty selection. The corrected
+candidate preserves that absence and passes failure → retry → promotion.
+Do not deploy the superseded diagnostic artifact.
 
 Local production-adapter journeys use a native compiler and Darwin atomic
 operation fixture; separate real Linux/CMake tests remain pending. Automatic
