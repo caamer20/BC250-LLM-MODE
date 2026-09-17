@@ -309,9 +309,11 @@ class MiniHost:
         return ProbeResult(RecoveryClass.COMPLETE, "CHECKOUT_PRESENT")
 
     def configure_build(self, request, commit, pulse):
-        n = len(list((self.base / "managed").glob("candidate-*"))) + 1
+        # Published candidates no longer occupy their staging directories;
+        # counting those directories reused a still-registered tree locator.
+        self._candidate_count = getattr(self, "_candidate_count", 0) + 1
         from bc250_llm_mode.operations.runtime_lifecycle import BuildEnvironmentEvidenceV1
-        locator = "managed/candidate-%03d" % n
+        locator = "managed/candidate-%03d" % self._candidate_count
         (self.base / locator).mkdir(parents=True, exist_ok=True)
         return BuildEnvironmentEvidenceV1(
             1, dig(b"recipe"), "Ninja", [], ["llama-server"], "bounded-2",
