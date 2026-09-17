@@ -1,5 +1,38 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 17 experience development checkpoint
+
+Source version `0.9.0.dev6` is implemented and locally developer-qualified at
+`376f3f4ae220c7fd1adf1aec933605a0819101a0`, branch
+`codex/chat-experience-dev6`. The recorded physical installation remains dev5;
+no remote push or dev6 device deployment occurred. Read
+`docs/experience-improvements-2026-09.md`,
+`docs/experience-qualification-2026-09-17.json`,
+`docs/chat-and-portable-recovery.md` and `docs/web-search.md` before continuing.
+
+Combined default/slow inventory: **1,812 passed + 3 expected Linux-only skips**
+(1,815 selected); all 52 slow gates pass. A clean source → sdist → wheel and
+fresh hash-locked environment verified all 194 Python modules byte-for-byte,
+47 installed feature checks, 28 real Tk route/scale checks and new native
+chat/source/backup journeys. The exact artifact set verifies; release remains
+BLOCKED. Local reports are not signed release evidence.
+
+New work covers explicit context omission/counting/reviewed summaries,
+Markdown and individual code copy, prompt branches, conversation instructions/
+templates/response controls, portable conversation/draft/settings recovery,
+exact measured-profile comparisons, local text/Markdown/PDF sources, and opt-in
+SearXNG excerpts. SearXNG is not installed and no real provider is qualified.
+Conversation schema 2 reads schema 1, but dev5 cannot open new schema-2 files;
+the database remains schema 14. Preserve that downgrade limitation in acceptance.
+
+Physical Bazzite/CachyOS four-cell, small/9B measurements, phone/reboot/recovery/
+soak, keyboard/screen-reader, independent security, human acceptance and signed
+release gates remain pending. Device connection details are still needed.
+Do not infer physical completion from the mocked-provider/SSE Tk checks or
+inherit dev5 evidence. Ten owner-controlled untracked files were preserved.
+No final tag, trust root, automatic updater enablement or package publication
+is authorized by this checkpoint.
+
 ## September 4 corrective review checkpoint
 
 The historical checkpoints below are superseded for current package identity.

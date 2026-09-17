@@ -1,0 +1,173 @@
+{
+  "record_type": "local_developer_qualification_not_release_evidence",
+  "record_version": 1,
+  "recorded_at": "2026-09-17T06:40:17.967250+00:00",
+  "source_commit": "376f3f4ae220c7fd1adf1aec933605a0819101a0",
+  "source_ref": "refs/heads/codex/chat-experience-dev6",
+  "version": "0.9.0.dev6",
+  "binding": "All clean-build inputs were SHA-256 compared with the source commit; every installed package file matches the source and wheel. Test and UI runs used these package bytes. Documentation-only follow-up does not alter the artifact.",
+  "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O",
+  "python": "3.14.7",
+  "database_schema": 14,
+  "conversation_write_schema": 2,
+  "conversation_read_schemas": [
+    1,
+    2
+  ],
+  "default": {
+    "selected": 1763,
+    "passed": 1760,
+    "skipped": 3,
+    "failures": 0,
+    "errors": 0,
+    "missing": 0,
+    "extra": 0,
+    "seconds": 152.08,
+    "exit_status": 0,
+    "skip_reasons": {
+      "tests/test_profile_exchange_helper.py::test_real_same_filesystem_exchange_on_linux": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_profile_exchange_helper.py', 134, 'Skipped: real exchange requires Linux')",
+      "tests/test_review_boundaries_rv.py::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_review_boundaries_rv.py', 276, 'Skipped: Linux IP_FREEBIND private bridge reservation')",
+      "tests/test_runtime_process.py::test_local_exchange_swaps_content_atomically": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_runtime_process.py', 206, 'Skipped: renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above')"
+    }
+  },
+  "slow": {
+    "selected": 52,
+    "passed": 52,
+    "skipped": 0,
+    "failures": 0,
+    "errors": 0,
+    "missing": 0,
+    "extra": 0,
+    "seconds": 81.523,
+    "exit_status": 0,
+    "skip_reasons": {}
+  },
+  "combined": {
+    "selected": 1815,
+    "passed": 1812,
+    "skipped": 3
+  },
+  "installed_wheel": {
+    "version": "0.9.0.dev6",
+    "installed_module_count": 194,
+    "package_file_count": 195,
+    "all_package_files_match_source_and_wheel": true,
+    "cli_version": "bc250-llm-mode 0.9.0.dev6",
+    "wheel_sha256": "aa025f9fb42dbe4bd7a87834028782cc0ab778239534b8c0304cd2a091cb9c09",
+    "sdist_sha256": "9ec51ecb82d5aa9280950dcce7bb34a042b83fb69b60fc518983921e9ba56b33",
+    "source_inventory_sha256": "c4ad8924d44548a35d65ceb80b8b7fff89d9776ff9b6a5f53c9b07934a5248b2",
+    "dependency_check": "passed",
+    "dependency_source": "release/constraints/python-3.14.txt --require-hashes --only-binary=:all:",
+    "feature_tests": {
+      "passed": 47,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "real_tk": {
+    "tk": 9.0,
+    "route_scale_checks": 28,
+    "threads_after_close": 1,
+    "experience": [
+      {
+        "scale": 100,
+        "transcript_height": 501,
+        "composer_height": 47,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      },
+      {
+        "scale": 200,
+        "transcript_height": 501,
+        "composer_height": 47,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      }
+    ],
+    "scope": "Exact installed wheel on macOS with temporary profiles, in-memory SSE and search fixtures; not physical Bazzite/CachyOS or real model/provider evidence."
+  },
+  "compileall": "passed",
+  "git_diff_check": "passed",
+  "artifacts": {
+    "directory": "dist/dev6-experience-20260917",
+    "files": {
+      "bc250_llm_mode-0.9.0.dev6-py3-none-any.whl": {
+        "sha256": "aa025f9fb42dbe4bd7a87834028782cc0ab778239534b8c0304cd2a091cb9c09",
+        "bytes": 817266
+      },
+      "bc250_llm_mode-0.9.0.dev6.tar.gz": {
+        "sha256": "9ec51ecb82d5aa9280950dcce7bb34a042b83fb69b60fc518983921e9ba56b33",
+        "bytes": 750564
+      },
+      "checksums.sha256": {
+        "sha256": "645de188dd54307ca8e6ca685063d6f756150e484e062770dfe193c723ca8218",
+        "bytes": 208
+      },
+      "release-manifest.json": {
+        "sha256": "5fdee7be1886a429a6f887abc548871498699c1bf1bce4bffdbcb7bb31e5a939",
+        "bytes": 2346
+      },
+      "sbom.cdx.json": {
+        "sha256": "59dfa244d2ddf45bfa6e83c889bef374ec7af0c53c22a86908c807f00270bac0",
+        "bytes": 1392
+      }
+    }
+  },
+  "developer_reports": {
+    "artifact-verification.txt": "4802adbc97236def7eee485d43fcc1effc1127a95a88f28c23e419e0c982f9ea",
+    "default-inventory.json": "fcd08251ff0b00cf6d6d26e0019e3aae0ace128fe123e3ab034e3bc24022d5c6",
+    "default-log": "e83480e5b02c1bc52163574dbf5952f67f64011f160ce2a6f9aeb9cd9d36bb0e",
+    "default-xml": "a0d808d3ccbaab944b791090f64caa5b2859fe48befefd6494870a0c8e2c7044",
+    "installed-identity.json": "302c1c4d29406bad0a8899ad356215d058f59ad9718f86e6070a2755c4b92c19",
+    "installed-tests.log": "9344cc671eaca1a251d06ec45691610a52612b90c34a16239112c64df524d43c",
+    "installed-tests.xml": "3a5860e524290f83f1c11c8eef65a8284db028dd6463885cc6f0e3dba902e6c6",
+    "installed-tk-experience.json": "f4ce956aa867f247ef63f34bccefe3797ecda3edf66f788d188ee7889e299f14",
+    "installed-tk-routes.json": "dd7629fc6ccdaac21880e1ed3b511c953e8bf773f5a5fd0dd2f1c5f478699e50",
+    "release-decision.json": "5de96f1ed65f87b345b1c43b525e0c1ae7e8e3a7c6fb007016292d80e2c04b7a",
+    "slow-inventory.json": "d02d41daac0905983b3583f091814d8712fc8f94d41478d7ccd20be9c6a68d35",
+    "slow-log": "a3388c0be131e94b26ed18bc94f21a2c4bb565b0fc2e74616e10014f1ac98e9d",
+    "slow-xml": "a8f73df75a2d0eeed83c40f0ebb086580e999838815f587a3e71860b28f53ce2",
+    "source-inventory.json": "c4ad8924d44548a35d65ceb80b8b7fff89d9776ff9b6a5f53c9b07934a5248b2"
+  },
+  "release_evaluator": {
+    "artifact_verification": "passed",
+    "qualification_level": "rc",
+    "eligible_for_rc": false,
+    "eligible_for_1_0_0": false,
+    "blocking_codes": [
+      "BACKUP_RESTORE_EVIDENCE_MISSING",
+      "CLEAN_WHEEL_EVIDENCE_MISSING",
+      "DOCUMENTATION_DRIFT",
+      "HARDWARE_QUALIFICATION_MISSING",
+      "HUMAN_ACCEPTANCE_MISSING",
+      "LIMITATION_ACCEPTANCE_MISSING",
+      "MILESTONE_EVIDENCE_MISSING",
+      "PROVENANCE_MISSING_OR_MISMATCHED",
+      "REPOSITORY_NOT_PUBLISHED",
+      "SBOM_MISSING_OR_MISMATCHED",
+      "SECURITY_REVIEW_MISSING",
+      "SIGNATURE_MISSING_OR_INVALID",
+      "SOAK_EVIDENCE_MISSING",
+      "TEST_EVIDENCE_MISSING"
+    ],
+    "explanation": "Unsigned local reports and this record are not VerifiedEvidenceRecords. Their presence does not satisfy publication, attestation or candidate evidence requirements."
+  },
+  "pending": [
+    "Hosted Linux Python 3.11/3.14 CI on this candidate",
+    "BC250 dev6 deployment and live model/template/search-provider verification",
+    "Bazzite/CachyOS fresh/upgraded physical, phone, reboot, recovery, thermal and soak journeys",
+    "Small and 9B exact model/profile hardware measurements",
+    "Non-developer keyboard, screen-reader and usability acceptance",
+    "Independent security review",
+    "Owner-gated signed release, trust-root and publication"
+  ],
+  "deployment": "not performed; recorded dev5 installation remains unchanged",
+  "remote_publication": "not performed",
+  "owner_untracked_files_preserved": 10,
+  "compatibility_limit": "dev5 cannot read dev6 format-2 conversations; files are preserved. Full Markdown export can be used for access outside dev6. Physical rollback acceptance is pending."
+}
