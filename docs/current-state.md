@@ -1,10 +1,21 @@
 # Current implementation state
 
-Source version `0.9.0.dev10` is undergoing runtime build and recovery
-qualification on `codex/runtime-identity-dev10`; it is not yet deployed.
-See [the corrective work](runtime-recovery-corrections-2026-09-17.md).
-The installed development version remains `0.9.0.dev9` and its artifact
-identity and results below remain unchanged.
+Source version `0.9.0.dev10` at `ff26fb3` is developer-qualified and staged on
+`codex/runtime-identity-dev10`. Its 1,844-test inventory passes on macOS
+(1,831 passed / 13 skips) and Bazzite (1,841 passed / three skips); all 52 slow
+gates pass on both. The exact installed wheel, real Tk and staged live
+model/SearXNG checks also pass. See [the corrective work and reverted activation
+attempt](runtime-recovery-corrections-2026-09-17.md) and
+[qualification record](runtime-qualification-2026-09-17.json).
+
+The active development version is **dev9**. The first dev10 application
+activation was reverted after its audit incorrectly compared a generated
+heartbeat as persistent data. Dev9 is restored and healthy; 13 persistent
+private files, service units and boot configuration are preserved. The
+corrected activation retry and real runtime rebuild await explicit approval
+after automatic approval review rejected the retry. No runtime promotion,
+profile measurements or GitHub push occurred. The dev9 artifact identity and
+historical results below remain unchanged.
 
 The [September experience improvements](experience-improvements-2026-09.md)
 build on

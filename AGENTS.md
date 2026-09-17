@@ -1,5 +1,51 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 17 dev10 staged qualification checkpoint
+
+`0.9.0.dev10` at `ff26fb306b5a13e928d13ee8a292046fb613b0d1`, branch
+`codex/runtime-identity-dev10`, is developer-qualified and staged. The active
+Bazzite application is **dev9**, restored after a reverted dev10 activation
+attempt. Read `docs/runtime-recovery-corrections-2026-09-17.md`,
+`docs/runtime-qualification-2026-09-17.json` and `docs/current-state.md`.
+The candidate's wheel SHA-256 is
+`f52a66068c3d532f0286e599918f2c6dd05c613ebdd50e81034ed8f97db8a4fb`.
+Combined inventory: 1,844 selected, Bazzite 1,841 passed / three skips,
+macOS 1,831 passed / 13 skips; all 52 slow gates pass on both. The two Bazzite
+compiler skips pass in the 33/33 installed-runtime fixture checks inside the
+existing guest. Both fresh hash-locked environments verify all 195 Python
+modules / 196 package files and pass installed feature and actual Tk checks.
+Staged native Chat passes with the real model and SearXNG. The temporary
+display container has been removed. These are not participant or release gates.
+
+The first activation's audit mistakenly compared generated `runtime-policy.json`
+heartbeat bytes as persistent data. Automatic rollback restored dev9 and the
+prior source checkout at `e4dc11c`; model health is 200, all 13 persistent
+private files are unchanged, and context 128,000 / one slot / service units /
+boot configuration are preserved. The corrected retry has NOT executed:
+automatic approval review rejected it as an unapproved dev10 deployment with
+service-disruption and data-integrity risk. Explicit approval for dev10
+activation and rebuilding the existing runtime commit is pending. Do not
+interpret this checkpoint as approval or bypass that rejection. GitHub source
+publication likewise awaits approval after a separate rejection; nothing was
+pushed, tagged, signed or published.
+
+The existing runtime remains at
+`000547513f1530346ecd163db8b3e13962949961`, without promoted/known-good identity.
+No real runtime build, exchange or calibration has run. The small model was
+verified through supported local import as `lfm25-26b-verified`, SHA-256
+`babb80c3249e1578e47d481bf494844a83b4cbfead6fc614a6450908b0f60c65`;
+the active alias and original bytes remain unchanged. Never fabricate runtime
+identity, promotion or measurement rows to pass profile safeguards.
+
+Keep `/root/.bc250-deployments/20260917-ff26fb3/rollback` and older backups.
+After the reversed link exchange, `rollback/app-venv` points to inactive dev10,
+NOT dev9. Verify actual link targets before recovery, take a fresh snapshot
+before another attempt, and never overwrite newer user data. The schema-2
+conversation downgrade limitation remains. Ten owner-controlled untracked
+files are preserved. Hardware/profile, fresh-install, CachyOS, participant,
+phone/reboot/soak, accessibility, security and signed-release gates remain
+pending; release is BLOCKED.
+
 ## September 17 physical development deployment checkpoint
 
 Version `0.9.0.dev9` is installed on the existing Bazzite BC250 from code commit
