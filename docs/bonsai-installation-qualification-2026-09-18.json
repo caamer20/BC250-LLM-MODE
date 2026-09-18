@@ -1,87 +1,190 @@
 {
-  "schema_version": 1,
-  "source_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
+  "source_commit": "30d1b1d1d6d3823e3bd381d196fad76f933f9823",
   "version": "0.9.0.dev13",
-  "wheel_sha256": "5c1214df3484ce7c0684edbedbe8162df6226e29f21a6843b4730c829aa7123f",
+  "wheel_sha256": "0efad98326ebe9d8333725dc373e7e542a2bd97ca22bd1014069553b5e02ce8b",
+  "package_files_verified": 197,
+  "python_modules_verified": 196,
   "macos": {
-    "source_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
-    "combined_selected": 1917,
-    "passed": 1898,
+    "selected": 1924,
+    "passed": 1905,
     "skipped": 19,
     "suites": {
       "default": {
-        "tests": 1865,
-        "errors": 0,
+        "tests": 1872,
         "failures": 0,
+        "errors": 0,
         "skipped": 19
       },
       "slow": {
         "tests": 52,
-        "errors": 0,
         "failures": 0,
+        "errors": 0,
         "skipped": 0
       }
     },
-    "installed_features": 84,
+    "installed_features": 90,
     "installed_runtime": 31,
     "native_route_scale_checks": 28,
-    "native_prism_model_checks": 8,
-    "additional_checks_overlap_suite": true,
-    "wheel_sha256": "5c1214df3484ce7c0684edbedbe8162df6226e29f21a6843b4730c829aa7123f"
+    "native_prism_model_checks": 8
   },
   "linux": {
-    "combined_selected": 1918,
-    "passed": 1903,
+    "selected": 1924,
+    "passed": 1909,
     "skipped": 15,
     "suites": {
-      "default-corrected": {
-        "returncode": 0,
-        "tests": 1866,
-        "failures": 0,
+      "default": {
+        "exit_status": 0,
+        "tests": 1872,
         "errors": 0,
+        "failures": 0,
         "skipped": 15
       },
       "slow": {
-        "returncode": 0,
+        "exit_status": 0,
         "tests": 52,
-        "failures": 0,
         "errors": 0,
+        "failures": 0,
         "skipped": 0
       },
       "installed-features": {
-        "returncode": 0,
-        "tests": 84,
-        "failures": 0,
+        "exit_status": 0,
+        "tests": 90,
         "errors": 0,
+        "failures": 0,
         "skipped": 0
       }
     },
-    "guest_runtime": {
+    "installed_runtime_guest": {
       "exit_status": 0,
-      "tests": 73,
+      "tests": 79,
       "errors": 0,
       "failures": 0,
       "skipped": 0
     },
-    "host_compiler_skips_covered_by_guest": 8,
-    "remaining_platform_only_skips": 7,
-    "installed_package_files_verified": 197,
-    "installed_python_modules_verified": 196,
+    "compiler_skips_covered_by_guest": 8,
+    "remaining_platform_skips": 7,
     "native_route_scale_checks": 28,
     "native_prism_model_checks": 8
   },
-  "test_only_correction": {
-    "package_code_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
-    "package_bytes_changed": false,
-    "test_change": "Explicitly exercise clone and streamed-copy callbacks separately; the original platform-dependent pulse-count expectation failed on successful Linux FICLONE.",
-    "test_file_sha256": "bd3e38f4311d6adf06bdae30d36cd909221da6b195eaffb4abab971f713b8384",
-    "original_test_sha256": "259d8e268d64053d78db74f5df700bf4e3fbc536a593708508dd232e59c24b72"
-  },
-  "macos_corrected_storage_tests": {
-    "passed": 9,
-    "package_code_changed": false
-  },
-  "physical_activation": "pending_explicit_approval_after_automatic_review_rejection",
+  "additional_checks_overlap_suite": true,
+  "deployment_status": "completed_and_verified",
+  "schema_version": 1,
   "release_qualification": "blocked_external_gates_pending",
-  "additional_checks_overlap_suite": true
+  "deployment": {
+    "version": "0.9.0.dev13",
+    "source_commit": "30d1b1d1d6d3823e3bd381d196fad76f933f9823",
+    "wheel_sha256": "0efad98326ebe9d8333725dc373e7e542a2bd97ca22bd1014069553b5e02ce8b",
+    "active_model": "bonsai2-27b-crack",
+    "context": 8192,
+    "slots": 1,
+    "original_model_retained": true,
+    "private_files_preserved": 12,
+    "graphical_boot_target_preserved": true,
+    "health": {
+      "model": 200,
+      "search": 200,
+      "gateway_anonymous": 401
+    },
+    "no_active_operations": true,
+    "no_recovery_leases": true,
+    "original_failed_audit_retained": true,
+    "private_database_tables_preserved_count": 15,
+    "runtime": {
+      "build_id": "llamacpp:sha256:e5dd634ac9b000b37a9c72ae8d40f178ed2a0395309ff3eecfb4250c30296b50",
+      "provenance_class": "IMMUTABLE_SOURCE",
+      "source_commit": "5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6"
+    },
+    "service_definitions_and_states_preserved": true,
+    "models": [
+      {
+        "alias": "bonsai2-27b",
+        "digest": "sha256:53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+        "active": false,
+        "quantization": "PTQ1_0",
+        "runtime_requirement": null
+      },
+      {
+        "alias": "bonsai2-27b-crack",
+        "digest": "sha256:5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15",
+        "active": true,
+        "quantization": "PTQ1_0",
+        "runtime_requirement": null
+      }
+    ],
+    "native_chat": {
+      "native_web_chat": {
+        "classification": "COMPLETED",
+        "error_code": null,
+        "duration_ms": 4041,
+        "time_to_first_token_ms": 3703,
+        "visible_characters": 1,
+        "fixed_answer_matched": true,
+        "model_counted": true
+      },
+      "actual_library_widgets": [
+        {
+          "alias": "bonsai2-27b",
+          "state": "INSTALLED",
+          "primary_label": "Switch and Chat"
+        },
+        {
+          "alias": "bonsai2-27b-crack",
+          "state": "VERIFIED",
+          "primary_label": "Open Chat"
+        }
+      ],
+      "native_save_roundtrip": "passed",
+      "idle_cpu_percent_one_core": 0.77,
+      "idle_sample_seconds": 15,
+      "navigation_changes": 100,
+      "threads_during_window": 4,
+      "threads_after_close": 1,
+      "tk_errors": [],
+      "unraisable_errors": [],
+      "human_acceptance": "pending"
+    },
+    "resource_smokes": [
+      {
+        "scope": "Short installation model switches and fixed-answer checks; not soak or throughput qualification",
+        "peak_llama_rss_mib": 1975.2109375,
+        "peak_total_fast_vram_mib": 6163.92578125,
+        "peak_temperature_c": 72.0,
+        "minimum_host_available_mib": 674.68359375,
+        "samples": 1105,
+        "elapsed_seconds": 563.7,
+        "stopped_by_owner": true
+      },
+      {
+        "scope": "CRACK installation switch and fixed-answer checks; not soak or throughput qualification",
+        "peak_llama_rss_mib": 1954.01171875,
+        "peak_total_fast_vram_mib": 6163.92578125,
+        "peak_temperature_c": 72.0,
+        "minimum_host_available_mib": 366.51953125,
+        "samples": 1204,
+        "elapsed_seconds": 617.94,
+        "stopped_by_owner": true
+      }
+    ]
+  },
+  "raw_report_privacy": "Raw reports remain outside Git in ignored dist. Public record omits deployment paths, operation identifiers, database contents, conversations, and credentials.",
+  "local_evidence_sha256": {
+    "bonsai2-27b-activation.json": "bad9b053df023249fa5fc30a42ded518c82a3d5dfc080664405dbecfb2b5bc67",
+    "bonsai2-27b-crack-activation.json": "6c19ed350b4535b4dfb46628eecf0019a5a978b0fb8c25107209a2d71e8ea8ec",
+    "bonsai2-27b-crack-import.json": "7466e1895c0afca1622c012fa902aa48d3d67265b1a35d2eebc6cae4865d733d",
+    "bonsai2-27b-crack-live-checks.json": "fee2e50e375278e8bf4c185b3c5a080f17003e670d4cbcf5bad47321682d5295",
+    "bonsai2-27b-import.json": "38662f5ed2e429ffe552b8e4823d1bb82e697676dd903b4a7b54b27e4b933ff5",
+    "bonsai2-27b-live-checks.json": "7f5abcde391240dd21f8e6d23ac4b166b0c60cd05ae3432f8d35e0b68341d145",
+    "cleanup.json": "3ce30d4de9aa68fd47597627c07fe1a4aefc8ac3a24a64145803593941245be5",
+    "correction-deployment.json": "f3c6a1075bcb9f8acb58909f875b7b44ff8cbe2294ed472b360ca1a17d6f7a5e",
+    "crack-managed-resource-smoke.json": "755d6f5df99af43f78acde31783ed72b9463ce5f134cb85b9812aa2c3c3172cb",
+    "final-live-native-chat.json": "030a85a0d05adf2204dbc6a2609b7c6e4add58392400c945b52397aa7a686542",
+    "final-live-readiness.json": "dfff26ab6f0d51877cadf87390ed7bd5f7e828f8a08f219cdf56a697f64cb076",
+    "final-preservation.json": "16fb8ab60afba2a1b1348d1f52a4a4b6d4196dfc9b7e3bf879456545fe4f1455",
+    "installed-identity.json": "9d6ae00bcc2421f82bd2a74c6e52fbbfcd863c40d54f26f94959eac4a19d32fe",
+    "managed-model-resource-smoke.json": "cb5ce16379a63161de26afdc3f091c8ed9ffe19e198da5ae4b91a89477244241",
+    "own-cache-cleanup.json": "59d4c5b41fb12a631d52b6e3f11b64251244a347fad7fced3d1c40302916d260",
+    "post-cleanup-health.json": "b66e246212fa109f54b327d88767422d61416bea45fc9980deb5c1b752ec8e8e",
+    "runtime-restoration-reconciled.json": "18a6ac7db9f33619c30c082eb764765bf097a3d0f263d2c244fa19bc01f0fc20",
+    "runtime-update.json": "4703e2c872bb48d881eb81cffb7f09a0ee52413e6d73819bca347a062bb80f1e"
+  }
 }

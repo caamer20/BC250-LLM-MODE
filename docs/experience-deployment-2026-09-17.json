@@ -22,10 +22,10 @@
       "seconds": 137.556,
       "exit_status": 0,
       "skip_reasons": {
-        "tests/test_http_worker_linux_memory.py::test_http_worker_accepts_large_interpreter_virtual_baseline": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_http_worker_linux_memory.py', 13, 'Skipped: Linux address-space accounting')",
-        "tests/test_profile_exchange_helper.py::test_real_same_filesystem_exchange_on_linux": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_profile_exchange_helper.py', 134, 'Skipped: real exchange requires Linux')",
-        "tests/test_review_boundaries_rv.py::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_review_boundaries_rv.py', 276, 'Skipped: Linux IP_FREEBIND private bridge reservation')",
-        "tests/test_runtime_process.py::test_local_exchange_swaps_content_atomically": "('/Users/cameronamer/Documents/BC250_LLM_MODE/tests/test_runtime_process.py', 206, 'Skipped: renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above')"
+        "tests/test_http_worker_linux_memory.py::test_http_worker_accepts_large_interpreter_virtual_baseline": "('tests/test_http_worker_linux_memory.py', 13, 'Skipped: Linux address-space accounting')",
+        "tests/test_profile_exchange_helper.py::test_real_same_filesystem_exchange_on_linux": "('tests/test_profile_exchange_helper.py', 134, 'Skipped: real exchange requires Linux')",
+        "tests/test_review_boundaries_rv.py::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "('tests/test_review_boundaries_rv.py', 276, 'Skipped: Linux IP_FREEBIND private bridge reservation')",
+        "tests/test_runtime_process.py::test_local_exchange_swaps_content_atomically": "('tests/test_runtime_process.py', 206, 'Skipped: renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above')"
       },
       "python": "3.14.7",
       "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O"

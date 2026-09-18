@@ -1,5 +1,33 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 18 performance work and source-publication authorization
+
+The owner explicitly requested completion of optimized runtime, FP16, and GPU
+clock/temperature benchmarks and inclusion of all project upgrades on GitHub.
+They separately approved copying 18 named installation JSON reports into ignored
+local dist, reviewing them, and publishing only a sanitized summary. This
+supersedes earlier source-publication/report-copy approval boundaries for this
+scope. It does not authorize signed releases, updater enablement, private data,
+model-weight uploads, or inclusion of the ten owner-controlled untracked files.
+
+Dev13 installation is COMPLETE at code `30d1b1d1d6d3823e3bd381d196fad76f933f9823`,
+wheel `0efad98326ebe9d8333725dc373e7e542a2bd97ca22bd1014069553b5e02ce8b`.
+Both managed Bonsai PTQ models are installed, CRACK selected at 8192 / one slot,
+and the exact Prism compatibility runtime is promoted. Read the reconciled
+`docs/bonsai-installation-2026-09-18.md` and qualification JSON. Mac: 1905 passed
++19 skips; Linux: 1909 +15, both 1924 selected including 52 slow gates. Guest
+79/79 covers eight host compiler skips. Native Chat/library checks pass.
+Twelve persistent private files and 15 private database tables are preserved;
+service definitions and graphical boot are unchanged. Backups remain retained.
+Earlier dev9-active and installation-pending statements below are historical.
+
+Performance work is isolated under `/var/tmp/bc250-crack-performance-20260918`.
+The existing runtime and rollback trees must remain intact. A new runtime may
+be promoted only through exact manifest, receipt, live inference and recovery
+checks. No known-good or measured profile records may be fabricated. Initial
+16K/32K long-prompt trials stopped at a conservative experimental 75°C cutoff;
+that is not evidence of a physical thermal limit or memory exhaustion.
+
 ## September 18 approved Bonsai installation — in progress
 
 The owner explicitly said "Ok complete the install" after the app's missing

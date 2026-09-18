@@ -1,13 +1,24 @@
 # Current implementation state
 
-The owner has now authorized completion of the Bonsai installation, including
-the app update and real Prism runtime activation. Source `0.9.0.dev13` on
-`codex/bonsai-install-dev13` implements exact staged-runtime verification and
-managed import/activation for the verified official and lossless CRACK PTQ1
-files. Qualification and deployment are in progress; dev9 remains physically
-active at this source checkpoint. See
-[Bonsai installation](bonsai-installation-2026-09-18.md). The dev12 records below
-remain bound to their unchanged candidate and are not inherited by dev13.
+The installed application is **0.9.0.dev13**, code
+`30d1b1d1d6d3823e3bd381d196fad76f933f9823`. Both Bonsai models are installed;
+CRACK is active at 8,192 tokens / one slot on the verified, promoted Prism
+compatibility runtime. Native Chat and actual model switching pass. The full
+1,924-test inventory passes on macOS (1,905 + 19 skips) and Bazzite
+(1,909 + 15 skips); guest checks cover eight compiler skips. See
+[Bonsai installation](bonsai-installation-2026-09-18.md) and its
+[exact qualification record](bonsai-installation-qualification-2026-09-18.json).
+
+The owner has authorized performance work and GitHub publication of the project
+upgrades, including a sanitized installation summary. An isolated O2 runtime
+build and matched precision/clock/temperature benchmarks are in progress.
+The active runtime remains the unoptimized compatibility build until a
+replacement passes its checks. External release gates remain pending.
+
+## Historical candidate checkpoints
+
+The following entries record their state at the time; references to dev9 as
+active or Bonsai installation as pending are superseded by the dev13 record above.
 
 Source version `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the requested
 Bonsai 2 catalog entries and explicit runtime compatibility checks. Code
