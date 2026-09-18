@@ -19,6 +19,12 @@ check afterward; the temporary server is stopped and production settings are
 preserved. CRACK's published PQ2 pack has not been loaded.
 The qualified dev11 candidate below remains frozen on its branch; its results
 do not qualify changed dev12 package code. The physical application is dev9.
+At the owner's requested stopping point, the exact dev12 source/test archive
+and wheel are staged and hash-verified in
+`/var/tmp/bc250-dev12-20d83c8-tests`. Linux test environments and tests have not
+been started. Transfer preservation checks confirm unchanged production app,
+service identities/units, checkout and boot target, with model/SearXNG health
+200. No build, test or temporary inference job remains running from this work.
 
 Source version `0.9.0.dev11` on `codex/fresh-setup-dev11` corrects the
 fresh-install model/runtime dependency and recovery after a failed first

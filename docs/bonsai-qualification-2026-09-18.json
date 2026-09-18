@@ -47,7 +47,8 @@
   },
   "evidence_files": {
     "device-test-transfer/bc250-dev12-20d83c8-source.tar": "2b5abdc076327c3f0e504e0e8ef705b1b076eb438a74c557696a2033801a099f",
-    "device-test-transfer/transfer-manifest.json": "e3f360bc5aeeb7f4fba3facdf459deb23556fb17a8caf3e8b8f278aa0e991bbe",
+    "device-test-transfer/transfer-manifest.json": "15fe50de937d831abc1708e81090f21387fb43daca6ebee9eaa525be57a0826b",
+    "device-test-transfer/transfer-preservation.json": "07de691aeda5805779c7878cf86b70463c1688987b8a68d4ad28b1f732fc181f",
     "macos/default-inventory.json": "b89c9599f6d2a6fe5c2288b64fbd1700aca1c0575413f5e8d6fd869295acf42f",
     "macos/default.log": "f429d3e7ae76e983ec28285acb74c0b7e559b9f9272b9c88bc6f52115ca5228b",
     "macos/default.xml": "996514bfe1e6208e497a4e341260155a5c6c673d0dfe7eb600a649573e161ba7",
@@ -79,7 +80,8 @@
   },
   "linux_package_qualification": {
     "earlier_dev11_linux_results_inherited": false,
-    "status": "not_run_for_dev12"
+    "reason": "Owner requested a stopping point after the exact source/test archive and wheel had transferred and verified. No Linux test environment was created and no dev12 tests ran.",
+    "status": "staged_not_run"
   },
   "macos": {
     "combined": {
@@ -419,15 +421,18 @@
         "sha256": "e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c"
       }
     },
-    "prepared_locally_only": true,
+    "prepared_locally_only": false,
     "proposed_device_directory": "/var/tmp/bc250-dev12-20d83c8-tests",
     "proposed_scope": "Fresh isolated environments and fixture tests; no production application activation.",
     "source_commit": "20d83c851b638edb272715c57d3d1f9988a2c2a4",
-    "transferred": false,
+    "stop_checkpoint": "Owner requested a stopping point after the verified transfer; Linux qualification has not begun.",
+    "tests_started": false,
+    "transferred": true,
+    "transferred_at": "2026-09-18T08:31:18.721807+00:00",
     "version": "0.9.0.dev12"
   },
   "record_type": "local_developer_qualification_not_physical_or_signed_release_evidence",
-  "record_version": 1,
+  "record_version": 2,
   "recorded_at": "2026-09-18T07:39:48.576209+00:00",
   "release": {
     "artifact_verifier_exit_status": 0,
@@ -456,5 +461,13 @@
   "runtime_experiment": "Separate pinned Prism runtime passed small BC250 GPU reference checks and two short official PTQ1 answers at 8192 context, including SSE. It is unoptimized, unpromoted and not integrated into the application. See bonsai-model-compatibility-2026-09-18.json for exact identities and scope.",
   "source_commit": "20d83c851b638edb272715c57d3d1f9988a2c2a4",
   "source_ref": "refs/heads/codex/bonsai-models-dev12",
+  "transfer_preservation": {
+    "active_application": "0.9.0.dev9",
+    "checked_at": "2026-09-18T08:31:18.721807+00:00",
+    "model_health": 200,
+    "production_unchanged": true,
+    "searxng_health": 200,
+    "temporary_listener_absent": true
+  },
   "version": "0.9.0.dev12"
 }

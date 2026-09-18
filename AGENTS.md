@@ -41,9 +41,22 @@ UI checks pass, with native experience journeys. Those checks overlap the
 suite. Wheel SHA-256:
 `e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c`.
 Read `docs/bonsai-qualification-2026-09-18.json`; raw reports/artifacts are in
-`dist/dev12-bonsai-20260918`. No dev12 Linux package qualification, application
-activation or full-model inference is claimed. All ten owner files are
-preserved. Physical, human, security and release gates remain pending.
+`dist/dev12-bonsai-20260918`. No dev12 Linux package qualification or application
+activation is claimed; the separate Bonsai smoke is limited to the experiment
+described above. All ten owner files are preserved. Physical, human, security
+and release gates remain pending.
+
+At the owner's requested stopping point, the exact dev12 source/test archive
+and wheel are transferred and hash-verified under
+`/var/tmp/bc250-dev12-20d83c8-tests`. Source archive SHA-256:
+`2b5abdc076327c3f0e504e0e8ef705b1b076eb438a74c557696a2033801a099f`.
+No Linux test environment was created and no dev12 Linux tests were started.
+The transfer preservation report confirms unchanged dev9 app/service
+identities, units, checkout and boot target, model/SearXNG health 200, and no
+experimental listener. No build or test job remains running from this work.
+The next work is Linux qualification of this exact candidate; app activation,
+production runtime changes and publication retain their separate approval
+boundaries. This staging record is not deployment or Linux qualification.
 
 ## September 17–18 dev11 isolated fresh-setup qualification
 

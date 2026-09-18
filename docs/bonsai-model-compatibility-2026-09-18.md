@@ -139,3 +139,8 @@ The artifact-set verifier passes; the unsigned release decision remains
 **BLOCKED**. Dev12 has not been deployed or qualified on Linux. Dev11's
 separate Linux results remain bound to its unchanged wheel. Broader model,
 desktop, participant, security and signed-release gates remain pending.
+
+The exact dev12 source/test archive and wheel have been transferred and
+hash-verified in `/var/tmp/bc250-dev12-20d83c8-tests`. Work stopped at the
+owner's request after verifying production preservation. No dev12 Linux test
+environment or test run has started; staging does not establish qualification.
