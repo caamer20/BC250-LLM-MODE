@@ -204,7 +204,7 @@ if isinstance(threads, int) and threads >= 1:
 # Use llama.cpp's supported long spelling so the generated launcher remains
 # readable while matching both current and older supported builds.
 argv += ["--cache-reuse", "256", "--defrag-thold", "0.1"]
-if h.get("runtime_component_id") == "@PRISM_BUILD_ID@":
+if SCHEMA == 2 and h.get("runtime_component_id") == "@PRISM_BUILD_ID@":
     # This fork otherwise retains up to 8 GiB of prompt states in host RAM.
     # The BC250's small host allocation is separate from its GPU KV budget.
     # Bind this supported switch to the exact runtime, including when that

@@ -105,8 +105,8 @@ def test_generated_bonsai_argv_requires_identity_and_bounded_settings(tmp_path):
         assert subprocess.run([sys.executable,'-c',code,str(handoff)],capture_output=True).returncode != 0
 
 
-@pytest.mark.parametrize('use_prism', [False, True])
-def test_ram_cache_flag_follows_runtime_capability_not_model_name(tmp_path, use_prism):
+@pytest.mark.parametrize('use_prism, schema', [(False, 1), (True, 2), (True, 1)])
+def test_ram_cache_flag_follows_runtime_capability_not_model_name(tmp_path, use_prism, schema):
     """The new fork-only switch must not break older ordinary llama.cpp builds."""
     import sys
     from bc250_llm_mode.server import generate_launcher
@@ -121,6 +121,7 @@ def test_ram_cache_flag_follows_runtime_capability_not_model_name(tmp_path, use_
                      runtime_server_sha256=prism.pinned_manifest()['binaries'][0]['sha256'],
                      runtime_manifest_digest=prism.pinned_build_id().rsplit(':', 1)[1])
     payload = build_payload(state, config_revision=1)
+    payload['schema_version'] = schema
     handoff = tmp_path / 'handoff.json'
     handoff.write_text(json.dumps(payload))
     launcher = generate_launcher({'app_dir': str(tmp_path)})
@@ -129,8 +130,9 @@ def test_ram_cache_flag_follows_runtime_capability_not_model_name(tmp_path, use_
                             capture_output=True, text=True)
     assert result.returncode == 0
     args = result.stdout.splitlines()
-    assert ('--cache-ram' in args) is use_prism
-    if use_prism:
+    expected = use_prism and schema == 2
+    assert ('--cache-ram' in args) is expected
+    if expected:
         assert args[args.index('--cache-ram') + 1] == '0'
 
 
