@@ -47,7 +47,7 @@ class RuntimeLifecycleOutcome:
 
     @property
     def ok(self) -> bool:
-        return self.status == "SUCCEEDED"
+        return self.status in {"SUCCEEDED", "RESTORED"}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,10 +71,39 @@ class RuntimeLifecycleCommandService:
     """Enqueue + foreground execute + terminal mapping (no detach)."""
 
     def __init__(self, *, units: Any, enqueue: Any,
-                 engine_factory: Any) -> None:
+                 engine_factory: Any, restoration_verifier: Any = None) -> None:
         self._units = units
         self._enqueue = enqueue
         self._engine_factory = engine_factory
+        self._restoration_verifier = restoration_verifier
+
+    def reconcile_restored(self, operation_id: str, *, expected_revision: int) -> RuntimeLifecycleOutcome:
+        """Explicit operator reconciliation after inspection of retained trees.
+
+        The failed terminal row stays immutable. Only its recovery leases are
+        released, atomically with an audit event, after the real adapter proves
+        prior tree, launch configuration, lineage, known-good state and inference.
+        No promotion or measurement record is created here.
+        """
+        from .operations.repositories import EventRepository
+        with self._units.begin() as conn:
+            record = OperationRepository(conn).require(operation_id)
+            leases = LeaseRepository(conn)
+            held = leases.leases_for_operation(operation_id)
+            if (record.state is not OperationState.RECOVERY_REQUIRED
+                    or record.state_revision != expected_revision
+                    or record.operation_type not in {OperationType.RUNTIME_UPDATE, OperationType.RUNTIME_ROLLBACK}
+                    or not held or any(l.resource_key not in {RUNTIME_ACTIVE_RESOURCE, RUNTIME_INSTALLATION_RESOURCE} for l in held)
+                    or self._restoration_verifier is None):
+                return RuntimeLifecycleOutcome(operation_id, "REFUSED", "RECONCILE", {"reason": "Recovery evidence or revision is not eligible."})
+            if not self._restoration_verifier(operation_id):
+                return RuntimeLifecycleOutcome(operation_id, "RECOVERY_REQUIRED", "RECONCILE", {"reason": "Prior runtime restoration is not proven."})
+            EventRepository(conn).append(operation_id, code="RUNTIME_RESTORATION_RECONCILED",
+                summary="Prior runtime independently verified; recovery leases released; original failure retained.",
+                detail={"expected_revision": expected_revision, "promoted": False})
+            for lease in held:
+                leases.release(lease.resource_key, owner=lease.owner, expected_revision=lease.lease_revision)
+        return RuntimeLifecycleOutcome(operation_id, "RESTORED", "RECONCILE", {"original_failure_retained": True})
 
     # -- durable-state inspection ---------------------------------------------
 

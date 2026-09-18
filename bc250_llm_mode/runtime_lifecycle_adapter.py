@@ -1649,6 +1649,7 @@ class RuntimeLifecycleHostAdapter:
                 invocation_nonce=receipt.get("nonce", ""),
                 receipt_present=bool(receipt),
             )
+        prior_nonce = self._read_receipt().get("nonce")
         try:
             self.server_port.restart(view)
         except Exception as exc:  # noqa: BLE001 - typed mapping only
@@ -1657,7 +1658,22 @@ class RuntimeLifecycleHostAdapter:
                 f"restart failed ({exc.__class__.__name__})",
                 mutation_possible=True,
             ) from exc
-        receipt = self._read_receipt()
+        # A simple systemd service becomes active before its launcher reaches
+        # the receipt write. Wait only for that bounded startup handshake;
+        # the following workflow step still verifies the full live identity.
+        import time
+        deadline = time.monotonic() + 20.0
+        while True:
+            receipt = self._read_receipt()
+            if (receipt.get("build_id") == target_build_id
+                    and receipt.get("operation_id") == operation_id
+                    and receipt.get("nonce")
+                    and receipt.get("nonce") != prior_nonce):
+                break
+            if time.monotonic() >= deadline:
+                raise StepFailure("SERVICE_START_RECEIPT_TIMEOUT",
+                                  "launcher receipt did not arrive", mutation_possible=True)
+            time.sleep(0.1)
         return ServiceRestartEvidenceV1(
             restarted_now=True, was_already_active=False,
             invocation_nonce=receipt.get("nonce", ""),
@@ -1882,7 +1898,7 @@ class RuntimeLifecycleHostAdapter:
             raise StepFailure("RUNTIME_RESTORATION_UNCERTAIN", "reverse exchange unproven", mutation_possible=True)
         self._record_pair_locations(snapshot, forward=False)
         observed_handoff = self.renderer.observe(require_v2=False)
-        if observed_handoff != snapshot.handoff_payload and (
+        if not self._restored_handoff_matches(snapshot) and (
                 not observed_handoff or observed_handoff.get("runtime_component_id") != target["build_id"]):
             raise StepFailure("RUNTIME_RESTORATION_UNCERTAIN", "foreign handoff", mutation_possible=True)
         self.renderer.restore_snapshot(snapshot.handoff_payload)
@@ -1930,7 +1946,7 @@ class RuntimeLifecycleHostAdapter:
         active = self._observed_tree(self._loc.active_root)
         active_ok = (active is not None and active["build_id"] == snapshot.active_build_id
                      if snapshot.active_build_id else not self._remote_test("-e", self._loc.active_root))
-        handoff_ok = self.renderer.observe(require_v2=False) == snapshot.handoff_payload
+        handoff_ok = self._restored_handoff_matches(snapshot)
         view = self._view()
         facts = self.server_port.capture(view)
         if snapshot.service_state == "ACTIVE_VERIFIED":
@@ -1947,6 +1963,38 @@ class RuntimeLifecycleHostAdapter:
             return ProbeResult(RecoveryClass.COMPLETE, "PRIOR_RUNTIME_RESTORED",
                                output={"restored": True, "service_state": snapshot.service_state})
         return ProbeResult(RecoveryClass.REVERTIBLE, "RESTORATION_INCOMPLETE")
+
+    def _restored_handoff_matches(self, snapshot) -> bool:
+        observed = self.renderer.observe(require_v2=False)
+        prior = snapshot.handoff_payload
+        if observed == prior:
+            return True
+        if not observed or not prior:
+            return False
+        # Restarts regenerate derived revision/fingerprint metadata. Accept
+        # this only when every launch/identity field still equals the prior
+        # snapshot AND the complete new artifact equals today's rendering.
+        from .runtime_handoff import build_payload
+        metadata = {"config_revision", "runtime_fingerprint"}
+        if ({k: v for k, v in observed.items() if k not in metadata}
+                != {k: v for k, v in prior.items() if k not in metadata}):
+            return False
+        view = self._view()
+        return observed == build_payload(view, config_revision=int(view.get("revision") or 1))
+
+    def verify_restored_operation(self, operation_id: str) -> bool:
+        """Read-only operator reconciliation; never promote or restore rows."""
+        from .operations.runtime_lifecycle import PriorRuntimeSnapshotV1
+        with self._units.read() as conn:
+            row = conn.execute(
+                "SELECT output_json FROM operation_steps WHERE operation_id=? "
+                "AND step_key='capture_activation_boundary' AND state='VERIFIED'",
+                (operation_id,),
+            ).fetchone()
+        if not row or not row[0]:
+            return False
+        snapshot = PriorRuntimeSnapshotV1(**_json.loads(row[0]))
+        return self.observe_restoration(snapshot, mode="reconcile").classification is RecoveryClass.COMPLETE
 
     # -- finalization ----------------------------------------------------------
 

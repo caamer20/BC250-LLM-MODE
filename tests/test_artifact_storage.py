@@ -55,12 +55,19 @@ def test_publish_no_replace_is_atomic_and_dedupes(tmp_path):
         storage.publish_no_replace(src2, root, src2_digest)
 
 
-def test_publish_no_replace_pulses_during_every_long_file_pass(tmp_path, monkeypatch):
+@pytest.mark.parametrize("clone", [False, True])
+def test_publish_no_replace_pulses_during_every_long_file_pass(tmp_path, monkeypatch, clone):
     src = tmp_path / "candidate.gguf"
     src.write_bytes(b"0123456789abcdef")
     root = tmp_path / "artifacts"
     digest, _ = storage.streaming_sha256(src)
     monkeypatch.setattr(storage, "CHUNK_BYTES", 4)
+    def controlled_clone(source_fd, destination_fd):
+        if not clone:
+            return False
+        os.write(destination_fd, os.read(source_fd, 16))
+        return True
+    monkeypatch.setattr(storage, "try_reflink", controlled_clone)
     pulses: list[int] = []
 
     dest = storage.publish_no_replace(
@@ -70,8 +77,9 @@ def test_publish_no_replace_pulses_during_every_long_file_pass(tmp_path, monkeyp
         on_chunk=pulses.append,
     )
 
-    # Publication copies and then independently hashes the incoming file.
-    assert len(pulses) >= 8
+    # Clone completion pulses once; streamed copying pulses for every chunk.
+    # Both paths must independently hash every chunk of the incoming file.
+    assert pulses == ([16] if clone else [4, 8, 12, 16]) + [4, 8, 12, 16]
     pulses.clear()
     assert storage.publish_no_replace(
         src,

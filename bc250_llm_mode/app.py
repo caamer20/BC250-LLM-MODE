@@ -734,7 +734,8 @@ class Application:
             fingerprint_for=_fingerprint_for,
         )
         application.runtime_lifecycle = RuntimeLifecycleCommandService(
-            units=units, enqueue=enqueue, engine_factory=engine_factory
+            units=units, enqueue=enqueue, engine_factory=engine_factory,
+            restoration_verifier=runtime_adapter.verify_restored_operation,
         )
         # P6 §12.2: durable model removal (dry-run + fenced remove).
         from .model_remove_command import ModelRemoveCommandService

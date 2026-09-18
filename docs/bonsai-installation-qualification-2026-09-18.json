@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "source_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
+  "version": "0.9.0.dev13",
+  "wheel_sha256": "5c1214df3484ce7c0684edbedbe8162df6226e29f21a6843b4730c829aa7123f",
+  "macos": {
+    "source_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
+    "combined_selected": 1917,
+    "passed": 1898,
+    "skipped": 19,
+    "suites": {
+      "default": {
+        "tests": 1865,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 19
+      },
+      "slow": {
+        "tests": 52,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      }
+    },
+    "installed_features": 84,
+    "installed_runtime": 31,
+    "native_route_scale_checks": 28,
+    "native_prism_model_checks": 8,
+    "additional_checks_overlap_suite": true,
+    "wheel_sha256": "5c1214df3484ce7c0684edbedbe8162df6226e29f21a6843b4730c829aa7123f"
+  },
+  "linux": {
+    "combined_selected": 1918,
+    "passed": 1903,
+    "skipped": 15,
+    "suites": {
+      "default-corrected": {
+        "returncode": 0,
+        "tests": 1866,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 15
+      },
+      "slow": {
+        "returncode": 0,
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "installed-features": {
+        "returncode": 0,
+        "tests": 84,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "guest_runtime": {
+      "exit_status": 0,
+      "tests": 73,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    },
+    "host_compiler_skips_covered_by_guest": 8,
+    "remaining_platform_only_skips": 7,
+    "installed_package_files_verified": 197,
+    "installed_python_modules_verified": 196,
+    "native_route_scale_checks": 28,
+    "native_prism_model_checks": 8
+  },
+  "test_only_correction": {
+    "package_code_commit": "b52e693da3f8bc5dbe01fad25350d401876d2004",
+    "package_bytes_changed": false,
+    "test_change": "Explicitly exercise clone and streamed-copy callbacks separately; the original platform-dependent pulse-count expectation failed on successful Linux FICLONE.",
+    "test_file_sha256": "bd3e38f4311d6adf06bdae30d36cd909221da6b195eaffb4abab971f713b8384",
+    "original_test_sha256": "259d8e268d64053d78db74f5df700bf4e3fbc536a593708508dd232e59c24b72"
+  },
+  "macos_corrected_storage_tests": {
+    "passed": 9,
+    "package_code_changed": false
+  },
+  "physical_activation": "pending_explicit_approval_after_automatic_review_rejection",
+  "release_qualification": "blocked_external_gates_pending",
+  "additional_checks_overlap_suite": true
+}

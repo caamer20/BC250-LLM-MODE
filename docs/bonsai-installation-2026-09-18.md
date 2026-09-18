@@ -67,3 +67,23 @@ answers, including SSE, at 8K/one slot; it stopped cleanly. Production remained
 on dev9 and its original model during those checks. Final candidate-bound
 application, deployment, model-switching and preservation evidence must be
 recorded before installation is claimed complete.
+
+## Installation-discovered startup correction
+
+The first dev13 application cutover preserved all 13 private files and the
+service/boot configuration. Its first Prism runtime update exposed a real
+systemd startup race: `restart` returned before the launcher published its
+identity receipt. The runtime workflow retained both trees and restored the
+original binary, but marked recovery required because a regenerated handoff
+changed only derived revision/fingerprint metadata.
+
+The correction waits up to 20 seconds for a fresh, operation-bound receipt;
+the subsequent full tree, binary, model, context, slots and inference checks
+remain mandatory. Restoration accepts regenerated metadata only when all
+launch/identity fields equal the captured snapshot and the complete observed
+artifact equals the current app rendering. Foreign settings remain refused.
+An explicit operator reconciliation API verifies the complete prior runtime
+restoration before releasing its recovery leases. It appends an audit event
+and preserves the failed terminal operation unchanged; it creates no promoted
+runtime, known-good record or measurement. The installation uses this only
+after inspecting the retained trees and qualifying the correction.
