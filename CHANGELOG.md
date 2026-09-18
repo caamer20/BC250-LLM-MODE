@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.0.dev14 — bounded Bonsai prompt caching (unreleased)
+
+- Disable the pinned fork's extra 8 GiB host-RAM prompt cache for the
+  verified Prism runtime. Retain the active slot's Q8 GPU KV cache and keep the
+  fork-specific switch out of ordinary runtime commands.
+- Record matched-input O0/O2 and FP32/FP16 experiments, answer checks,
+  generation timings, and GPU clock/temperature observations. No decoder
+  speed improvement was demonstrated; the optimized build remains isolated
+  and the application retains its qualified runtime and precision policy.
+- Reconcile the completed dev13 installation and publish its sanitized
+  qualification record and the bounded conversion/build/measurement tools.
+
 ## 0.9.0.dev13 — verified Bonsai installation (unreleased)
 
 - Integrate the exact audited Prism compatibility bundle with the existing

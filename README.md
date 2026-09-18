@@ -33,8 +33,10 @@ Current installed development version: **0.9.0.dev13** (not `1.0.0`).
 The [Bonsai installation](docs/bonsai-installation-2026-09-18.md) is complete:
 both verified models are in Model Library, and CRACK is active at 8K / one slot
 on the pinned Prism compatibility runtime. Candidate-bound macOS, Linux,
-installed-wheel, and native Chat checks pass. Performance work is in progress;
-physical acceptance and external release gates remain pending. Status
+installed-wheel, and native Chat checks pass. Source **0.9.0.dev14** is qualifying a host-RAM cache fix.
+[Performance measurements](docs/bonsai-performance-2026-09-18.md) found no
+demonstrated O2/FP16 speed gain. Physical acceptance and external release gates
+remain pending. Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 (all executable local/CI checks pass), *evidence pending* (hardware/human/
 external evidence absent), *release blocked* (a policy-required item is

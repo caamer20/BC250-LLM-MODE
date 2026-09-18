@@ -62,6 +62,11 @@ recovery barrier, and no active API request. It temporarily stops the normal
 model service, starts isolated loopback trials, tests fixed answers and two
 192-token synthetic generations, records GPU clocks/utilization/temperature,
 then restores and verifies the prior service and configuration in `finally`.
+It disables the fork’s separate 8 GiB default host-RAM prompt cache while
+retaining the live slot’s Q8 GPU KV cache. The installed governor remains at
+85°C throttling / 75°C recovery; a separate 90°C trial cutoff stays below
+the configured 95°C application stop. Initial temperature and actual clocks
+are recorded, so thermal differences remain visible in the comparison.
 It never reads user conversations or changes GPU clock/power controls.
 
 These measurements compare a fixed workload. They do not establish a universal

@@ -9,11 +9,20 @@ compatibility runtime. Native Chat and actual model switching pass. The full
 [Bonsai installation](bonsai-installation-2026-09-18.md) and its
 [exact qualification record](bonsai-installation-qualification-2026-09-18.json).
 
-The owner has authorized performance work and GitHub publication of the project
-upgrades, including a sanitized installation summary. An isolated O2 runtime
-build and matched precision/clock/temperature benchmarks are in progress.
-The active runtime remains the unoptimized compatibility build until a
-replacement passes its checks. External release gates remain pending.
+Source `0.9.0.dev14` adds a Prism-specific host-RAM prompt-cache bound and
+is in qualification. The optimized runtime and FP16 experiments passed their
+limited correctness checks but demonstrated no output-speed gain. They remain
+isolated; the application retains its previously qualified runtime and
+precision policy. Disabling the extra RAM cache allowed repeated requests with
+at least 2 GiB host memory available. See the
+[performance investigation](bonsai-performance-2026-09-18.md).
+
+The owner authorized GitHub source publication and the sanitized installation
+summary. [Pull request #6](https://github.com/caamer20/BC250-LLM-MODE/pull/6)
+contains the upgrades. The prior dev13 source/documentation commit passed
+GitHub CI on Python 3.11 and 3.14, including native Tk and package checks; those
+results do not qualify the changed dev14 package. External release gates remain
+pending.
 
 ## Historical candidate checkpoints
 

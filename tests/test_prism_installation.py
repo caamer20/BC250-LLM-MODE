@@ -99,9 +99,39 @@ def test_generated_bonsai_argv_requires_identity_and_bounded_settings(tmp_path):
     args=result.stdout.splitlines()
     assert args[args.index('--load-mode')+1]=='mmap' and '--no-context-shift' in args
     assert args[args.index('--reasoning')+1]=='off'
+    assert args[args.index('--cache-ram')+1]=='0'
     for key,value in [('runtime_component_id','legacy:fixture'),('ctx_total',32768),('threads',6),('kv_cache_type','q4_0')]:
         handoff.write_text(json.dumps({**payload,key:value}))
         assert subprocess.run([sys.executable,'-c',code,str(handoff)],capture_output=True).returncode != 0
+
+
+@pytest.mark.parametrize('use_prism', [False, True])
+def test_ram_cache_flag_follows_runtime_capability_not_model_name(tmp_path, use_prism):
+    """The new fork-only switch must not break older ordinary llama.cpp builds."""
+    import sys
+    from bc250_llm_mode.server import generate_launcher
+
+    state = {'current_model': 'ordinary', 'current_ctx': 8192,
+             'installed_models': [{'id': 'ordinary', 'path': '/fixture.gguf',
+                                   'content_digest': '1' * 64}],
+             'optimizations': dict(prism.PRISM_SETTINGS)}
+    if use_prism:
+        state.update(runtime_component_id=prism.pinned_build_id(),
+                     runtime_source_commit=prism.PRISM_COMMIT,
+                     runtime_server_sha256=prism.pinned_manifest()['binaries'][0]['sha256'],
+                     runtime_manifest_digest=prism.pinned_build_id().rsplit(':', 1)[1])
+    payload = build_payload(state, config_revision=1)
+    handoff = tmp_path / 'handoff.json'
+    handoff.write_text(json.dumps(payload))
+    launcher = generate_launcher({'app_dir': str(tmp_path)})
+    code = launcher.read_text().split("<<'PYH'\n", 1)[1].split('\nPYH\n', 1)[0]
+    result = subprocess.run([sys.executable, '-c', code, str(handoff)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0
+    args = result.stdout.splitlines()
+    assert ('--cache-ram' in args) is use_prism
+    if use_prism:
+        assert args[args.index('--cache-ram') + 1] == '0'
 
 
 def test_imported_bonsai_row_is_blocked_until_exact_runtime_is_promoted(tmp_path, monkeypatch):

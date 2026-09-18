@@ -21,7 +21,14 @@ Twelve persistent private files and 15 private database tables are preserved;
 service definitions and graphical boot are unchanged. Backups remain retained.
 Earlier dev9-active and installation-pending statements below are historical.
 
-Performance work is isolated under `/var/tmp/bc250-crack-performance-20260918`.
+Performance experiments completed under `/var/tmp/bc250-crack-performance-20260918`.
+O2 and FP16 passed limited correctness checks but demonstrated no decoder-speed
+gain under the varying governor clocks; neither is promoted/enabled. See
+`docs/bonsai-performance-2026-09-18.md` and its JSON. The fork default 8 GiB
+RAM prompt cache exceeded the host allocation: disabling it retained over
+2 GiB available memory during repeated generations. Dev14 adds only this
+Prism-specific launcher bound and is in qualification. The active app is
+still dev13 until the separate deployment record says otherwise.
 The existing runtime and rollback trees must remain intact. A new runtime may
 be promoted only through exact manifest, receipt, live inference and recovery
 checks. No known-good or measured profile records may be fabricated. Initial

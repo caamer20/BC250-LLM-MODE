@@ -1,5 +1,5 @@
 """Bounded optimized PTQ and Hadamard checks against CPU reference."""
-import hashlib,json,os,subprocess,time
+import hashlib,json,os,re,subprocess,time
 from pathlib import Path
 root=Path('/run/host/var/tmp/bc250-crack-performance-20260918')
 exe=root/'build-o2/bin/test-backend-ops'
@@ -15,9 +15,10 @@ for disable in [True,False]:
   argv=[str(exe),'test','-b','Vulkan0','-o',op,'-p',pattern,'-j','1']
   proc=subprocess.run(argv,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180)
   log=proc.stdout;(root/(label+'.log')).write_text(log)
-  passed=[line.strip() for line in log.splitlines() if line.strip().startswith(op+'(') and line.strip().endswith(': OK')]
+  clean=re.sub(r'\x1b\[[0-9;]*m','',log)
+  passed=[line.strip() for line in clean.splitlines() if line.strip().startswith(op+'(') and line.strip().endswith(': OK')]
   skipped=[line.strip() for line in log.splitlines() if 'not supported' in line.lower() or 'skipped' in line.lower()]
-  result={'name':label,'disable_f16':disable,'exit_status':proc.returncode,'seconds':round(time.monotonic()-start,3),'expected_ok_count':expected,'ok_lines':passed,'skipped_lines':skipped,'passed':proc.returncode==0 and len(passed)==expected,'log_sha256':hashlib.sha256(log.encode()).hexdigest()}
+  result={'name':label,'disable_f16':disable,'exit_status':proc.returncode,'seconds':round(time.monotonic()-start,3),'expected_ok_count':expected,'ok_lines':passed,'skipped_lines':skipped,'passed':proc.returncode==0 and len(passed)==expected,'log_sha256':hashlib.sha256(log.encode()).hexdigest(),'device_lines':[line for line in log.splitlines() if 'ggml_vulkan:' in line and 'fp16:' in line]}
   results.append(result);print(json.dumps(result),flush=True)
 (root/'kernel-checks.json').write_text(json.dumps({'binary_sha256':build['binaries']['test-backend-ops']['sha256'],'checks':results,'scope':'Small fixed PTQ and signed Hadamard checks, not full-model or sustained qualification'},indent=2)+'\n')
 raise SystemExit(0 if all(r['passed'] for r in results) else 1)
