@@ -47,6 +47,10 @@ def catalog_fingerprint(entry, quantization: str) -> str:
         "true_block_count": entry.true_block_count,
         "validation_tier": entry.validation_tier,
     }
+    requirement = getattr(entry, "runtime_requirement", None)
+    if requirement:
+        # Preserve fingerprints of existing entries that need no extra runtime.
+        payload["runtime_requirement"] = requirement
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "fp:" + hashlib.sha256(canonical.encode()).hexdigest()[:32]
 

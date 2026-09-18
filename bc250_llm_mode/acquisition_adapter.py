@@ -164,6 +164,9 @@ class AcquisitionHostAdapter:
         )
         if entry is None:
             raise HostError("CATALOG_MODEL_UNKNOWN", request.model_id)
+        requirement = getattr(entry, "runtime_requirement", None)
+        if requirement:
+            raise HostError("MODEL_RUNTIME_REQUIRED", requirement)
         pattern = entry.allow_globs.get(request.quantization)
         if pattern is None:
             raise HostError("CATALOG_QUANT_UNSUPPORTED", request.quantization)
@@ -437,7 +440,8 @@ class AcquisitionHostAdapter:
             verdict="ok" if ok else "invalid",
             format="GGUF" if verdict != "rejected_not_gguf" else "unknown",
             layout_verdict=verdict,
-            reason_code=None if ok else "GGUF_LAYOUT_FORBIDDEN",
+            reason_code=(None if ok else "MODEL_RUNTIME_REQUIRED"
+                         if verdict == "rejected_runtime_required" else "GGUF_LAYOUT_FORBIDDEN"),
             detail={"content_digest": digest, "byte_size": size},
         )
 

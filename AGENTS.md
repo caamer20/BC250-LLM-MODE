@@ -1,5 +1,23 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 18 Bonsai model additions in progress
+
+Source `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the two owner-requested
+Bonsai 2 models. Read `docs/bonsai-model-compatibility-2026-09-18.md` and its JSON
+record. Official PTQ1_0 is the selected experimental Vulkan candidate; CRACK
+ships PQ2_0, whose Vulkan kernels are absent from the inspected fork. Both
+entries remain runtime-required in the app, separate from memory estimates.
+Renamed local GGUFs declaring PrismML Hadamard transforms are refused.
+
+A separate PrismML Vulkan build at commit
+`5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6` is being prepared under
+`/var/tmp/bc250-bonsai-experimental`, using the existing guest toolchain, one
+build job and serialized shader compilation. This does not replace the active
+application or runtime. Do not infer model inference, speed, fit, promotion or
+known-good identity from header inspection or a successful build. The dev11
+qualification below remains bound to its unchanged code/wheel. Dev12 package
+qualification and full-model experimental evidence are still in progress.
+
 ## September 17–18 dev11 isolated fresh-setup qualification
 
 `0.9.0.dev11` on `codex/fresh-setup-dev11` is developer-qualified on macOS and

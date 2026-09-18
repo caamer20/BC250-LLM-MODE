@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.0.dev12 — Bonsai 2 discovery and runtime requirements (unreleased)
+
+- Add the requested official Bonsai 2 27B PTQ1_0 and dealignai CRACK PQ2_0
+  entries with exact published filenames and weight sizes. Separate memory
+  estimates from the custom-runtime requirement; neither is advertised as a
+  verified or recommended BC250 model.
+- Show runtime requirements in Model Library and CLI search, and refuse
+  incompatible catalog downloads before network transfer. The current
+  application runtime and device installation are unchanged.
+- Inspect bounded GGUF metadata after the architecture key so rotated Bonsai
+  weights cannot bypass the runtime requirement through a renamed local file.
+  Preserve ordinary catalog fingerprints and test real acquisition quarantine
+  plus activation refusal.
+- Record the publisher identities and separate pinned PrismML Vulkan build
+  preparation. Full-model and hardware performance evidence remains pending.
+
 ## 0.9.0.dev11 — first runtime installation before model selection (unreleased)
 
 - Complete fresh runtime installation without starting an empty-model service
@@ -18,8 +34,9 @@
 - Refresh the fixed exchange helper by atomic replacement and verify its file
   digest; repeated staging and hostile destination symlinks are covered.
 - Add production-adapter setup/recovery journeys with explicit platform and
-  model-service fixtures. Linux execution, device deployment, participant and
-  release gates remain pending; dev9 remains the active physical installation.
+  model-service fixtures. Isolated Linux/CMake qualification subsequently
+  passed after owner approval; device deployment, participant and release
+  gates remain pending. Dev9 remains the active physical installation.
 
 ## 0.9.0.dev10 — runtime build and recovery corrections (unreleased)
 

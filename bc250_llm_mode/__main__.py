@@ -1498,6 +1498,8 @@ def main(argv: list[str] | None = None) -> int:
         if not state.get("env_ready"):
             raise RuntimeError("Inference environment is not ready; complete that wizard step first.")
         model = advertised_model_by_id(args.model_id)
+        if model.runtime_requirement:
+            raise RuntimeError(model.runtime_requirement)
         kv_scale = kv_scale_for_settings(state.get("optimizations"))
         slots = parallel_slots_for_settings(state.get("optimizations"))
         if args.quant:

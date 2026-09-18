@@ -47,7 +47,7 @@ def test_standard_artifact_allowed():
 
 
 def test_catalog_ids_are_unique_and_all_downloads_are_standard_layouts():
-    assert len(CATALOG) == 40
+    assert len(CATALOG) == 42
     assert len({model.id for model in CATALOG}) == len(CATALOG)
     for model in CATALOG:
         for pattern in model.allow_globs.values():
@@ -65,7 +65,7 @@ def test_direct_catalog_downloads_use_literal_safe_remote_filenames():
 def test_conversion_only_sources_are_not_advertised_as_runnable_models():
     hidden = {"qwen38-9b-distill", "defiant-fable-9b"}
 
-    assert len(ADVERTISED_CATALOG) == 38
+    assert len(ADVERTISED_CATALOG) == 40
     assert hidden == {model.id for model in CATALOG if model.conversion}
     assert hidden.isdisjoint(model.id for model in ADVERTISED_CATALOG)
     assert hidden.isdisjoint(model.id for model in search_catalog(""))
@@ -259,6 +259,6 @@ def test_catalog_round5_bc250_fit_matrix(model_id, quant, ctx, slots, verdict):
 def test_round5_additions_remain_preview_until_physical_bc250_qualification():
     from bc250_llm_mode.catalog import validation_tier
 
-    added = CATALOG[24:]
+    added = tuple(model for model in CATALOG if not model.runtime_requirement)[24:]
     assert len(added) == 16
     assert all(validation_tier(model) == "preview" for model in added)

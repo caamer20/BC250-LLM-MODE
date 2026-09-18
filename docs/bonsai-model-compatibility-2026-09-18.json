@@ -1,0 +1,108 @@
+{
+  "limits": [
+    "Published sizes describe weights, not total runtime memory.",
+    "Header inspection does not verify complete model hashes or inference.",
+    "A source-level Vulkan implementation is not a BC250 correctness or performance result.",
+    "Both catalog entries remain runtime-required on the currently integrated stock runtime.",
+    "No derived/repacked CRACK model or alternate model has been substituted."
+  ],
+  "models": [
+    {
+      "architecture": "qwen35",
+      "blocks": 64,
+      "byte_size": 5946648928,
+      "filename": "Ternary-Bonsai-2-27B-PTQ1_0.gguf",
+      "full_file_downloaded": false,
+      "full_file_hash_verified": false,
+      "hadamard_block_size": 1024,
+      "hadamard_version": 1,
+      "header_bytes_inspected": 16777216,
+      "header_metadata_bytes": 11120982,
+      "header_prefix_sha256": "3fa5d85e6602036ae1d6a1a761c3c00959ee5bcfec735ac4ddd4b3ad2a1fddd1",
+      "language_parameter_count": 26895998464,
+      "on_bc250_inference_verified": false,
+      "publisher_sha256": "53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3",
+      "repo": "prism-ml/Ternary-Bonsai-2-27B-gguf",
+      "repo_revision": "6ed5e12bf84b7a63069882c91dd9e9218647d17b",
+      "requires_prism_hadamard": true,
+      "role": "preferred_official_pack_for_experimental_vulkan_testing",
+      "tensor_count": 851,
+      "tensor_types": {
+        "0": 353,
+        "143": 402,
+        "30": 96
+      },
+      "trained_context_tokens": 262144
+    },
+    {
+      "architecture": "qwen35",
+      "blocks": 64,
+      "byte_size": 7206168928,
+      "filename": "Bonsai-2-27B-PQ2_0-CRACK.gguf",
+      "full_file_downloaded": false,
+      "full_file_hash_verified": false,
+      "hadamard_block_size": 1024,
+      "hadamard_version": 1,
+      "header_bytes_inspected": 16777216,
+      "header_metadata_bytes": 11120982,
+      "header_prefix_sha256": "93197364d8a489d46a039da26dbd14bfae6800fa91f976f601a98a053a5844b5",
+      "language_parameter_count": 26895998464,
+      "on_bc250_inference_verified": false,
+      "publisher_sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d",
+      "repo": "dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF",
+      "repo_revision": "3e509d5afd0b4dee3390b5f65be19328713b610b",
+      "requires_prism_hadamard": true,
+      "role": "requested_publisher_pack_vulkan_unavailable",
+      "tensor_count": 851,
+      "tensor_types": {
+        "0": 353,
+        "142": 402,
+        "30": 96
+      },
+      "trained_context_tokens": 262144
+    }
+  ],
+  "observed_at": "2026-09-18T07:03:01.722315+00:00",
+  "ordinary_header_regressions": [
+    {
+      "filename": "LFM2.5-2.6B-Q5_K_M.gguf",
+      "prefix_bytes": 16777216,
+      "prefix_sha256": "460d35ff7220d0580e259e76d44d54d621b1694d155aa8a524b4fd3e64044f15",
+      "repo": "LiquidAI/LFM2.5-2.6B-GGUF",
+      "revision": "84022ce711b28455e8c4fc364ce68c00cf995875",
+      "scope": "header parse only; no full artifact hash or inference",
+      "verdict": "standard"
+    },
+    {
+      "filename": "Qwen3.8-9B-Q4_K_M.gguf",
+      "prefix_bytes": 16777216,
+      "prefix_sha256": "0e33a7dc980eb70b33bbbd2e682dc2c5fcc5411f24adaf2e237eb9ee1eadca6e",
+      "repo": "empero-ai/Qwen3.8-9B-Distill-GGUF",
+      "revision": "760121cd70bb4c36b2b5ec58eb765e0df5987efe",
+      "scope": "header parse only; no full artifact hash or inference",
+      "verdict": "standard"
+    }
+  ],
+  "record_type": "compatibility_research_not_model_or_runtime_qualification",
+  "record_version": 1,
+  "runtime": {
+    "app_runtime_integration": "not_enabled",
+    "inspected_branch_commits": [
+      "f0a2b5dc9ea066780b9b410d2c0f95d675859bf7",
+      "c1abda39458458ebfb4ec0722bd2224aab26e680"
+    ],
+    "inspected_release_commit": "5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6",
+    "isolated_build_status": "in_progress",
+    "isolated_configure_passed": true,
+    "pq2_vulkan_kernels_present_in_source": false,
+    "production_runtime_changed": false,
+    "ptq1_vulkan_kernels_present_in_source": true,
+    "repository": "https://github.com/PrismML-Eng/llama.cpp.git"
+  },
+  "sources": [
+    "https://huggingface.co/prism-ml/Ternary-Bonsai-2-27B-gguf",
+    "https://huggingface.co/dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF",
+    "https://github.com/PrismML-Eng/Bonsai-demo/blob/main/MODEL-FORMATS.md",
+    "https://github.com/PrismML-Eng/llama.cpp/blob/5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6/ggml/src/ggml-vulkan/ggml-vulkan.cpp"
+  ]
+}

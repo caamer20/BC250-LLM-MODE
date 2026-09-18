@@ -28,6 +28,8 @@ def fit_message(model, quant: str, ctx: int, *, slots: int) -> tuple[str, bool]:
     Preserves the wizard's exact wording, including the Q4-KV fallback
     suggestion shown when the selected cache type does not fit.
     """
+    if getattr(model, "runtime_requirement", None):
+        return model.runtime_requirement, False
     fit = calculate_fit(model, quant, ctx, parallel_slots=slots)
     concurrency = f" · {ctx:,} tokens per user across {slots} slots"
     if fit.verdict != "NO-FIT":
@@ -97,6 +99,8 @@ class SetupForms:
             self.model_tree.heading(key, text=title)
             self.model_tree.column(key, width=width, stretch=key == "notes")
         for model in ADVERTISED_CATALOG:
+            if model.runtime_requirement:
+                continue
             iid = f"catalog::{model.id}"
             self.model_choices[iid] = ("catalog", model)
             self.model_tree.insert(
@@ -163,6 +167,8 @@ class SetupForms:
         self.requested_parallel_slots = goal.slots
         candidates = []
         for model in ADVERTISED_CATALOG:
+            if model.runtime_requirement:
+                continue
             matches = sum(tag in model.task_tags for tag in goal.preferred_tags)
             if matches:
                 candidates.append((matches, model.params_b, model))

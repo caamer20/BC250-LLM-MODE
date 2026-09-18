@@ -180,7 +180,7 @@ def test_model_library_merges_installed_and_catalog_without_duplicates():
     assert model_action(installed).code == "chat"
     assert model_action(installed).label == "Open Chat"
     assert sum(item.catalog_id == "qwen35-9b" for item in items) == 1
-    remote = next(item for item in items if item.remote)
+    remote = next(item for item in items if item.remote and not item.runtime_requirement)
     action = model_action(remote)
     assert (action.code, action.secondary_code) == ("install-start", "install")
     assert action.label == "Install, Start and Chat"

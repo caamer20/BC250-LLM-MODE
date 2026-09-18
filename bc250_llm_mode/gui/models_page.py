@@ -34,6 +34,7 @@ from .view_state import Confirmation, Notice
 MODEL_PRESENTATION_STATES = frozenset({
     "AVAILABLE", "DOWNLOADING", "VALIDATING", "INSTALLED", "ACTIVE",
     "VERIFIED", "QUARANTINED", "REMOVING", "RECOVERY_REQUIRED",
+    "RUNTIME_REQUIRED",
 })
 MODEL_FILTERS = ("Recommended", "Installed", "Long context", "Multi-user", "All")
 MAX_MODEL_ROWS = 100
@@ -141,6 +142,7 @@ class ModelItemView:
     immutable_identity: bool = False
     standard_layout: bool = False
     memory_required_gib: float | None = None
+    runtime_requirement: str | None = None
 
     def __post_init__(self) -> None:
         if self.state not in MODEL_PRESENTATION_STATES:
@@ -150,6 +152,8 @@ class ModelItemView:
 def model_action(item: ModelItemView) -> ModelActionView:
     if item.busy or item.state in {"DOWNLOADING", "VALIDATING", "REMOVING", "RECOVERY_REQUIRED"}:
         return ModelActionView("activity", "Resolve recovery")
+    if item.runtime_requirement:
+        return ModelActionView("fit", "View runtime requirements")
     if item.state == "QUARANTINED" or item.fit_verdict == "NO-FIT":
         return ModelActionView("fit", "View why it cannot start")
     if item.remote:
@@ -251,12 +255,16 @@ def build_model_items(
             display_name=str(row.display_name),
             family=str(getattr(row, "architecture", None) or getattr(row, "catalog_id", None) or "custom"),
             size_gib=(float(byte_size) / 1024**3 if byte_size else None),
-            state="RECOVERY_REQUIRED" if recovery_required else state,
+            state=("RECOVERY_REQUIRED" if recovery_required else
+                   "RUNTIME_REQUIRED" if entry and entry.runtime_requirement and not quarantined else state),
             fit_verdict=(
                 getattr(row, "fit_verdict", None)
                 or (installed_fit.verdict if installed_fit is not None else None)
             ),
-            fit_detail=str(
+            fit_detail=(
+                f"{entry.runtime_requirement}\nEstimated memory: "
+                if entry and entry.runtime_requirement else ""
+            ) + str(
                 getattr(row, "fit_detail", None)
                 or (installed_fit.detail if installed_fit is not None else None)
                 or "Fit evidence is unavailable for this custom artifact."
@@ -287,6 +295,7 @@ def build_model_items(
             memory_required_gib=(
                 installed_fit.required_gib if installed_fit is not None else None
             ),
+            runtime_requirement=entry.runtime_requirement if entry else None,
         ))
     for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
@@ -314,9 +323,11 @@ def build_model_items(
             display_name=entry.display_name,
             family=entry.family,
             size_gib=entry.weights_gib_by_quant.get(quant),
-            state="RECOVERY_REQUIRED" if recovery_required else "AVAILABLE",
+            state=("RECOVERY_REQUIRED" if recovery_required else
+                   "RUNTIME_REQUIRED" if entry.runtime_requirement else "AVAILABLE"),
             fit_verdict=fit_verdict,
-            fit_detail=fit_detail,
+            fit_detail=(f"{entry.runtime_requirement}\nEstimated memory: {fit_detail}"
+                        if entry.runtime_requirement else fit_detail),
             support_tier=validation_tier(entry),
             description=entry.notes,
             source_repo=entry.repo,
@@ -339,6 +350,7 @@ def build_model_items(
                 )
             ),
             memory_required_gib=fit_required_gib,
+            runtime_requirement=entry.runtime_requirement,
         ))
     candidates = []
     for item in items:
@@ -351,6 +363,7 @@ def build_model_items(
             architecture_compatible=(
                 item.standard_layout
                 and (item.remote or item.catalog_id in catalog_by_id)
+                and item.runtime_requirement is None
             ),
             inference_verified=item.verified,
             measured_local=item.measurement_summary.startswith("Measured locally:"),
@@ -1049,7 +1062,7 @@ class ModelsPage(ttk.Frame):
             self._secondary_action_code = action.secondary_code
             self._secondary_action_button.configure(text=action.secondary_label)
             self._secondary_action_button.pack(side="left", padx=5)
-        if not item.remote and item.state not in {"QUARANTINED", "RECOVERY_REQUIRED"}:
+        if not item.remote and item.state not in {"QUARANTINED", "RECOVERY_REQUIRED", "RUNTIME_REQUIRED"}:
             self._apply_draft_button.pack(side="left", padx=5)
         if not item.remote:
             self._remove_button.pack(side="right")
@@ -1076,12 +1089,15 @@ class ModelsPage(ttk.Frame):
         item = self._selected()
         if item is None:
             return
+        if item.runtime_requirement and code in {"install", "install-start", "activate"}:
+            code = "fit"
         if code == "activity":
             self.shell.navigate(Route.ACTIVITY)
             return
         if code == "fit":
             self.shell.notice_bar.show_notice(Notice(
-                "warning", "This model cannot start with the selected workload",
+                "warning", ("This model needs another runtime" if item.runtime_requirement
+                            else "This model cannot start with the selected workload"),
                 item.fit_detail or "Fit evidence is missing. Review the model details.",
                 dismissible=False,
             ))

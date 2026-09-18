@@ -1,5 +1,13 @@
 # Current implementation state
 
+Source version `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the requested
+Bonsai 2 catalog entries and explicit runtime compatibility checks. This work
+is in local qualification; the separately pinned PrismML experimental build
+does not replace the application's active runtime. See
+[Bonsai model compatibility](bonsai-model-compatibility-2026-09-18.md).
+The qualified dev11 candidate below remains frozen on its branch; its results
+do not qualify changed dev12 package code. The physical application is dev9.
+
 Source version `0.9.0.dev11` on `codex/fresh-setup-dev11` corrects the
 fresh-install model/runtime dependency and recovery after a failed first
 model activation. Code commit `67202e2` is locally qualified on macOS: 1,875
