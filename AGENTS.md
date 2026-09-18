@@ -1,8 +1,9 @@
 # Continuation guide for BC250 LLM MODE
 
-## September 17 dev11 local fresh-setup qualification
+## September 17–18 dev11 isolated fresh-setup qualification
 
-`0.9.0.dev11` on `codex/fresh-setup-dev11` is locally qualified on macOS at
+`0.9.0.dev11` on `codex/fresh-setup-dev11` is developer-qualified on macOS and
+in isolated Bazzite environments at
 code commit `67202e2ec6f140ad6745735d751e27ac5065e8df`. Read
 `docs/fresh-runtime-setup-2026-09-17.md`,
 `docs/fresh-runtime-qualification-2026-09-17.json` and ADR 004's September 17
@@ -26,15 +27,28 @@ failure exposed incorrect restoration of an empty selection. The corrected
 candidate preserves that absence and passes failure → retry → promotion.
 Do not deploy the superseded diagnostic artifact.
 
-Local production-adapter journeys use a native compiler and Darwin atomic
-operation fixture; separate real Linux/CMake tests remain pending. Automatic
-approval review rejected transfer of the draft code/test archive to the BC250
-for lack of explicit payload-export authorization. That copy did not run;
-isolated-test approval was requested. Do not bypass the rejection. Dev10
-activation/runtime rebuilding and GitHub publication retain their separate
-approval blocks below. The tested dev10 branch and artifacts are unchanged;
-the BC250 remains on dev9. No dev11 device test or deployment is authorized by
-this checkpoint. Physical, human, security and release gates remain pending.
+The owner explicitly approved copying the verified dev11 source/tests and wheel
+to the BC250 and running isolated Linux tests. Those checks completed on
+September 18 UTC: Bazzite/Python 3.14.6 passes **1,860 + 15 skips** of the same
+1,875 selected tests, including all 52 slow gates. The host lacks CMake; all
+eight compiler skips pass in the existing guest's **53/53 installed-runtime
+checks**, leaving seven platform-only paths. Both fresh hash-locked Linux
+environments verify all 195 modules / 196 package files; installed features
+pass 42/42. Linux journeys use the shipped atomic helper and real Git/CMake,
+with temporary databases and fixture model services. The macOS journeys use
+the explicit Darwin fixture. Neither proves real model or desktop acceptance.
+
+The approved source archive and wheel are retained under
+`/var/tmp/bc250-dev11-67202e2-tests`; local raw reports are in
+`dist/dev11-fresh-setup-20260917/linux`. The isolated source snapshot has a
+synthetic Git commit solely for a release-regression fixture; the transferred
+archive hash and all package bytes bind the original `67202e2` source.
+Application link/version, service invocations/PIDs/units, graphical boot target
+and production checkout are unchanged; model and SearXNG health are 200.
+The active application remains dev9. This approval did not authorize application
+activation, real runtime replacement or GitHub publication; their separate
+approval blocks below remain. The tested dev10 branch/artifacts are unchanged.
+Physical, human, security and release gates remain pending.
 
 ## September 17 dev10 staged qualification checkpoint
 

@@ -1,8 +1,9 @@
 # Fresh runtime setup correction
 
-This work is on `codex/fresh-setup-dev11`. It has not been copied to
-the BC250 or activated. The tested dev10 candidate remains frozen on its
-separate branch; the device's last verified active application is dev9.
+This work is on `codex/fresh-setup-dev11`. Its exact source/tests and wheel
+passed isolated BC250 qualification after explicit owner approval. It has
+not been activated. The tested dev10 candidate remains frozen on its separate
+branch; the device's verified active application is dev9.
 
 ## Reproduced dependency
 
@@ -63,12 +64,12 @@ and the no-model pending state.
 
 On macOS, compilation uses the system C compiler and the atomic-operation
 fixture uses Darwin `renamex_np`. Those results do **not** qualify the Linux
-helper or CMake environment. Separate tests retain the actual Linux/CMake
-path. Linux execution is pending: automatic approval review rejected copying
-the 420-file draft source/test archive to the BC250 because explicit payload
-export authorization was not established. The copy did not run. Approval was
-requested for isolated tests using temporary directories and fake services;
-no application activation or production-service change is part of that request.
+helper or CMake environment. Separate tests exercise the actual Linux/CMake
+path. Automatic approval review initially rejected the draft source/test copy.
+The owner subsequently approved the exact qualified source/tests and wheel for
+isolated Linux tests using temporary directories and fake services. Those tests
+completed successfully on September 18 UTC, as recorded below. Application
+activation and production-service changes were outside that approval.
 
 ## Local qualification
 
@@ -95,6 +96,38 @@ under `dist/dev11-fresh-setup-20260917`; superseded `daabbf8` diagnostics remain
 under `dist/dev11-daabbf8-diagnostic`. The artifact verifier passes; the release
 evaluator refuses final eligibility because external and attestation evidence
 is still missing. These unsigned reports do not satisfy signed release gates.
+
+## Isolated Bazzite qualification, September 18 UTC
+
+The approved transfer contains the exact `67202e2` source/test archive and the
+same wheel above. Both fresh hash-locked Linux environments verify all 195
+Python modules / 196 package files against that source and wheel. The Bazzite
+host's default and slow inventories select **1,875** distinct tests:
+**1,860 passed and 15 skipped**, including **52/52 slow gates**.
+
+Eight skips need CMake, which the host does not have. All eight pass in the
+existing compiler-equipped guest's **53/53 installed-runtime checks**. Those
+checks include real Git/CMake builds, the shipped Linux atomic helper,
+initial installation, first-model inference failure, empty-state restoration,
+retry, promotion, tamper rejection and interruption recovery using temporary
+data and fixture model services. The other seven skips are explicit paths for
+other platforms. Installed chat/source/backup/profile feature checks pass
+**42/42**. These additional checks overlap the main inventory.
+
+The source archive does not contain Git history. The slow release regression
+requires a Git HEAD, so its isolated source directory has a synthetic snapshot
+commit recorded in `linux/source-fixture-git.json`. That commit is test fixture
+metadata only. The transfer archive hash and package-byte comparisons bind the
+original source commit; no source provenance or publication is inferred from
+the synthetic commit.
+
+The before/after record confirms the active application remains dev9, with the
+same application link, model/gateway service invocations and PIDs, unit bytes,
+graphical boot target and production checkout. Model and SearXNG return HTTP
+200. No production runtime was rebuilt, no real model was loaded by these
+tests and no service was restarted. The isolated directory remains at
+`/var/tmp/bc250-dev11-67202e2-tests`; raw reports are retained locally under
+`dist/dev11-fresh-setup-20260917/linux` and bound by the qualification JSON.
 
 These developer fixtures do not prove physical fresh installation, CachyOS
 support, human acceptance,

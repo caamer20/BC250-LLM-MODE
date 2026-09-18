@@ -1,5 +1,5 @@
 {
-  "additional_check_policy": "The 42 feature checks, 31 setup/runtime regressions and native Tk checks overlap suite coverage and are not added to the 1875 selected tests.",
+  "additional_check_policy": "The macOS 42 feature/31 runtime checks and Linux 42 feature/53 runtime checks overlap suite coverage and are not added to the 1875 selected tests on either host. The Linux guest passes all eight compiler cases skipped by the host. Native Tk qualification recorded here remains macOS only.",
   "artifact_packet": "dist/dev11-fresh-setup-20260917",
   "artifacts": {
     "bc250_llm_mode-0.9.0.dev11-py3-none-any.whl": {
@@ -26,9 +26,9 @@
   "authorization": {
     "dev10_application_activation_and_real_runtime_rebuild": "approval_pending_after_separate_automatic_review_rejection_citing_service_disruption_and_data_integrity",
     "github_source_publication": "not_performed; prior dev9 payload approval pending; no dev11 publication attempted",
-    "isolated_linux_fixture_transfer": "approval_pending_after_automatic_review_rejection"
+    "isolated_linux_fixture_transfer": "explicitly_approved_by_user_after_previous_rejection; exact source/test archive and wheel transferred; isolated tests completed"
   },
-  "binding": "The complete default and slow suites ran against code commit 67202e2. Artifacts were built once from its clean archive through sdist; a fresh hash-locked environment verified all package bytes against that source and wheel. Installed feature/runtime and native Tk checks used this exact wheel outside the checkout. No earlier candidate, Linux, physical or participant evidence qualifies dev11.",
+  "binding": "The complete default and slow suites ran against code commit 67202e2. Artifacts were built once from its clean archive through sdist; a fresh hash-locked environment verified all package bytes against that source and wheel. Installed feature/runtime and native Tk checks used this exact wheel outside the checkout. No earlier candidate, Linux, physical or participant evidence qualifies dev11. After explicit approval, the same code commit was exported with git archive and the exact same wheel was transferred to an isolated Bazzite directory. Both fresh Linux environments verified all 196 package files against source and wheel. The source archive has no Git history; the slow release regression uses a separately recorded synthetic local snapshot commit solely as its fixture metadata, not as original source provenance.",
   "conversation_read_schemas": [
     1,
     2
@@ -36,17 +36,35 @@
   "conversation_write_schema": 2,
   "database_schema": 14,
   "device": {
-    "changed_by_dev11_work": false,
+    "changed_by_dev11_work": true,
     "context": 128000,
     "dev10_candidate": "ff26fb306b5a13e928d13ee8a292046fb613b0d1 remains staged and separately frozen",
+    "isolated_dev11_test_files_added": true,
     "last_verified_application": "0.9.0.dev9",
-    "last_verified_at": "2026-09-17T18:30:17.620197+00:00",
+    "last_verified_at": "2026-09-18T06:42:43.099954+00:00",
     "last_verified_model_http_status": 200,
     "measured_profiles_recorded": false,
+    "production_application_or_services_changed": false,
     "runtime_rebuilt_or_promoted": false,
     "slots": 1
   },
   "evidence_files": {
+    "linux/default-inventory.json": "8aeaa22354e6d0115cc9c8e286c5b39fb43ed0ec85d8f8c52012bd50d998a9df",
+    "linux/default.log": "566a72fc9f28697bf42b40c825f8cbd5b5bff6de6cb7fc1473e74d0797479e4f",
+    "linux/default.xml": "16246224239f33acbe8c30923915a91dba4eacb1b04b7a3fe3c7cb7044d776ee",
+    "linux/guest-installation.log": "2a3a0e975d18ea1786fa6fc2826ff5b487d8e869b8efd7d3456e16e2ee53738d",
+    "linux/host-installation.log": "90797cad84bbbc67d1914bbfb4b59df0d59f8006cbf20ac7f4bfe7b9fbb265f1",
+    "linux/installed-features-linux.log": "56de3148735674237d1ee07afeca0a66f0f8cd80b8893aa71325332fea242272",
+    "linux/installed-features-linux.xml": "232a72da3db3dcb4030f244e7eed7194ceb12ba986cd93eae4733da4b0bc75e1",
+    "linux/installed-identity-linux-guest.json": "70ce5196385b5702c7ed4bff8343b6c89c89f5da2692aa783e2906a60e92cacd",
+    "linux/installed-identity-linux-host.json": "f8969005f0264d98611b04797e4ca249140bda75a21855348cc334d248d60b78",
+    "linux/installed-runtime-linux.log": "782f3785fe6393fe8448df1c3c172df6f51230118e8997c586a749f4831b1658",
+    "linux/installed-runtime-linux.xml": "a0adb4357436177d10f0a86ebd999454f2d0c8969f5bf91901e78ea42d184a5f",
+    "linux/production-preservation.json": "54e1655740726b228a8fa37b75466d6cfecea4dc63d7c0488bccf902bec56143",
+    "linux/slow-inventory.json": "cf37010de3d854a2f8fda9e9d35d74335caa34c52a799abf2b95318babfb3b3c",
+    "linux/slow.log": "c36dbd9df34a5e5d06e53f470ccf49ae0dae0fc0519b5a80a54cc67744c21797",
+    "linux/slow.xml": "5bb86ab34a3de406563b397c05062d54309166a644d3b275e07fa7b1214d3f75",
+    "linux/source-fixture-git.json": "168a05867b5590aa7ca2c62ab223a9133a4be0b31d3fc9f38d8c7a7c6884bdb1",
     "macos/default-inventory.json": "eeb2bd1e957dab56af123c3beec48035f3493896f9fee4521cb3c493731061ac",
     "macos/default.log": "a40d6b0ec566e4b0e84516733bb1117118edc8e4df35e04169b53b2b44642fbc",
     "macos/default.xml": "b8a0c3816ad3020e7b27058640ef5ada96abe7c51a5409fa489fa749444278ff",
@@ -73,8 +91,162 @@
     "metadata/source-inventory.json": "974fd7123d835cdce09af65473576b8dc482be3450a614630e6ba47b600461f2"
   },
   "linux": {
-    "reason": "Automatic approval review rejected the draft source/test transfer to the BC250 for lack of explicit payload-export authorization. The transfer did not run; isolated-test approval is pending.",
-    "status": "not_run_for_dev11"
+    "combined": {
+      "passed": 1860,
+      "selected": 1875,
+      "skipped": 15
+    },
+    "compiler_skips_covered_in_guest": [
+      "tests.test_runtime_adapter_real::test_real_cmake_builds_fetched_source_and_recovers_manifest",
+      "tests.test_runtime_cutover_real::test_production_workflow_build_update_noop_and_rollback",
+      "tests.test_runtime_initial_install_real::test_death_after_initial_publication_recovers_without_starting_a_service",
+      "tests.test_runtime_initial_install_real::test_first_model_inference_failure_restores_empty_selection_and_allows_retry",
+      "tests.test_runtime_initial_install_real::test_first_verification_failure_restores_unpromoted_runtime_without_rebuild",
+      "tests.test_runtime_initial_install_real::test_initial_install_repeat_model_activation_and_exact_promotion",
+      "tests.test_runtime_initial_install_real::test_prepared_binary_change_is_refused_before_reuse",
+      "tests.test_runtime_initial_install_real::test_verification_without_a_model_remains_pending"
+    ],
+    "default": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 1808,
+      "seconds_junit": 301.675,
+      "selected": 1823,
+      "skip_reasons": {
+        "tests.test_profile_exchange_helper::test_local_exchange_unsupported_off_linux": "off-Linux unsupported path only",
+        "tests.test_runtime_adapter_real::test_real_cmake_builds_fetched_source_and_recovers_manifest": "CMake and C toolchain required",
+        "tests.test_runtime_cutover_real::test_production_workflow_build_update_noop_and_rollback": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_local::test_local_changed_prepared_binary_is_refused": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_local::test_local_death_after_first_publication_resumes_without_a_model": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_local::test_local_first_model_failure_restores_empty_selection_and_allows_retry": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_local::test_local_initial_install_repeat_activation_and_promotion": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_local::test_local_no_model_verification_remains_pending": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_local::test_local_verification_failure_restores_the_prepared_runtime": "explicit Darwin platform fixture",
+        "tests.test_runtime_initial_install_real::test_death_after_initial_publication_recovers_without_starting_a_service": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_real::test_first_model_inference_failure_restores_empty_selection_and_allows_retry": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_real::test_first_verification_failure_restores_unpromoted_runtime_without_rebuild": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_real::test_initial_install_repeat_model_activation_and_exact_promotion": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_real::test_prepared_binary_change_is_refused_before_reuse": "real CMake toolchain required",
+        "tests.test_runtime_initial_install_real::test_verification_without_a_model_remains_pending": "real CMake toolchain required"
+      },
+      "skipped": 15,
+      "tested_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df"
+    },
+    "installed_features": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 42,
+      "seconds_junit": 2.118,
+      "selected": 42,
+      "skip_reasons": {},
+      "skipped": 0,
+      "tested_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df"
+    },
+    "installed_runtime_regressions": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 53,
+      "seconds_junit": 104.902,
+      "selected": 53,
+      "skip_reasons": {},
+      "skipped": 0,
+      "tested_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df"
+    },
+    "installed_wheel_guest": {
+      "dependency_check": "No broken requirements found.",
+      "metadata_version": "0.9.0.dev11",
+      "package_files_verified": 196,
+      "package_path": "/run/host/var/tmp/bc250-dev11-67202e2-tests/guest-venv/lib/python3.14/site-packages/bc250_llm_mode",
+      "python": "3.14.6",
+      "python_modules_verified": 195,
+      "source_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df",
+      "version": "0.9.0.dev11",
+      "wheel_sha256": "2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3"
+    },
+    "installed_wheel_host": {
+      "dependency_check": "No broken requirements found.",
+      "metadata_version": "0.9.0.dev11",
+      "package_files_verified": 196,
+      "package_path": "/var/tmp/bc250-dev11-67202e2-tests/host-venv/lib/python3.14/site-packages/bc250_llm_mode",
+      "python": "3.14.6",
+      "python_modules_verified": 195,
+      "source_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df",
+      "version": "0.9.0.dev11",
+      "wheel_sha256": "2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3"
+    },
+    "observed_at": "2026-09-18T06:42:43.099954+00:00",
+    "production_preservation": {
+      "after": {
+        "app_link": "/var/roothome/.bc250-deployments/20260917-d3fcf3b/candidate-venv",
+        "app_version": "0.9.0.dev9",
+        "checked_at": "2026-09-18T06:42:43.099954+00:00",
+        "checkout": "e4dc11c77285ce83c8c591bdcb2d34071af7c264",
+        "default_target": "graphical.target",
+        "model_http_status": 200,
+        "python": "3.14.6",
+        "searxng_http_status": 200,
+        "services": {
+          "bc250-llm.service": "ActiveState=active\nSubState=running\nUnitFileState=disabled\nInvocationID=315f2d3a8c0e4e97bf1aa9b514bb7ac0\nMainPID=223092",
+          "bc250-llm.service_unit_sha256": "5af93a6937be26172837b47ade9aee133d55b10513d8594f43a66b9421fa19c2",
+          "bc250-openwebui-gateway.service": "ActiveState=active\nSubState=running\nUnitFileState=static\nInvocationID=f03f2f7c3fe840088fdb980cea2e34fe\nMainPID=223097",
+          "bc250-openwebui-gateway.service_unit_sha256": "2e96f89496dd5b4fcfbcf7630f5d1d8d39e297269c1d7431064aea9d3a40ec27"
+        }
+      },
+      "application_activated": false,
+      "before": {
+        "app_link": "/var/roothome/.bc250-deployments/20260917-d3fcf3b/candidate-venv",
+        "app_version": "0.9.0.dev9",
+        "checked_at": "2026-09-18T06:27:19.382039+00:00",
+        "checkout": "e4dc11c77285ce83c8c591bdcb2d34071af7c264",
+        "default_target": "graphical.target",
+        "model_http_status": 200,
+        "python": "3.14.6",
+        "searxng_http_status": 200,
+        "services": {
+          "bc250-llm.service": "ActiveState=active\nSubState=running\nUnitFileState=disabled\nInvocationID=315f2d3a8c0e4e97bf1aa9b514bb7ac0\nMainPID=223092",
+          "bc250-llm.service_unit_sha256": "5af93a6937be26172837b47ade9aee133d55b10513d8594f43a66b9421fa19c2",
+          "bc250-openwebui-gateway.service": "ActiveState=active\nSubState=running\nUnitFileState=static\nInvocationID=f03f2f7c3fe840088fdb980cea2e34fe\nMainPID=223097",
+          "bc250-openwebui-gateway.service_unit_sha256": "2e96f89496dd5b4fcfbcf7630f5d1d8d39e297269c1d7431064aea9d3a40ec27"
+        }
+      },
+      "production_restarted_by_tests": false,
+      "real_model_loaded_by_tests": false,
+      "real_runtime_rebuilt": false,
+      "unchanged": {
+        "app_link": true,
+        "app_version": true,
+        "checkout": true,
+        "default_target": true,
+        "services": true
+      }
+    },
+    "python": "3.14.6",
+    "remaining_platform_only_skips": 7,
+    "slow": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 52,
+      "seconds_junit": 158.875,
+      "selected": 52,
+      "skip_reasons": {},
+      "skipped": 0,
+      "tested_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df"
+    },
+    "source_fixture_git": {
+      "purpose": "Git metadata required by release-qualification regression; local snapshot only, not original commit provenance or publication evidence",
+      "source_archive_commit": "67202e2ec6f140ad6745735d751e27ac5065e8df",
+      "test_fixture_commit": "8196fc050ebe3e00e5490e44a218201557e99c29"
+    },
+    "status": "developer_qualified_in_isolation",
+    "test_scope": "Production runtime/model activation adapters, engine, SQLite, real Git/CMake/compiler and shipped Linux atomic helper in temporary directories. Model services and inference are fixtures; no production runtime build, model load, application activation, native desktop or participant qualification was performed.",
+    "transfer_manifest": {
+      "path": "device-test-transfer/transfer-manifest.json",
+      "sha256": "7d51c0cd65630a7919401f3bd6098200dcd1c19a924fb5c77eb5117e4bc55511"
+    }
   },
   "local_initial_setup_scope": "Production runtime/model activation adapters, durable engine, SQLite and handoff renderer; real Git, native C compilation and file hashes; fixture model service; Darwin renamex_np fixture in place of the Linux helper and native compiler in place of CMake. Includes failure of the first model inference, restoration of an empty selection and successful retry/promotion. No actual model inference or Linux initial publication is claimed.",
   "macos": {
@@ -360,7 +532,6 @@
     }
   },
   "pending": [
-    "Actual Linux/CMake initial-setup and recovery fixtures",
     "Device activation and real runtime identity/promotion/rollback",
     "Small/9B measured profiles with explicit TIGHT approval where required",
     "Bazzite/CachyOS fresh/upgraded physical four-cell qualification",
@@ -370,8 +541,8 @@
     "Owner-authorized source publication and hosted CI",
     "Signed release/attestation gates"
   ],
-  "record_type": "local_developer_qualification_not_linux_physical_or_signed_release_evidence",
-  "record_version": 1,
+  "record_type": "developer_qualification_not_physical_or_signed_release_evidence",
+  "record_version": 2,
   "recorded_at": "2026-09-17T20:06:33.709389+00:00",
   "release": {
     "artifact_verifier_exit_status": 0,
@@ -405,5 +576,6 @@
     "source_commit": "daabbf8cdfc8f042eb3772cbfa2ece58f80f5736",
     "wheel_sha256": "2c4ef0d877e876846a5e09c1dc76f124a132278e7d6bb891653f3e198e2b78c0"
   },
+  "updated_at": "2026-09-18T06:45:31.443074+00:00",
   "version": "0.9.0.dev11"
 }

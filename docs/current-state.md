@@ -12,8 +12,15 @@ See the [setup correction and validation limits](fresh-runtime-setup-2026-09-17.
 and [exact qualification record](fresh-runtime-qualification-2026-09-17.json).
 The dev10 branch and candidate remain separately frozen. The earlier dev11
 `daabbf8` artifact is superseded diagnostic material and must not be deployed.
-No dev11 source was transferred or deployed: automatic approval review
-rejected the draft source/test transfer pending explicit authorization.
+After explicit owner approval, the exact source/test archive and wheel passed
+isolated Bazzite qualification on September 18 UTC: 1,875 selected, 1,860 passed
+and 15 host skips, including all 52 slow gates. All eight CMake-dependent skips
+pass in the existing guest's 53/53 installed-runtime checks; the other seven
+are platform-only. Both fresh Linux environments verify all 196 package files,
+and installed features pass 42/42. The service-preservation check confirms the
+application link/version, service invocations/units, boot target and production
+checkout are unchanged. Model and SearXNG health are 200.
+No dev11 application activation or real runtime replacement occurred.
 The active BC250 application remains dev9. The records below are historical
 candidate evidence and do not qualify the changed dev11 package.
 
