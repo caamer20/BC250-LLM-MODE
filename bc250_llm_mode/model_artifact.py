@@ -47,7 +47,7 @@ VERDICT_NO_TENSORS = "rejected_no_tensor_data"
 VERDICT_RUNTIME_REQUIRED = "rejected_runtime_required"
 
 
-def streaming_identity(path: Path) -> tuple[str, int, str]:
+def streaming_identity(path: Path, *, on_chunk=None) -> tuple[str, int, str]:
     """Return ``(sha256_hex, byte_size, file_identity)`` via bounded reads."""
     import hashlib
 
@@ -57,6 +57,8 @@ def streaming_identity(path: Path) -> tuple[str, int, str]:
         for chunk in iter(lambda: fh.read(CHUNK_BYTES), b""):
             h.update(chunk)
             size += len(chunk)
+            if on_chunk is not None:
+                on_chunk(size)
     stat = os.stat(path)
     identity = f"{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ino}"
     return h.hexdigest(), size, identity

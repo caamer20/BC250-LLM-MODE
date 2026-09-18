@@ -915,7 +915,9 @@ CATALOG: tuple[ModelEntry, ...] = (
             "Official 5.95 GB ternary GGUF. PTQ1_0 is the smaller packing and has "
             "Vulkan kernels in the inspected PrismML fork. Requires that fork's "
             "Hadamard transforms; it does not run on stock llama.cpp. Text only; "
-            "BC250 loading, speed and memory remain unverified."
+            "The exact file can use the separately verified experimental Prism "
+            "build at up to 8K context and one slot. Sustained use and speed "
+            "remain unqualified."
         ),
         temperature=1.0,
         top_p=0.95,
@@ -945,7 +947,8 @@ CATALOG: tuple[ModelEntry, ...] = (
             "Community modified Bonsai 2 release, 7.21 GB PQ2_0. The publisher "
             "reports reduced refusals; independent quality and BC250 performance "
             "are unverified. Its custom packing needs PrismML's runtime and "
-            "currently lacks PQ2_0 Vulkan kernels."
+            "currently lacks PQ2_0 Vulkan kernels. The separately verified "
+            "lossless PTQ1_0 local repack can use the experimental Prism build."
         ),
         temperature=1.0,
         top_p=0.95,

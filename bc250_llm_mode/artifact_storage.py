@@ -154,6 +154,24 @@ def _identity_via_nofollow(path: Path, *, on_chunk=None) -> str | None:
         os.close(fd)
 
 
+def try_reflink(source_fd: int, destination_fd: int) -> bool:
+    """Clone into a new empty owned file when the filesystem supports CoW.
+
+    The two files remain independently mutable. A failed clone falls back to
+    bounded copying; callers still reserve the full copy size and hash bytes.
+    """
+    if os.fstat(destination_fd).st_size:
+        return False
+    try:
+        import fcntl
+
+        fcntl.ioctl(destination_fd, 0x40049409, source_fd)  # Linux FICLONE
+        return True
+    except (ImportError, OSError):
+        os.ftruncate(destination_fd, 0)
+        return False
+
+
 def publish_no_replace(
     source: Path,
     artifacts_root: Path,
@@ -183,7 +201,10 @@ def publish_no_replace(
         with os.fdopen(fd, "wb") as out:
             with open(source, "rb") as src:
                 copied = 0
-                while True:
+                cloned = try_reflink(src.fileno(), out.fileno())
+                if cloned and on_chunk is not None:
+                    on_chunk(os.fstat(src.fileno()).st_size)
+                while not cloned:
                     chunk = src.read(CHUNK_BYTES)
                     if not chunk:
                         break

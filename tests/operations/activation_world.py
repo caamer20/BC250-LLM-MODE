@@ -253,12 +253,12 @@ class FakeActivationHost:
 
     # -- port: resolve / observe candidate -------------------------------------
     def resolve_candidate(
-        self, request: ModelActivateRequestV1
+        self, request: ModelActivateRequestV1, *, pulse=None
     ) -> CandidateRuntimeV1:
         return self._resolve(request)
 
     def observe_candidate(
-        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1
+        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1, *, pulse=None
     ) -> ProbeResult:
         if not (self.models_dir / f"{request.model_alias}.gguf").exists():
             return ProbeResult(

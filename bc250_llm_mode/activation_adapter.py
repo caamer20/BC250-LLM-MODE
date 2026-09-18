@@ -163,8 +163,8 @@ class ActivationHostAdapter:
         with self._units.read() as conn:
             return str(ThermalStateRepository(conn).get().get("latch_state") or "")
 
-    def _identity(self, path) -> tuple[str, int, str]:
-        return streaming_identity(path)
+    def _identity(self, path, *, pulse=None) -> tuple[str, int, str]:
+        return streaming_identity(path, on_chunk=(lambda _size: pulse()) if pulse else None)
 
     def _matches_candidate(
         self, candidate: CandidateRuntimeV1, current: dict[str, Any]
@@ -183,7 +183,7 @@ class ActivationHostAdapter:
 
     # -- port: resolve / observe candidate ---------------------------------------
     def resolve_candidate(
-        self, request: ModelActivateRequestV1
+        self, request: ModelActivateRequestV1, *, pulse=None
     ) -> CandidateRuntimeV1:
         if self._latch() == "stopped":
             raise ArtifactRejected("THERMAL_LATCH_STOPPED")
@@ -200,8 +200,19 @@ class ActivationHostAdapter:
             raise ArtifactRejected("MODEL_QUARANTINED")
         path = record.get("path")
         verdict = gguf_layout_verdict(path)
-        if verdict != VERDICT_STANDARD:
+        from .prism_runtime import PRISM_LAYOUT, PRISM_CONTEXT_LIMIT, recognized_layout, prism_runtime_promoted
+
+        digest, size, identity = self._identity(path, pulse=pulse)
+        verdict = recognized_layout(verdict, digest)
+        if verdict not in {VERDICT_STANDARD, PRISM_LAYOUT}:
             raise ArtifactRejected(f"MODEL_LAYOUT_{verdict.upper()}")
+        if verdict == PRISM_LAYOUT:
+            with self._units.read() as conn:
+                compatible = prism_runtime_promoted(conn)
+            if not compatible:
+                raise ArtifactRejected("MODEL_RUNTIME_REQUIRED")
+            if request.context_per_slot > PRISM_CONTEXT_LIMIT or request.parallel_slots != 1:
+                raise ArtifactRejected("PRISM_REQUIRES_8192_CONTEXT_MAXIMUM_AND_ONE_SLOT")
         desired: dict[str, Any] = {
             "model_alias": request.model_alias,
             "context": request.context_per_slot,
@@ -210,6 +221,10 @@ class ActivationHostAdapter:
             "profile_revision": None,
             "profile_fingerprint": None,
         }
+        if verdict == PRISM_LAYOUT:
+            from .prism_runtime import PRISM_SETTINGS
+
+            desired["optimizations_patch"] = dict(PRISM_SETTINGS)
         profile_id = None
         profile_revision = None
         profile_fingerprint = None
@@ -261,9 +276,12 @@ class ActivationHostAdapter:
                 "profile_fingerprint": profile_fingerprint,
             })
         resolved = self._runtime.preview(desired)
+        if verdict == PRISM_LAYOUT:
+            effective = resolved.get("resolved_optimizations") or {}
+            if any(effective.get(key) != value for key, value in PRISM_SETTINGS.items()):
+                raise ArtifactRejected("PRISM_REQUIRES_COMPATIBILITY_SETTINGS")
         context = int(resolved["context_per_slot"])
         slots = int(resolved["slots"])
-        digest, size, identity = self._identity(path)
         if (
             profile_preview is not None
             and digest != profile_preview.get("model_content_digest")
@@ -309,19 +327,26 @@ class ActivationHostAdapter:
         )
 
     def observe_candidate(
-        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1
+        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1, *, pulse=None
     ) -> ProbeResult:
         try:
-            digest, size, identity = self._identity(candidate.canonical_path)
+            digest, size, identity = self._identity(candidate.canonical_path, pulse=pulse)
         except OSError:
             return ProbeResult(RecoveryClass.UNCERTAIN_MANUAL, "ARTIFACT_MISSING")
         verdict = gguf_layout_verdict(candidate.canonical_path)
+        from .prism_runtime import PRISM_LAYOUT, recognized_layout, prism_runtime_promoted
+
+        verdict = recognized_layout(verdict, digest)
+        compatible = verdict == VERDICT_STANDARD
+        if verdict == PRISM_LAYOUT:
+            with self._units.read() as conn:
+                compatible = prism_runtime_promoted(conn)
         if (
             digest == candidate.content_digest
             and size == candidate.byte_size
             and identity == candidate.file_identity
             and verdict == candidate.layout_verdict
-            and verdict == VERDICT_STANDARD
+            and compatible
         ):
             return ProbeResult(
                 RecoveryClass.COMPLETE,

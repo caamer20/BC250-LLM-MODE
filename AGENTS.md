@@ -1,5 +1,22 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 18 approved Bonsai installation — in progress
+
+The owner explicitly said "Ok complete the install" after the app's missing
+Bonsai entries were traced to the still-installed dev9 catalog and incomplete
+Prism integration. This authorizes the new application deployment, real Prism
+runtime activation and managed model installation, subject to the existing
+verification/rollback requirements. It supersedes the prior approval boundary
+for this installation scope; it does not authorize GitHub publication.
+
+Source `0.9.0.dev13` on `codex/bonsai-install-dev13` integrates the exact staged
+Prism bundle with the normal durable runtime workflow and recognizes the two
+verified PTQ1 model identities for managed import. Read
+`docs/bonsai-installation-2026-09-18.md`. Package qualification and deployment
+are pending at this checkpoint. No application/runtime activation or model
+registration has occurred yet. Do not claim installation completion from
+the previous isolated smokes or from newly added source code.
+
 ## September 18 Bonsai additions — locally qualified application
 
 Source `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the two owner-requested

@@ -277,6 +277,10 @@ class RuntimeLifecycleHostAdapter:
         )
 
     def _resolve_ref_to_commit(self, requested_ref: str) -> str | None:
+        from .prism_runtime import PRISM_COMMIT, PRISM_REF
+
+        if requested_ref in (PRISM_REF, PRISM_COMMIT):
+            return PRISM_COMMIT
         # An exact object ID already names immutable content. Availability and
         # its commit type are proved in the heartbeat-enabled fetch step.
         if _COMMIT_RE.fullmatch(requested_ref):
@@ -382,6 +386,10 @@ class RuntimeLifecycleHostAdapter:
         return self._observed_tree(self._loc.active_root, promoted) is not None
 
     def _recipe_matches(self, manifest: dict[str, Any]) -> bool:
+        from .prism_runtime import PRISM_COMMIT, is_pinned_manifest
+
+        if manifest.get("source_commit") == PRISM_COMMIT:
+            return is_pinned_manifest(manifest)
         return (manifest.get("recipe_version") == RECIPE_VERSION
                 and manifest.get("recipe_digest") == _digest(RECIPE_DIGEST_SEED)
                 and manifest.get("cmake_generator") == self._cmake_generator
@@ -480,9 +488,16 @@ class RuntimeLifecycleHostAdapter:
         ))
 
     def preflight_build(self, request: Any) -> BuildPreflightEvidenceV1:
+        from .prism_runtime import PRISM_COMMIT, PRISM_REF
+
         thermal_ok = self._thermal_ok()
         available = self._disk_available_bytes()
         required = REQUIRED_BUILD_BYTES + DISK_SAFETY_MARGIN_BYTES
+        if getattr(request, "requested_ref", None) in (PRISM_REF, PRISM_COMMIT):
+            # The audited bundle is already present; no compilation/copy is
+            # hidden behind this path. Still retain the normal safety reserve.
+            required = DISK_SAFETY_MARGIN_BYTES
+            self._verify_prism_bundle()
         exchange_supported = self._probe_atomic_support("preflight-probe")
         active_proven = self._ensure_runtime_registered_quiet()
         return BuildPreflightEvidenceV1(
@@ -697,6 +712,12 @@ class RuntimeLifecycleHostAdapter:
 
     def fetch_exact_commit(self, request: Any, source_commit: str, pulse: Any
                            ) -> FetchEvidenceV1:
+        from .prism_runtime import PRISM_COMMIT
+
+        if source_commit == PRISM_COMMIT:
+            self._verify_prism_bundle()
+            pulse(phase="fetch", current=1, total=1, summary="verified staged Prism source")
+            return FetchEvidenceV1(source_commit, self._prism_bundle_root() + "/source", "EXISTING", True)
         if not _COMMIT_RE.fullmatch(source_commit):
             raise StepFailure(CODE_SOURCE_COMMIT_UNAVAILABLE, "invalid commit", mutation_possible=False)
         checkout = f"{self._loc.sources_root}/worktrees/{source_commit}"
@@ -768,9 +789,12 @@ class RuntimeLifecycleHostAdapter:
         )
 
     def probe_checkout(self, source_commit: str) -> ProbeResult:
+        from .prism_runtime import PRISM_COMMIT
+
         if not _COMMIT_RE.fullmatch(source_commit):
             return ProbeResult(RecoveryClass.UNCERTAIN_MANUAL, "CHECKOUT_FOREIGN")
-        checkout = f"{self._loc.sources_root}/worktrees/{source_commit}"
+        checkout = (self._prism_bundle_root() + "/source" if source_commit == PRISM_COMMIT
+                    else f"{self._loc.sources_root}/worktrees/{source_commit}")
         if not (self._remote_exists_file(f"{checkout}/.git") or self._remote_is_dir(f"{checkout}/.git")):
             if self._remote_is_dir(checkout):
                 return ProbeResult(
@@ -798,6 +822,12 @@ class RuntimeLifecycleHostAdapter:
 
     def configure_build(self, request: Any, source_commit: str, pulse: Any
                         ) -> BuildEnvironmentEvidenceV1:
+        from .prism_runtime import PRISM_COMMIT
+
+        if source_commit == PRISM_COMMIT:
+            manifest = self._verify_prism_bundle()
+            pulse(phase="configure", current=1, total=1, summary="verified staged Prism build provenance")
+            return self._prism_environment(manifest)
         if self.probe_checkout(source_commit).classification is not RecoveryClass.COMPLETE:
             raise StepFailure(CODE_SOURCE_COMMIT_UNAVAILABLE, "source checkout is unproven", mutation_possible=False)
         pulse(phase="configure", current=1, total=2)
@@ -875,6 +905,16 @@ class RuntimeLifecycleHostAdapter:
     def probe_build_environment(
         self, evidence: BuildEnvironmentEvidenceV1
     ) -> ProbeResult:
+        from .prism_runtime import PRISM_COMMIT
+
+        if evidence.source_commit == PRISM_COMMIT:
+            try:
+                expected = self._prism_environment(self._verify_prism_bundle())
+            except (StepFailure, ProcessFailure, ValueError):
+                return ProbeResult(RecoveryClass.DISCARDABLE, "PRISM_BUNDLE_UNPROVEN")
+            if evidence != expected:
+                return ProbeResult(RecoveryClass.DISCARDABLE, "PRISM_BUNDLE_CHANGED")
+            return ProbeResult(RecoveryClass.COMPLETE, "STAGED_BUILD_VERIFIED", output=_asdict(evidence))
         if (evidence.recipe_version != RECIPE_VERSION or evidence.recipe_digest != _digest(RECIPE_DIGEST_SEED)
                 or evidence.cmake_generator != self._cmake_generator
                 or evidence.cmake_options != list(self._cmake_options)
@@ -913,6 +953,20 @@ class RuntimeLifecycleHostAdapter:
     ) -> CandidateBuildEvidenceV1:
         if self.probe_build_environment(environment).classification is not RecoveryClass.COMPLETE:
             raise StepFailure("BUILD_ENVIRONMENT_UNPROVEN", "build environment changed", mutation_possible=False)
+        from .prism_runtime import PRISM_COMMIT
+
+        if environment.source_commit == PRISM_COMMIT:
+            # Reuse exactly the reviewed executables, after full hash/source
+            # observation. This is explicitly a staged build, never a claim
+            # that a compiler ran in this operation.
+            manifest = self._verify_prism_bundle()
+            for index, entry in enumerate(manifest["binaries"], 1):
+                absolute = environment.build_dir_locator + "/" + entry["path"]
+                text = self._binary_smoke_text(absolute, entry["path"].rsplit("/", 1)[-1])
+                if _digest(text.encode()) != entry["version_output_digest"]:
+                    raise StepFailure("PRISM_BINARY_SMOKE_CHANGED", "staged binary smoke differs", mutation_possible=False)
+                pulse(phase="build", current=index, total=3, summary="verified staged Prism executable")
+            return CandidateBuildEvidenceV1(environment.build_dir_locator, manifest["binaries"])
         source_dir = f"{self._loc.sources_root}/worktrees/{environment.source_commit}"
         binary_dir = f"{environment.build_dir_locator}/build"
         cancel = self._cancel_via_pulse(pulse)
@@ -1048,6 +1102,13 @@ class RuntimeLifecycleHostAdapter:
         environment: BuildEnvironmentEvidenceV1,
         binaries: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        from .prism_runtime import PRISM_COMMIT, pinned_manifest
+
+        if source_commit == PRISM_COMMIT:
+            manifest = pinned_manifest()
+            if binaries != manifest["binaries"] or environment != self._prism_environment(manifest):
+                raise StepFailure("PRISM_BUNDLE_CHANGED", "staged build identity differs", mutation_possible=False)
+            return manifest
         return {
             "schema_version": MANIFEST_VERSION,
             "component": COMPONENT,
@@ -1068,6 +1129,60 @@ class RuntimeLifecycleHostAdapter:
             "binaries": [dict(entry) for entry in binaries],
             "smoke_contract_version": 1,
         }
+
+    def _prism_bundle_root(self) -> str:
+        return self._loc.managed_root + "/prism-bonsai-2-staged"
+
+    def _prism_environment(self, manifest: dict[str, Any]) -> BuildEnvironmentEvidenceV1:
+        return BuildEnvironmentEvidenceV1(
+            recipe_version=manifest["recipe_version"], recipe_digest=manifest["recipe_digest"],
+            cmake_generator=manifest["cmake_generator"], cmake_options=manifest["cmake_options"],
+            cmake_targets=manifest["cmake_targets"], parallelism_policy=manifest["build_parallelism"]["policy"],
+            container_image_id=manifest["container_image_id"], container_image_digest=manifest["container_image_digest"],
+            toolchain=manifest["toolchain"], target_arch=manifest["target_arch"],
+            build_dir_locator=self._prism_bundle_root(), source_commit=manifest["source_commit"],
+        )
+
+    def _verify_prism_bundle(self) -> dict[str, Any]:
+        """Observe the one pinned local bundle. No paths or flags from requests.
+
+        The source, receipt, environment and all executables must match. The
+        ordinary workflow then registers a candidate and performs the same
+        reversible exchange/live identity/inference/promotion as source builds.
+        """
+        from .prism_runtime import PRISM_COMMIT, pinned_manifest
+
+        manifest = pinned_manifest()
+        base = self._prism_bundle_root()
+        script = (
+            "import hashlib,json,os,pathlib,stat,sys;"
+            "base=pathlib.Path(sys.argv[1]);root=pathlib.Path(sys.argv[2]);"
+            "expected=json.loads(sys.argv[3]);"
+            "assert root in base.parents and base.resolve()==base;"
+            "assert base.is_dir() and base.stat().st_uid==os.geteuid() and not base.stat().st_mode&0o022;"
+            "receipt=base/'prism-build.json';assert not receipt.is_symlink() and receipt.stat().st_size<65536;"
+            "assert json.loads(receipt.read_text())==expected;"
+            "entries=expected['binaries'];paths=[base/e['path'] for e in entries];"
+            "assert all(base in p.parents and not any(x.is_symlink() for x in (p,*p.parents) "
+            "if x==base or base in x.parents) for p in paths);"
+            "infos=[p.stat() for p in paths];"
+            "assert all(stat.S_ISREG(s.st_mode) and s.st_uid==os.geteuid() and s.st_size==e['size'] "
+            "and stat.S_IMODE(s.st_mode)==int(e['mode'],8) for s,e in zip(infos,entries));"
+            "streams=[p.open('rb') for p in paths];"
+            "assert all(hashlib.file_digest(f,'sha256').hexdigest()==e['sha256'] for f,e in zip(streams,entries));"
+            "[f.close() for f in streams];print('verified')"
+        )
+        result = self._run_remote(CommandKind.SMOKE, (
+            "python3", "-c", script, base, self._loc.approved_root,
+            _json.dumps(manifest, sort_keys=True),
+        ))
+        image = self._observe_image_identity()
+        if (result.stdout_tail.strip() != "verified" or self._target_arch() != manifest["target_arch"]
+                or image.get("image_id") != manifest["container_image_id"]
+                or image.get("image_digest") != manifest["container_image_digest"]
+                or self.probe_checkout(PRISM_COMMIT).classification is not RecoveryClass.COMPLETE):
+            raise StepFailure("PRISM_BUNDLE_UNPROVEN", "staged Prism source or environment differs", mutation_possible=False)
+        return manifest
 
     def _write_manifest_to_tree(
         self, build_dir: str, build_id: str, manifest_digest: str,
@@ -1282,6 +1397,15 @@ class RuntimeLifecycleHostAdapter:
     def verify_activation_boundary(self, request, snapshot, target_build_id) -> None:
         if not self._thermal_ok():
             raise StepFailure(CODE_THERMAL_LATCH_STOPPED, "thermal stop before runtime activation",
+                              mutation_possible=False)
+        from .prism_runtime import known_ptq1_artifact, pinned_build_id
+
+        view = self._view()
+        selected = next((m for m in view.get("installed_models", [])
+                         if m.get("id") == view.get("current_model")), {})
+        if known_ptq1_artifact(selected.get("content_digest")) and target_build_id != pinned_build_id():
+            raise StepFailure("MODEL_RUNTIME_REQUIRED",
+                              "Switch to a standard model before replacing the Prism runtime.",
                               mutation_possible=False)
         expected = getattr(request, "expected_active_build_id", None)
         if expected is not None \

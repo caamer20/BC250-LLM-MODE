@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0.dev13 — verified Bonsai installation (unreleased)
+
+- Integrate the exact audited Prism compatibility bundle with the existing
+  durable runtime update workflow. Verify source, build manifest, environment
+  and all three binaries before candidate registration; retain normal atomic
+  exchange, receipt, live inference, promotion and rollback checks.
+- Recognize the verified official PTQ1 model and lossless CRACK PTQ1 repack by
+  full content identity. Import them into the managed Model Library with
+  correct catalog, quantization and provenance. Original PQ2 and unknown
+  Hadamard files remain unsupported. Enable starts only with the exact promoted
+  Prism build, up to 8K context, one slot and bounded compatibility settings.
+- Preserve promoted runtime identity in application snapshots by reading its
+  repositories before the database connection closes.
+- Use independent copy-on-write local copies where supported, reserve both
+  staging and publication copies, restart partial copies correctly and verify
+  copied bytes against the originally resolved source identity.
+- This remains an unoptimized compatibility runtime. Sustained performance,
+  broader context/profile qualification and external release gates are pending.
+
 ## 0.9.0.dev12 — Bonsai 2 discovery and runtime requirements (unreleased)
 
 - Add the requested official Bonsai 2 27B PTQ1_0 and dealignai CRACK PQ2_0

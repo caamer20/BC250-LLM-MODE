@@ -108,7 +108,7 @@ class FakeAcquisitionHost:
             revision="pinned",
         )
 
-    def observe_local_source(self, request: ModelImportRequestV1):
+    def observe_local_source(self, request: ModelImportRequestV1, *, pulse=None):
         src = Path(request.source_path)
         data = src.read_bytes()
         stat = src.stat()

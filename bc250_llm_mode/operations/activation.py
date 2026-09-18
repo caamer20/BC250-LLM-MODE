@@ -255,11 +255,11 @@ class ActivationHost(Protocol):
     """
 
     def resolve_candidate(
-        self, request: ModelActivateRequestV1
+        self, request: ModelActivateRequestV1, *, pulse: Any = None
     ) -> CandidateRuntimeV1: ...
 
     def observe_candidate(
-        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1
+        self, request: ModelActivateRequestV1, candidate: CandidateRuntimeV1, *, pulse: Any = None
     ) -> ProbeResult: ...
 
     def capture_prior(
@@ -383,16 +383,16 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
 
     # Step 1 — resolve_candidate (prepare; no visible mutation)
     def resolve_execute(ctx: EffectContext) -> dict[str, Any]:
-        return evidence_dict(host.resolve_candidate(ctx.request))
+        return evidence_dict(host.resolve_candidate(ctx.request, pulse=ctx.pulse))
 
     def resolve_probe(ctx: EffectContext) -> ProbeResult:
         output = ctx.prior_outputs.get("resolve_candidate")
         if not output:
             return ProbeResult(RecoveryClass.ABSENT, "NO_CANDIDATE_EVIDENCE")
-        return host.observe_candidate(ctx.request, candidate_from_output(output))
+        return host.observe_candidate(ctx.request, candidate_from_output(output), pulse=ctx.pulse)
 
     def resolve_verify(ctx: EffectContext) -> dict[str, Any]:
-        result = host.observe_candidate(ctx.request, _candidate(ctx))
+        result = host.observe_candidate(ctx.request, _candidate(ctx), pulse=ctx.pulse)
         _require_complete(result, CODE_ARTIFACT_CHANGED)
         return {}
 
@@ -504,7 +504,7 @@ def build_activation_workflow(host: ActivationHost) -> WorkflowDefinition:
         candidate = _candidate(ctx)
         # Re-validate artifact identity immediately before restart so a file
         # replaced in place cannot run under stale evidence.
-        identity = host.observe_candidate(ctx.request, candidate)
+        identity = host.observe_candidate(ctx.request, candidate, pulse=ctx.pulse)
         if identity.classification is not RecoveryClass.COMPLETE:
             raise StepFailure(
                 CODE_ARTIFACT_CHANGED,

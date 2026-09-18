@@ -198,6 +198,7 @@ def build_model_items(
     recovery_required: bool = False,
     inference_verified: bool = False,
     model_running: bool | None = None,
+    prism_runtime_ready: bool = False,
     now=None,
 ) -> tuple[ModelItemView, ...]:
     """Merge durable installations and curated remote candidates once."""
@@ -227,6 +228,10 @@ def build_model_items(
             else "ACTIVE" if active and model_running else "INSTALLED")
         byte_size = getattr(row, "byte_size", None)
         entry = catalog_by_id.get(str(getattr(row, "catalog_id", "") or ""))
+        from ..prism_runtime import installed_fit_catalog
+
+        entry = installed_fit_catalog(entry, getattr(row, "content_digest", None))
+        runtime_requirement = getattr(row, "runtime_requirement", entry.runtime_requirement if entry else None)
         installed_fit = None
         installed_quant = getattr(row, "quant", None)
         if entry is not None and installed_quant in entry.weights_gib_by_quant:
@@ -250,20 +255,23 @@ def build_model_items(
         architecture_compatible = bool(
             entry is not None and architecture == entry.family)
         measured_local, measurement_summary = _measurement_summary(row, now=now)
+        from ..prism_runtime import known_ptq1_artifact
+
+        prism_artifact = known_ptq1_artifact(getattr(row, "content_digest", None))
         items.append(ModelItemView(
             key=f"installed::{row.alias}",
             display_name=str(row.display_name),
             family=str(getattr(row, "architecture", None) or getattr(row, "catalog_id", None) or "custom"),
             size_gib=(float(byte_size) / 1024**3 if byte_size else None),
             state=("RECOVERY_REQUIRED" if recovery_required else
-                   "RUNTIME_REQUIRED" if entry and entry.runtime_requirement and not quarantined else state),
+                   "RUNTIME_REQUIRED" if runtime_requirement and not quarantined else state),
             fit_verdict=(
                 getattr(row, "fit_verdict", None)
                 or (installed_fit.verdict if installed_fit is not None else None)
             ),
             fit_detail=(
-                f"{entry.runtime_requirement}\nEstimated memory: "
-                if entry and entry.runtime_requirement else ""
+                f"{runtime_requirement}\nEstimated memory: "
+                if runtime_requirement else ""
             ) + str(
                 getattr(row, "fit_detail", None)
                 or (installed_fit.detail if installed_fit is not None else None)
@@ -273,6 +281,7 @@ def build_model_items(
             description=(
                 f"Managed {getattr(row, 'format', None) or 'GGUF'} artifact · "
                 f"validation {validation or 'unverified'} · trust {trust or 'unverified'}"
+                + (" · Experimental Prism: up to 8,192 context, one slot" if prism_artifact else "")
             ),
             source_repo=getattr(row, "source_repo", None),
             catalog_id=getattr(row, "catalog_id", None),
@@ -295,11 +304,14 @@ def build_model_items(
             memory_required_gib=(
                 installed_fit.required_gib if installed_fit is not None else None
             ),
-            runtime_requirement=entry.runtime_requirement if entry else None,
+            runtime_requirement=runtime_requirement,
         ))
     for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
             continue
+        from ..prism_runtime import catalog_requirement
+
+        runtime_requirement = catalog_requirement(entry, prism_ready=prism_runtime_ready)
         quants = tuple(entry.allow_globs)
         preferred_quant = selected_quants.get(entry.id)
         quant = (
@@ -318,16 +330,19 @@ def build_model_items(
             # installed library and every other downloadable model.
             fit_verdict = "NO-FIT"
             fit_detail = f"NO-FIT — {exc}"
+        if entry.id == "bonsai2-27b" and prism_runtime_ready and (context > 8192 or slots != 1):
+            fit_verdict = "NO-FIT"
+            fit_detail = "Experimental Bonsai supports up to 8,192 context tokens and one slot."
         items.append(ModelItemView(
             key=f"catalog::{entry.id}",
             display_name=entry.display_name,
             family=entry.family,
             size_gib=entry.weights_gib_by_quant.get(quant),
             state=("RECOVERY_REQUIRED" if recovery_required else
-                   "RUNTIME_REQUIRED" if entry.runtime_requirement else "AVAILABLE"),
+                   "RUNTIME_REQUIRED" if runtime_requirement else "AVAILABLE"),
             fit_verdict=fit_verdict,
-            fit_detail=(f"{entry.runtime_requirement}\nEstimated memory: {fit_detail}"
-                        if entry.runtime_requirement else fit_detail),
+            fit_detail=(f"{runtime_requirement}\nEstimated memory: {fit_detail}"
+                        if runtime_requirement else fit_detail),
             support_tier=validation_tier(entry),
             description=entry.notes,
             source_repo=entry.repo,
@@ -350,7 +365,7 @@ def build_model_items(
                 )
             ),
             memory_required_gib=fit_required_gib,
-            runtime_requirement=entry.runtime_requirement,
+            runtime_requirement=runtime_requirement,
         ))
     candidates = []
     for item in items:
@@ -694,6 +709,7 @@ class ModelsPage(ttk.Frame):
                 ),
                 install_summary,
                 install_detail,
+                self.application.model_library.prism_runtime_ready(),
             )
 
         self.shell.request_observation(
@@ -706,7 +722,7 @@ class ModelsPage(ttk.Frame):
     def _apply_observation(self, result, *, context: int, slots: int) -> None:
         if self._disposed:
             return
-        installed, active, home, readiness, install_summary, install_detail = result
+        installed, active, home, readiness, install_summary, install_detail, prism_ready = result
         storage = ((home.get("cards") or {}).get("storage") or {})
         available = storage.get("available_bytes")
         next_available = (
@@ -725,6 +741,7 @@ class ModelsPage(ttk.Frame):
                 bool(readiness.native_chat_ready)
             ),
             model_running=bool(readiness.component("model").process_ready),
+            prism_runtime_ready=prism_ready,
         )
         requested = self._route_context.get("model_id")
         if requested:

@@ -1,5 +1,14 @@
 # Current implementation state
 
+The owner has now authorized completion of the Bonsai installation, including
+the app update and real Prism runtime activation. Source `0.9.0.dev13` on
+`codex/bonsai-install-dev13` implements exact staged-runtime verification and
+managed import/activation for the verified official and lossless CRACK PTQ1
+files. Qualification and deployment are in progress; dev9 remains physically
+active at this source checkpoint. See
+[Bonsai installation](bonsai-installation-2026-09-18.md). The dev12 records below
+remain bound to their unchanged candidate and are not inherited by dev13.
+
 Source version `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the requested
 Bonsai 2 catalog entries and explicit runtime compatibility checks. Code
 commit `20d83c8` is locally qualified: 1,897 selected tests, 1,878 passed and
