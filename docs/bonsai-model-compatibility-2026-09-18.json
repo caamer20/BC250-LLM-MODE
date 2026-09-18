@@ -1,5 +1,6 @@
 {
   "artifact_packet": "dist/dev12-bonsai-20260918",
+  "crack_conversion_record": "bonsai-crack-conversion-2026-09-18.json",
   "evidence_files": {
     "prism-experiment/backend-checks.json": "0d04950e23c04ef573f8b72cf3a10ecaa290cd81532f42557360624922881513",
     "prism-experiment/bounded-cxx.py": "a7f69f20e1adcd91b2f3cf8468c8620b03ef2ac6c6e9292e2c8f46dfc82225eb",
@@ -54,10 +55,11 @@
   "limits": [
     "The official PTQ1 model passed only two short fixed-answer checks at 8192 context and one slot; this is not a quality, workload, long-context or sustained-use qualification.",
     "The experimental runtime uses unoptimized C++ and byte-verified generated shader chunks; its timings do not establish production performance.",
-    "CRACK remains header-only; its published PQ2 packing lacks Vulkan support in this inspected runtime.",
     "Both catalog entries remain runtime-required in the application, whose runtime integration and promotion were not changed.",
     "The application itself is locally qualified on macOS only; its separate dev11 Linux predecessor is not inherited.",
-    "No derived or repacked CRACK model, known-good runtime record, or measured profile row was created."
+    "Basic 8192-context/one-slot fixed-answer compatibility only; no quality, throughput or sustained-use claim.",
+    "Separate unoptimized Prism runtime; normal application integration and promotion remain pending.",
+    "Original PQ2 file retained and not loaded. Active dev9 application and original model unchanged."
   ],
   "models": [
     {
@@ -94,9 +96,12 @@
       "architecture": "qwen35",
       "blocks": 64,
       "byte_size": 7206168928,
+      "conversion_record": "bonsai-crack-conversion-2026-09-18.json",
+      "derived_ptq1_inference_verified": true,
+      "download_repo_revision": "3d36486a5fb2a3868116b8f6e768179e2391d28d",
       "filename": "Bonsai-2-27B-PQ2_0-CRACK.gguf",
-      "full_file_downloaded": false,
-      "full_file_hash_verified": false,
+      "full_file_downloaded": true,
+      "full_file_hash_verified": true,
       "hadamard_block_size": 1024,
       "hadamard_version": 1,
       "header_bytes_inspected": 16777216,
@@ -104,6 +109,7 @@
       "header_prefix_sha256": "93197364d8a489d46a039da26dbd14bfae6800fa91f976f601a98a053a5844b5",
       "language_parameter_count": 26895998464,
       "on_bc250_inference_verified": false,
+      "original_published_pq2_loaded": false,
       "publisher_sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d",
       "repo": "dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF",
       "repo_revision": "3e509d5afd0b4dee3390b5f65be19328713b610b",
@@ -297,7 +303,7 @@
     }
   },
   "record_type": "experimental_compatibility_not_profile_or_release_qualification",
-  "record_version": 3,
+  "record_version": 4,
   "runtime": {
     "app_runtime_integration": "not_enabled",
     "build_recipe": {
@@ -504,5 +510,5 @@
     "https://github.com/PrismML-Eng/Bonsai-demo/blob/main/MODEL-FORMATS.md",
     "https://github.com/PrismML-Eng/llama.cpp/blob/5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6/ggml/src/ggml-vulkan/ggml-vulkan.cpp"
   ],
-  "updated_at": "2026-09-18T08:25:13.885587+00:00"
+  "updated_at": "2026-09-18T08:58:14.614976+00:00"
 }

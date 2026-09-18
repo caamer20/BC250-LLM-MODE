@@ -20,8 +20,9 @@ not results on this device. [Official model](https://huggingface.co/prism-ml/Ter
 
 The CRACK publisher supplies PQ2_0 only at the inspected revision. Its card
 reports a correction for an earlier reasoning-loop defect; the recorded file
-identity is from the updated revision. No alternative model or locally repacked
-file has been substituted for the requested model.
+identity is from the updated revision. The original published file is retained.
+At the owner's subsequent request, a separately named lossless PTQ1_0 repack
+was created and passed the isolated BC250 smoke described below.
 [CRACK model](https://huggingface.co/dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF)
 
 ## Why the normal runtime cannot load these
@@ -109,12 +110,51 @@ exact repository revisions, publisher hashes, header observations and limits.
 The official PTQ1 file has also been downloaded in full outside the production
 model store. Its 5,946,648,928 bytes match the publisher SHA-256
 `53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3`.
-CRACK remains a 16 MiB header-prefix inspection and has not been loaded.
+CRACK was subsequently downloaded in full and losslessly repacked as described
+below; the original PQ2 file has not been loaded.
 Proper application runtime integration/promotion, an optimized build and
 sustained model/workload/restore qualification are still required before the
-official entry can be offered as a normal app model. CRACK additionally needs
-a compatible backend or separately verified compatible packing. No converted
-model was substituted for the requested published artifact.
+official or derived CRACK entry can be offered as a normal app model.
+
+## Owner-requested CRACK conversion
+
+The full CRACK download at repository revision
+`3d36486a5fb2a3868116b8f6e768179e2391d28d` matches publisher SHA-256
+`5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d`.
+This is the same model-file identity inspected at the earlier revision.
+An integer-only PQ2_0 → PTQ1_0 conversion preserves every original 128-weight
+group's FP16 scale bits and decoded ternary codes. All 209,920,000 blocks
+(26,869,760,000 quantized weights) passed a second verification from the saved
+file. All 449 other tensors, including the Hadamard transforms, are byte-identical.
+Metadata is preserved except `general.file_type`; tensor descriptors change
+only the quantized type and required offsets. There is no additional rounding
+or quantization loss relative to the downloaded PQ2 file.
+
+The derived `Bonsai-2-27B-PTQ1_0-CRACK-lossless.gguf` is 5,946,648,928 bytes,
+SHA-256 `5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15`.
+Both the original and derived files are retained on the BC250 under
+`/var/lib/bc250-experimental/models/bonsai2-27b-crack`, outside the normal app
+model store. The converter refuses non-ternary codes and non-finite scales;
+it checks the source hash before and after conversion and verifies every
+stored code, scale and unchanged tensor before publishing the derived file.
+
+The derived file passed two short fixed-answer checks, including complete SSE,
+in the same separate Prism Vulkan runtime at 8,192 context and one slot.
+The 44.6-second trial peaked at 1,977.2 MiB process RSS, 9,413.56 MiB total
+fast VRAM including the existing model, and 74°C; no resource cutoff fired.
+The server stopped cleanly and fast-VRAM use returned to the starting value.
+The original model passed a fresh prompt afterward. Application/service
+identities, units, checkout and boot target are unchanged; model and SearXNG
+health are 200. These checks establish basic compatibility, not sustained
+use, model quality or production performance. The runtime is still unoptimized
+and experimental, and normal application integration/promotion remains pending.
+
+The [conversion record](bonsai-crack-conversion-2026-09-18.json) binds the
+input/output identities, full-file equivalence checks, inference, preservation
+and storage reports. Reproduction scripts and raw reports are retained in
+`dist/crack-conversion-20260918`; the converter and key reports are also stored
+with the model on the BC250. No app code, catalog identity, active model,
+known-good record or profile measurement changed.
 
 ## Application validation
 

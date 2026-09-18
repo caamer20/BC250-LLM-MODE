@@ -16,7 +16,14 @@ passes small BC250 GPU checks plus two short real-model answers at 8K, including
 SSE. Its unoptimized build and brief 74°C peak do not qualify performance or
 sustained use. The original model remained active and passed a fresh inference
 check afterward; the temporary server is stopped and production settings are
-preserved. CRACK's published PQ2 pack has not been loaded.
+preserved. At the owner's subsequent request, CRACK was fully downloaded and
+losslessly repacked to PTQ1_0: every quantized code/scale and all other tensor
+bytes verify. The 5.95 GB derived file passes two isolated BC250 Vulkan answer
+checks at 8K, including SSE. Both files are retained under
+`/var/lib/bc250-experimental/models/bonsai2-27b-crack`. The trial is stopped,
+production preservation passes, and normal application integration remains
+pending. See [conversion evidence](bonsai-crack-conversion-2026-09-18.json).
+CRACK's original published PQ2 pack has not been loaded.
 The qualified dev11 candidate below remains frozen on its branch; its results
 do not qualify changed dev12 package code. The physical application is dev9.
 At the owner's requested stopping point, the exact dev12 source/test archive

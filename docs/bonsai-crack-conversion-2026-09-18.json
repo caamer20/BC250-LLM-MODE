@@ -1,0 +1,235 @@
+{
+  "completed_at": "2026-09-18T08:58:14.614976+00:00",
+  "conversion": {
+    "all_codes_and_scale_bytes_equal": true,
+    "all_other_tensor_bytes_equal": true,
+    "application_registered": false,
+    "hadamard": {
+      "prism.hadamard.axis": "input-last-dimension",
+      "prism.hadamard.block_size": 1024,
+      "prism.hadamard.gdn_v_grouped": true,
+      "prism.hadamard.inverse_weight_names": null,
+      "prism.hadamard.sign_mode": "explicit",
+      "prism.hadamard.sign_values": null,
+      "prism.hadamard.sign_widths": null,
+      "prism.hadamard.transform": "normalized-sylvester-walsh-hadamard",
+      "prism.hadamard.version": 1,
+      "prism.hadamard.weight_names": null
+    },
+    "loaded": false,
+    "metadata_preserved_except_general_file_type": true,
+    "original_header_sha256": "3bfe50e79bf8f63a30f31dca5b0508af7905ed8f1e8efeff8d971484afef8e5b",
+    "output": "/var/tmp/bc250-bonsai-experimental/models/Bonsai-2-27B-PTQ1_0-CRACK-lossless.gguf",
+    "output_bytes": 5946648928,
+    "output_sha256": "5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15",
+    "prism_commit": "5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6",
+    "repacked_tensors": 402,
+    "seconds": 270.9231162071228,
+    "source": "/var/tmp/bc250-bonsai-experimental/models/Bonsai-2-27B-PQ2_0-CRACK.gguf",
+    "source_sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d",
+    "tensors": 851,
+    "unchanged_tensors": 449,
+    "verified_blocks": 209920000,
+    "verified_weights": 26869760000
+  },
+  "download": {
+    "application_registered": false,
+    "bytes": 7206168928,
+    "elapsed_seconds": 135.71,
+    "filename": "Bonsai-2-27B-PQ2_0-CRACK.gguf",
+    "full_file_hash_verified": true,
+    "model_loaded": false,
+    "path": "/var/tmp/bc250-bonsai-experimental/models/Bonsai-2-27B-PQ2_0-CRACK.gguf",
+    "production_model_changed": false,
+    "publisher_sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d",
+    "repo": "dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF",
+    "revision": "3d36486a5fb2a3868116b8f6e768179e2391d28d",
+    "runtime_requirement": "PQ2_0 and PrismML Hadamard transforms; current Vulkan backend does not support PQ2_0",
+    "sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d",
+    "verified_at": "2026-09-18T08:45:14.055664+00:00"
+  },
+  "evidence_files": {
+    "README.md": "07f4e9168658a4481e943ac7374a7401f2c9df8f80589a1e2ffd5536188a1568",
+    "convert.py": "2ce1dc6a60a879c5d9cff6cf0df315452776918928b21ec2199970198ffeb836",
+    "crack-model-trial-server.log": "06f83c3bb1be7ec3c7fa25a3d3fa5d9bdc20c78ef9002206afab6346e281f218",
+    "crack-model-trial.json": "cb499481a6b75c325d1209e1b0b2769447498d207a87744f2ac6a8210528a916",
+    "crack-model-verification.json": "61cae72e68233619d608df69a635bf6d9912db4d5dd0fb9d888efa80ad28144e",
+    "production-before.json": "434cd475726c031b8bc158f9bc4a8992c667a94de7c3197e4cd3d594645bd6c4",
+    "production-preservation.json": "2c670aa11dce4af6afac192816b22c12fc690de4b45f8e77a8486c7ca88daa45",
+    "repack.c": "fc9da72c9e958faf21c254e0b8d41e2afee964aadf6f64405055cb77c4cfc987",
+    "result.json": "5457726a2c55d790c9ee5a748ef3002b639209c4c0309e7861d4e848b0b8c548",
+    "retained-models.json": "9b5fb168394eba0be3b6d487f85c3bcb51a1e200bff2b35336584262a4fadc3e"
+  },
+  "limits": [
+    "Basic 8192-context/one-slot fixed-answer compatibility only; no quality, throughput or sustained-use claim.",
+    "Separate unoptimized Prism runtime; normal application integration and promotion remain pending.",
+    "Original PQ2 file retained and not loaded. Active dev9 application and original model unchanged.",
+    "Dev12 Linux package qualification remains unstarted; no broader stopped task resumed."
+  ],
+  "production_preservation": {
+    "after": {
+      "app_link": "/var/roothome/.bc250-deployments/20260917-d3fcf3b/candidate-venv",
+      "app_version": "0.9.0.dev9",
+      "checked_at": "2026-09-18T08:58:14.614976+00:00",
+      "checkout": "e4dc11c77285ce83c8c591bdcb2d34071af7c264",
+      "default_target": "graphical.target",
+      "model_http_status": 200,
+      "python": "3.14.6",
+      "searxng_http_status": 200,
+      "services": {
+        "bc250-llm.service": "ActiveState=active\nSubState=running\nUnitFileState=disabled\nInvocationID=315f2d3a8c0e4e97bf1aa9b514bb7ac0\nMainPID=223092",
+        "bc250-llm.service_unit_sha256": "5af93a6937be26172837b47ade9aee133d55b10513d8594f43a66b9421fa19c2",
+        "bc250-openwebui-gateway.service": "ActiveState=active\nSubState=running\nUnitFileState=static\nInvocationID=f03f2f7c3fe840088fdb980cea2e34fe\nMainPID=223097",
+        "bc250-openwebui-gateway.service_unit_sha256": "2e96f89496dd5b4fcfbcf7630f5d1d8d39e297269c1d7431064aea9d3a40ec27"
+      }
+    },
+    "before": {
+      "app_link": "/var/roothome/.bc250-deployments/20260917-d3fcf3b/candidate-venv",
+      "app_version": "0.9.0.dev9",
+      "checked_at": "2026-09-18T08:53:31.049113+00:00",
+      "checkout": "e4dc11c77285ce83c8c591bdcb2d34071af7c264",
+      "default_target": "graphical.target",
+      "model_http_status": 200,
+      "python": "3.14.6",
+      "searxng_http_status": 200,
+      "services": {
+        "bc250-llm.service": "ActiveState=active\nSubState=running\nUnitFileState=disabled\nInvocationID=315f2d3a8c0e4e97bf1aa9b514bb7ac0\nMainPID=223092",
+        "bc250-llm.service_unit_sha256": "5af93a6937be26172837b47ade9aee133d55b10513d8594f43a66b9421fa19c2",
+        "bc250-openwebui-gateway.service": "ActiveState=active\nSubState=running\nUnitFileState=static\nInvocationID=f03f2f7c3fe840088fdb980cea2e34fe\nMainPID=223097",
+        "bc250-openwebui-gateway.service_unit_sha256": "2e96f89496dd5b4fcfbcf7630f5d1d8d39e297269c1d7431064aea9d3a40ec27"
+      }
+    },
+    "experimental_listener_absent": true,
+    "production_inference_after": {
+      "expected_answer_present": true,
+      "http_status": 200,
+      "output_characters": 3,
+      "output_sha256": "262f6b6712fe5e5f70300dbc2af2da75a1ee7132c07f38c1ead11272b0baae98",
+      "prompt_or_completion_saved": false
+    },
+    "unchanged": {
+      "app_link": true,
+      "app_version": true,
+      "checkout": true,
+      "default_target": true,
+      "services": true
+    }
+  },
+  "record_type": "owner_requested_crack_lossless_conversion_and_isolated_smoke",
+  "record_version": 1,
+  "retained_models": {
+    "active_model_changed": false,
+    "application_registered": false,
+    "directory": "/var/lib/bc250-experimental/models/bonsai2-27b-crack",
+    "files": [
+      {
+        "bytes": 7206168928,
+        "path": "/var/lib/bc250-experimental/models/bonsai2-27b-crack/Bonsai-2-27B-PQ2_0-CRACK.gguf",
+        "role": "source",
+        "same_inode_preserved": true,
+        "sha256": "5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d"
+      },
+      {
+        "bytes": 5946648928,
+        "path": "/var/lib/bc250-experimental/models/bonsai2-27b-crack/Bonsai-2-27B-PTQ1_0-CRACK-lossless.gguf",
+        "role": "output",
+        "same_inode_preserved": true,
+        "sha256": "5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15"
+      }
+    ],
+    "runtime_promoted": false,
+    "storage": "Retained outside temporary staging; original and losslessly repacked file preserved."
+  },
+  "trial": {
+    "after": {
+      "available": 2354802688,
+      "temperature_c": 65.0,
+      "vram_total": 12884901888,
+      "vram_used": 3476172800
+    },
+    "argv": [
+      "/run/host/var/tmp/bc250-bonsai-experimental/build-clang/bin/llama-server",
+      "--model",
+      "/run/host/var/tmp/bc250-bonsai-experimental/models/Bonsai-2-27B-PTQ1_0-CRACK-lossless.gguf",
+      "--alias",
+      "bonsai2-crack-lossless-experimental",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "18080",
+      "--ctx-size",
+      "8192",
+      "--parallel",
+      "1",
+      "--batch-size",
+      "128",
+      "--ubatch-size",
+      "128",
+      "--threads",
+      "2",
+      "--threads-batch",
+      "2",
+      "--gpu-layers",
+      "all",
+      "--load-mode",
+      "mmap",
+      "--fit",
+      "on",
+      "--fit-target",
+      "1024",
+      "--no-webui",
+      "--no-slots",
+      "--reasoning",
+      "off",
+      "--no-context-shift"
+    ],
+    "before": {
+      "available": 2335289344,
+      "temperature_c": 59.0,
+      "vram_total": 12884901888,
+      "vram_used": 3476172800
+    },
+    "effective_context": 8192,
+    "effective_slots": 1,
+    "elapsed_seconds": 44.6,
+    "experimental_process_exit_status": 0,
+    "experimental_server_stopped": true,
+    "generation_checks": [
+      {
+        "expected_answer_present": true,
+        "output_characters": 5,
+        "output_sha256": "5dd272b4f316b776a7b8e3d0894b37e1e42be3d5d3b204b8a5836cc50597a6b1",
+        "prompt_or_completion_saved": false,
+        "sse_done": null,
+        "stream": false
+      },
+      {
+        "expected_answer_present": true,
+        "output_characters": 1,
+        "output_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+        "prompt_or_completion_saved": false,
+        "sse_done": true,
+        "stream": true
+      }
+    ],
+    "memory_fit": {
+      "estimated_candidate_bytes": 7557261664,
+      "extra_fast_vram_reserve": 805306368,
+      "fast_vram_free_before": 9408729088,
+      "verdict": "FITS with existing model retained"
+    },
+    "minimum_host_available_mib": 1685.75,
+    "model_sha256": "5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15",
+    "model_smoke_passed": true,
+    "peak_rss_mib": 1977.2,
+    "peak_temperature_c": 74.0,
+    "peak_total_fast_vram_used_mib": 9413.56,
+    "production_model_health_after": 200,
+    "production_model_stopped": false,
+    "production_runtime_changed": false,
+    "runtime_sha256": "a5e325d87d52cc89bcebd196fa92cec36c0aeaebb1bdacb1ad2c81c1c995ff6c",
+    "scope": "Isolated fixed-prompt correctness smoke, not a promoted runtime or performance measurement",
+    "started_at": "2026-09-18T08:57:08.044395+00:00",
+    "stop_reason": null
+  }
+}

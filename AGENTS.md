@@ -22,8 +22,25 @@ PTQ1 model matches SHA-256
 Two short fixed-answer checks, including SSE, pass at 8,192 context / one slot
 on a temporary loopback server. Peak observations were 1,994 MiB process RSS,
 9,414 MiB total fast VRAM including the existing model, and 74°C. These are not
-soak, quality or throughput measurements. CRACK has not been fully downloaded
-or loaded. Both app entries remain runtime-required.
+soak, quality or throughput measurements.
+
+The owner subsequently requested CRACK installation and conversion. Its full
+7.21 GB PQ2 file matches publisher SHA-256
+`5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d`.
+A lossless integer-only PTQ1 repack verifies every code/scale in 209,920,000
+blocks and all 449 unchanged tensors, including Hadamard transforms. The
+5.95 GB derived file SHA-256 is
+`5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15`.
+Both files are retained under
+`/var/lib/bc250-experimental/models/bonsai2-27b-crack` on the BC250. The derived
+file passes two isolated 8K/one-slot GPU answer checks including SSE, with
+1,977.2 MiB peak RSS, 9,413.56 MiB total fast VRAM and 74°C. This is basic
+compatibility only. The original PQ2 file was not loaded. See
+`docs/bonsai-crack-conversion-2026-09-18.json`; scripts/reports are in
+`dist/crack-conversion-20260918`. The temporary server is stopped, original
+model inference and production-preservation checks pass. No app activation,
+runtime promotion or profile records changed. Both app entries remain
+runtime-required; integration and sustained/performance qualification are pending.
 
 The original model stayed running and answers a fresh fixed prompt afterward;
 app link/version, service invocations/PIDs/units, checkout and graphical boot
