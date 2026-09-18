@@ -23,7 +23,7 @@ class FakeRunner:
 
 
 def test_catalog_retains_round4_entries_after_later_expansion():
-    assert len(CATALOG) == 40
+    assert len(CATALOG) == 42
     assert len({model.id for model in CATALOG}) == len(CATALOG)
 
 
