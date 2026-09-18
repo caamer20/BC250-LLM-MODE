@@ -1,0 +1,460 @@
+{
+  "additional_check_policy": "The 64 feature checks, 31 runtime checks, 28 route/scale checks, native experience journeys and four Bonsai UI checks overlap suite coverage and are not added to the 1897 selected tests. The slow inventory compares separate collection on the same code with completed JUnit cases from its successful run.",
+  "artifact_packet": "dist/dev12-bonsai-20260918",
+  "artifacts": {
+    "bc250_llm_mode-0.9.0.dev12-py3-none-any.whl": {
+      "bytes": 829193,
+      "sha256": "e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c"
+    },
+    "bc250_llm_mode-0.9.0.dev12.tar.gz": {
+      "bytes": 1138304,
+      "sha256": "6c8567e0349e9d3c9acca3ff2433530402dbe4631b38ee5197ba3de583782c97"
+    },
+    "checksums.sha256": {
+      "bytes": 210,
+      "sha256": "6e4ed2b5327b2ba79341932b30495f5bb5dbc3053f16bd5b32658d9c5c07a1f5"
+    },
+    "release-manifest.json": {
+      "bytes": 2400,
+      "sha256": "866207cfb198f4aee9059f62b6830b889492e03c188c986b549d054b925b19ac"
+    },
+    "sbom.cdx.json": {
+      "bytes": 4526,
+      "sha256": "980be1b31e3403c9990c0bcf9d0df4bb2c697f377be18332e14c800529ce3da2"
+    }
+  },
+  "binding": "The default and slow suites ran on frozen code commit 20d83c8. The exact wheel was built once from its clean source archive through sdist. A fresh hash-locked environment verified all 196 package files against that source and wheel; installed and native Tk checks used it outside the checkout. The separate Prism experiment is not application runtime or full-model qualification. Earlier dev11 Linux results do not qualify this changed package.",
+  "conversation_read_schemas": [
+    1,
+    2
+  ],
+  "conversation_write_schema": 2,
+  "database_schema": 14,
+  "device_preservation": {
+    "active_application": "0.9.0.dev9",
+    "checked_at": "2026-09-18T08:17:41.825640+00:00",
+    "current_model_inference_after_passed": true,
+    "experimental_listener_absent": true,
+    "production_services_and_configuration_unchanged": true
+  },
+  "diagnostics": [
+    "The first c97f894 full run found one retained catalog-count assertion; only that test was updated in 20d83c8 and the entire default suite reran successfully. Package bytes are identical across these two commits.",
+    "The sandboxed macOS Tk launch aborted before a result; all native checks passed outside that sandbox with temporary app state and host observations/actions suppressed."
+  ],
+  "documentation_followthrough": {
+    "passed": 6,
+    "scope": "Documentation consistency on the final followthrough; overlaps the full suite."
+  },
+  "evidence_files": {
+    "device-test-transfer/bc250-dev12-20d83c8-source.tar": "2b5abdc076327c3f0e504e0e8ef705b1b076eb438a74c557696a2033801a099f",
+    "device-test-transfer/transfer-manifest.json": "e3f360bc5aeeb7f4fba3facdf459deb23556fb17a8caf3e8b8f278aa0e991bbe",
+    "macos/default-inventory.json": "b89c9599f6d2a6fe5c2288b64fbd1700aca1c0575413f5e8d6fd869295acf42f",
+    "macos/default.log": "f429d3e7ae76e983ec28285acb74c0b7e559b9f9272b9c88bc6f52115ca5228b",
+    "macos/default.xml": "996514bfe1e6208e497a4e341260155a5c6c673d0dfe7eb600a649573e161ba7",
+    "macos/installation.log": "e85ca2071e340fd720e7e2a8cc470a0ab5391476eafcf55518aff3aee996a386",
+    "macos/installed-checks.json": "0ec772fa5ee792f77534e0550fa135f53ce297f83d424e3342933d0937446a06",
+    "macos/installed-features.log": "b86afbbd50674eecc9925f1b15b10cee1615c5fcd913fcec54a467096b8ee55e",
+    "macos/installed-features.xml": "a6a64e05f5627a5c041ca6409188ff46dd06bc33d15a1435763afedcf37e67ac",
+    "macos/installed-identity-macos.json": "50903d0c910f0697f97808614ee62c85568fa999245dce435fb2bb106eba52dd",
+    "macos/installed-runtime.log": "8a773267b4160ebe091f4f05c5674a315f021be28add95b6bcd5c9496704b678",
+    "macos/installed-runtime.xml": "77464deea42d5636642a7ebecaacc96faef64ab5895b531c665330bfd5e1542e",
+    "macos/real_tk_bonsai.json": "df2b3e8289a6b015187e8da22211ac461eac5fa84dace22c436e485205c63af4",
+    "macos/real_tk_bonsai.py": "78209a49e660d9900458cf2cc5cb6a2a0cf906c9a016022da389326198dc0c6a",
+    "macos/real_tk_bonsai.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "macos/real_tk_experience_smoke.json": "f4ce956aa867f247ef63f34bccefe3797ecda3edf66f788d188ee7889e299f14",
+    "macos/real_tk_experience_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "macos/real_tk_smoke.json": "5a1cc33c585997a25530de4615ea03aada0d440e974528871108bec628aa9d63",
+    "macos/real_tk_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "macos/slow-inventory.json": "fb6bb747fb9797523670ae5078b057f9aa08de20c78aab6b7f75b3b346ba71ce",
+    "macos/slow.log": "5f7ffff9b415aaa2d1134f9a6f5243c026612f3583ee1eb6407c2415d605f71b",
+    "macos/slow.xml": "11b7d93677fa449135479fade1a199f30ae86914e28ff4b933b30d2d4b7067b8",
+    "metadata/artifact-verification.json": "e1761387dbdcfddc9313b374f4015acce619f11abdba8e4f4e16d2843562af6e",
+    "metadata/build-artifacts.json": "124349949f5dda20be69d3fb276b81fbf33b427fa9ee0008f3da66df5787866d",
+    "metadata/build.log": "7325bc8f5e88a1d5069271cae145aa62971feba70bd2ac8db952b38e24fdddac",
+    "metadata/docs-final.log": "4d95b60a4905a6c40cf972766a024dce357201ce76bdf3048969d3c1792d12e7",
+    "metadata/evaluate.json": "2fbc9a577d6068dd8d2b7b74e0aba9d19cf943abb6bfd592739564842316fe1d",
+    "metadata/release-decision.json": "2fbc9a577d6068dd8d2b7b74e0aba9d19cf943abb6bfd592739564842316fe1d",
+    "metadata/release-decision.json.sha256": "1b0f5efcf6fd8e1d79dd38b79574d70de72fd0e958b7f127738fdb3a56b4f0f1",
+    "metadata/source-inventory.json": "bfabca74ddb3ebda28508738a14eeee49d9efd6b5ef5cb5dfef10a7ced505185"
+  },
+  "linux_package_qualification": {
+    "earlier_dev11_linux_results_inherited": false,
+    "status": "not_run_for_dev12"
+  },
+  "macos": {
+    "combined": {
+      "passed": 1878,
+      "selected": 1897,
+      "skipped": 19
+    },
+    "default": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 1826,
+      "seconds_junit": 245.051,
+      "selected": 1845,
+      "skip_reasons": {
+        "tests.test_http_worker_linux_memory::test_http_worker_accepts_large_interpreter_virtual_baseline": "Linux address-space accounting",
+        "tests.test_profile_exchange_helper::test_real_same_filesystem_exchange_on_linux": "real exchange requires Linux",
+        "tests.test_review_boundaries_rv::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "Linux IP_FREEBIND private bridge reservation",
+        "tests.test_runtime_adapter_real::test_real_cmake_builds_fetched_source_and_recovers_manifest": "Linux compiler and binary-stat recipe",
+        "tests.test_runtime_cutover_real::test_death_after_atomic_swap_preserves_and_recovers_exact_pair": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_foreign_or_changed_candidate_never_swaps_or_deletes": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_initial_publication_is_no_clobber_and_restoration_retains_candidate": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_legacy_adoption_records_observed_manifest_without_promotion": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_live_identity_requires_receipt_hash_and_exact_observed_settings": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_production_workflow_build_update_noop_and_rollback": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_restoration_after_first_promotion_restores_legacy_known_good_exactly": "real Linux runtime cutover",
+        "tests.test_runtime_initial_install_real::test_death_after_initial_publication_recovers_without_starting_a_service": "real Linux initial runtime publication",
+        "tests.test_runtime_initial_install_real::test_first_model_inference_failure_restores_empty_selection_and_allows_retry": "real Linux initial runtime publication",
+        "tests.test_runtime_initial_install_real::test_first_verification_failure_restores_unpromoted_runtime_without_rebuild": "real Linux initial runtime publication",
+        "tests.test_runtime_initial_install_real::test_initial_install_repeat_model_activation_and_exact_promotion": "real Linux initial runtime publication",
+        "tests.test_runtime_initial_install_real::test_prepared_binary_change_is_refused_before_reuse": "real Linux initial runtime publication",
+        "tests.test_runtime_initial_install_real::test_verification_without_a_model_remains_pending": "real Linux initial runtime publication",
+        "tests.test_runtime_process::test_guest_supervisor_stops_children_when_heartbeats_disappear": "Linux guest process supervisor",
+        "tests.test_runtime_process::test_local_exchange_swaps_content_atomically": "renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above"
+      },
+      "skipped": 19
+    },
+    "installed_features": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 64,
+      "seconds_junit": 3.159,
+      "selected": 64,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "installed_runtime": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 31,
+      "seconds_junit": 79.616,
+      "selected": 31,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "installed_wheel": {
+      "dependency_check": "No broken requirements found.",
+      "metadata_version": "0.9.0.dev12",
+      "package_files_verified": 196,
+      "package_path": "/private/var/folders/tv/9cpqng650p9gdyr30kdgksqh0000gn/T/bc250-dev12-qualified-6vl1tmq4/candidate-venv/lib/python3.14/site-packages/bc250_llm_mode",
+      "python_modules_verified": 195,
+      "source_commit": "20d83c851b638edb272715c57d3d1f9988a2c2a4",
+      "version": "0.9.0.dev12",
+      "wheel_sha256": "e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c"
+    },
+    "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O",
+    "python": "3.14.7",
+    "real_tk": {
+      "physical_qualification": "pending",
+      "routes": [
+        {
+          "focus_targets": 10,
+          "milliseconds": 493,
+          "route": "home",
+          "scale": 100
+        },
+        {
+          "focus_targets": 17,
+          "milliseconds": 383,
+          "route": "models",
+          "scale": 100
+        },
+        {
+          "focus_targets": 23,
+          "milliseconds": 105,
+          "route": "chat",
+          "scale": 100
+        },
+        {
+          "focus_targets": 8,
+          "milliseconds": 69,
+          "route": "activity",
+          "scale": 100
+        },
+        {
+          "focus_targets": 6,
+          "milliseconds": 87,
+          "route": "system",
+          "scale": 100
+        },
+        {
+          "focus_targets": 17,
+          "milliseconds": 116,
+          "route": "settings",
+          "scale": 100
+        },
+        {
+          "focus_targets": 18,
+          "milliseconds": 148,
+          "route": "help",
+          "scale": 100
+        },
+        {
+          "focus_targets": 18,
+          "milliseconds": 215,
+          "route": "connections",
+          "scale": 100
+        },
+        {
+          "focus_targets": 11,
+          "milliseconds": 101,
+          "route": "more",
+          "scale": 100
+        },
+        {
+          "focus_targets": 27,
+          "milliseconds": 186,
+          "route": "profiles",
+          "scale": 100
+        },
+        {
+          "focus_targets": 25,
+          "milliseconds": 210,
+          "route": "maintenance",
+          "scale": 100
+        },
+        {
+          "focus_targets": 9,
+          "milliseconds": 120,
+          "route": "maintenance/repair",
+          "scale": 100
+        },
+        {
+          "focus_targets": 13,
+          "milliseconds": 119,
+          "route": "maintenance/updates",
+          "scale": 100
+        },
+        {
+          "focus_targets": 13,
+          "milliseconds": 110,
+          "route": "maintenance/backups",
+          "scale": 100
+        },
+        {
+          "focus_targets": 14,
+          "milliseconds": 116,
+          "route": "home",
+          "scale": 200
+        },
+        {
+          "focus_targets": 17,
+          "milliseconds": 221,
+          "route": "models",
+          "scale": 200
+        },
+        {
+          "focus_targets": 25,
+          "milliseconds": 233,
+          "route": "chat",
+          "scale": 200
+        },
+        {
+          "focus_targets": 12,
+          "milliseconds": 114,
+          "route": "activity",
+          "scale": 200
+        },
+        {
+          "focus_targets": 8,
+          "milliseconds": 133,
+          "route": "system",
+          "scale": 200
+        },
+        {
+          "focus_targets": 18,
+          "milliseconds": 246,
+          "route": "settings",
+          "scale": 200
+        },
+        {
+          "focus_targets": 20,
+          "milliseconds": 197,
+          "route": "help",
+          "scale": 200
+        },
+        {
+          "focus_targets": 18,
+          "milliseconds": 295,
+          "route": "connections",
+          "scale": 200
+        },
+        {
+          "focus_targets": 13,
+          "milliseconds": 115,
+          "route": "more",
+          "scale": 200
+        },
+        {
+          "focus_targets": 27,
+          "milliseconds": 214,
+          "route": "profiles",
+          "scale": 200
+        },
+        {
+          "focus_targets": 26,
+          "milliseconds": 231,
+          "route": "maintenance",
+          "scale": 200
+        },
+        {
+          "focus_targets": 13,
+          "milliseconds": 206,
+          "route": "maintenance/repair",
+          "scale": 200
+        },
+        {
+          "focus_targets": 15,
+          "milliseconds": 224,
+          "route": "maintenance/updates",
+          "scale": 200
+        },
+        {
+          "focus_targets": 15,
+          "milliseconds": 149,
+          "route": "maintenance/backups",
+          "scale": 200
+        }
+      ],
+      "thread_count": 1,
+      "tk": 9.0
+    },
+    "real_tk_bonsai": {
+      "checks": [
+        {
+          "install_offered": false,
+          "keyboard_action_passed": true,
+          "model_id": "bonsai2-27b",
+          "primary_action": "runtime_requirements",
+          "scale": 100
+        },
+        {
+          "install_offered": false,
+          "keyboard_action_passed": true,
+          "model_id": "bonsai2-27b-crack",
+          "primary_action": "runtime_requirements",
+          "scale": 100
+        },
+        {
+          "install_offered": false,
+          "keyboard_action_passed": true,
+          "model_id": "bonsai2-27b",
+          "primary_action": "runtime_requirements",
+          "scale": 200
+        },
+        {
+          "install_offered": false,
+          "keyboard_action_passed": true,
+          "model_id": "bonsai2-27b-crack",
+          "primary_action": "runtime_requirements",
+          "scale": 200
+        }
+      ],
+      "physical_qualification": "pending"
+    },
+    "real_tk_experience": {
+      "journeys": [
+        {
+          "composer_height": 47,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 100,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 501,
+          "widgets": 43
+        },
+        {
+          "composer_height": 47,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 200,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 501,
+          "widgets": 43
+        }
+      ],
+      "physical_qualification": "pending",
+      "tk": 9.0
+    },
+    "slow": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 52,
+      "seconds_junit": 87.423,
+      "selected": 52,
+      "skip_reasons": {},
+      "skipped": 0
+    }
+  },
+  "owner_files": {
+    "hashes_unchanged": true,
+    "untracked_preserved": 10
+  },
+  "pending": [
+    "Linux qualification of the dev12 application wheel",
+    "Prism runtime integration/promotion, optimized performance and sustained/long-context qualification; CRACK compatible packing/backend and full-file verification",
+    "Previously gated application activation and real runtime replacement",
+    "Bazzite/CachyOS fresh/upgraded physical journeys, phone/reboot/interruption/thermal/soak",
+    "Keyboard/screen-reader and non-developer acceptance",
+    "Independent security review",
+    "Owner-authorized GitHub source publication and hosted CI",
+    "Signed release gates"
+  ],
+  "prepared_device_test_payload": {
+    "activation_authorized_by_this_record": false,
+    "archive_scope": "Tracked files from the exact code commit, including tests; no owner-controlled untracked files or local private state.",
+    "files": {
+      "bc250-dev12-20d83c8-source.tar": {
+        "bytes": 6840320,
+        "sha256": "2b5abdc076327c3f0e504e0e8ef705b1b076eb438a74c557696a2033801a099f"
+      },
+      "bc250_llm_mode-0.9.0.dev12-py3-none-any.whl": {
+        "bytes": 829193,
+        "sha256": "e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c"
+      }
+    },
+    "prepared_locally_only": true,
+    "proposed_device_directory": "/var/tmp/bc250-dev12-20d83c8-tests",
+    "proposed_scope": "Fresh isolated environments and fixture tests; no production application activation.",
+    "source_commit": "20d83c851b638edb272715c57d3d1f9988a2c2a4",
+    "transferred": false,
+    "version": "0.9.0.dev12"
+  },
+  "record_type": "local_developer_qualification_not_physical_or_signed_release_evidence",
+  "record_version": 1,
+  "recorded_at": "2026-09-18T07:39:48.576209+00:00",
+  "release": {
+    "artifact_verifier_exit_status": 0,
+    "blocking_codes": [
+      "BACKUP_RESTORE_EVIDENCE_MISSING",
+      "CLEAN_WHEEL_EVIDENCE_MISSING",
+      "DOCUMENTATION_DRIFT",
+      "HARDWARE_QUALIFICATION_MISSING",
+      "HUMAN_ACCEPTANCE_MISSING",
+      "LIMITATION_ACCEPTANCE_MISSING",
+      "MILESTONE_EVIDENCE_MISSING",
+      "PROVENANCE_MISSING_OR_MISMATCHED",
+      "REPOSITORY_NOT_PUBLISHED",
+      "SBOM_MISSING_OR_MISMATCHED",
+      "SECURITY_REVIEW_MISSING",
+      "SIGNATURE_MISSING_OR_INVALID",
+      "SOAK_EVIDENCE_MISSING",
+      "TEST_EVIDENCE_MISSING"
+    ],
+    "eligible_for_1_0_0": false,
+    "evaluator_exit_status": 1,
+    "published": false,
+    "signed": false,
+    "status": "BLOCKED"
+  },
+  "runtime_experiment": "Separate pinned Prism runtime passed small BC250 GPU reference checks and two short official PTQ1 answers at 8192 context, including SSE. It is unoptimized, unpromoted and not integrated into the application. See bonsai-model-compatibility-2026-09-18.json for exact identities and scope.",
+  "source_commit": "20d83c851b638edb272715c57d3d1f9988a2c2a4",
+  "source_ref": "refs/heads/codex/bonsai-models-dev12",
+  "version": "0.9.0.dev12"
+}

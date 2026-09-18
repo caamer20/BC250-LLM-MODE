@@ -1,6 +1,6 @@
 # Continuation guide for BC250 LLM MODE
 
-## September 18 Bonsai model additions in progress
+## September 18 Bonsai additions — locally qualified application
 
 Source `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the two owner-requested
 Bonsai 2 models. Read `docs/bonsai-model-compatibility-2026-09-18.md` and its JSON
@@ -10,13 +10,40 @@ entries remain runtime-required in the app, separate from memory estimates.
 Renamed local GGUFs declaring PrismML Hadamard transforms are refused.
 
 A separate PrismML Vulkan build at commit
-`5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6` is being prepared under
-`/var/tmp/bc250-bonsai-experimental`, using the existing guest toolchain, one
-build job and serialized shader compilation. This does not replace the active
-application or runtime. Do not infer model inference, speed, fit, promotion or
-known-good identity from header inspection or a successful build. The dev11
-qualification below remains bound to its unchanged code/wheel. Dev12 package
-qualification and full-model experimental evidence are still in progress.
+`5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6` completed under
+`/var/tmp/bc250-bonsai-experimental`. It uses isolated extracted Clang packages,
+unoptimized C++, serialized shaders and byte-verified chunk compilation of a
+132 MB generated shader-data source. Vendor source is unchanged. This is a
+compatibility experiment, not a performance-qualified or promoted runtime.
+Five PTQ matrix checks and one signed Hadamard GPU check pass; one F16-input
+case skips for lack of CPU reference support. The fully downloaded official
+PTQ1 model matches SHA-256
+`53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3`.
+Two short fixed-answer checks, including SSE, pass at 8,192 context / one slot
+on a temporary loopback server. Peak observations were 1,994 MiB process RSS,
+9,414 MiB total fast VRAM including the existing model, and 74°C. These are not
+soak, quality or throughput measurements. CRACK has not been fully downloaded
+or loaded. Both app entries remain runtime-required.
+
+The original model stayed running and answers a fresh fixed prompt afterward;
+app link/version, service invocations/PIDs/units, checkout and graphical boot
+target are unchanged. Model and SearXNG health are 200. The temporary listener
+is gone. No app activation, runtime promotion, known-good/profile rows or
+GitHub publication occurred. The dev11 qualification below remains bound to
+its unchanged code/wheel.
+
+Dev12 code commit `20d83c851b638edb272715c57d3d1f9988a2c2a4` passes local
+macOS qualification: **1,878 passed + 19 expected Linux-only skips** of 1,897
+selected tests, including all 52 slow gates. The clean source → sdist → wheel
+and fresh hash-locked environment verify all 195 Python modules / 196 package
+files; 64 feature, 31 runtime/recovery, 28 actual Tk route/scale and four Bonsai
+UI checks pass, with native experience journeys. Those checks overlap the
+suite. Wheel SHA-256:
+`e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c`.
+Read `docs/bonsai-qualification-2026-09-18.json`; raw reports/artifacts are in
+`dist/dev12-bonsai-20260918`. No dev12 Linux package qualification, application
+activation or full-model inference is claimed. All ten owner files are
+preserved. Physical, human, security and release gates remain pending.
 
 ## September 17–18 dev11 isolated fresh-setup qualification
 

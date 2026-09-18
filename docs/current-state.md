@@ -1,10 +1,22 @@
 # Current implementation state
 
 Source version `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the requested
-Bonsai 2 catalog entries and explicit runtime compatibility checks. This work
-is in local qualification; the separately pinned PrismML experimental build
+Bonsai 2 catalog entries and explicit runtime compatibility checks. Code
+commit `20d83c8` is locally qualified: 1,897 selected tests, 1,878 passed and
+19 expected Linux-only skips, including all 52 slow gates. The fresh installed
+wheel verifies all 196 package files and passes 64 feature, 31 runtime/recovery,
+28 native route/scale and four Bonsai UI checks, plus the native experience
+journeys. Its SHA-256 is
+`e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c`.
+Both models remain runtime-required; the separately pinned PrismML experiment
 does not replace the application's active runtime. See
 [Bonsai model compatibility](bonsai-model-compatibility-2026-09-18.md).
+The official PTQ1 full-file hash verifies and a separate compatibility build
+passes small BC250 GPU checks plus two short real-model answers at 8K, including
+SSE. Its unoptimized build and brief 74°C peak do not qualify performance or
+sustained use. The original model remained active and passed a fresh inference
+check afterward; the temporary server is stopped and production settings are
+preserved. CRACK's published PQ2 pack has not been loaded.
 The qualified dev11 candidate below remains frozen on its branch; its results
 do not qualify changed dev12 package code. The physical application is dev9.
 
