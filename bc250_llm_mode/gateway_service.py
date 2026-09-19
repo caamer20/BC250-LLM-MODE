@@ -11,7 +11,6 @@ import stat
 import tempfile
 import time
 import urllib.error
-import urllib.request
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -412,19 +411,16 @@ class GatewayService:
     @staticmethod
     def _observe_health() -> dict[str, Any]:
         try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{GATEWAY_PORT}/health",
-                timeout=GATEWAY_HEALTH_TIMEOUT_SECONDS,
-            ) as response:
-                raw = response.read(MAX_HEALTH_BYTES + 1)
-                status = int(response.status)
+            from .loopback_http import request_bytes
+
+            raw = request_bytes(f"http://127.0.0.1:{GATEWAY_PORT}/health",
+                                timeout=GATEWAY_HEALTH_TIMEOUT_SECONDS,
+                                maximum_bytes=MAX_HEALTH_BYTES, expected_status=200)
         except (OSError, urllib.error.URLError):
-            return {"responsive": False, "backend_identity": "unavailable"}
-        if status != 200 or len(raw) > MAX_HEALTH_BYTES:
             return {"responsive": False, "backend_identity": "unavailable"}
         try:
             payload = json.loads(raw)
-        except ValueError:
+        except (ValueError, RecursionError):
             return {"responsive": False, "backend_identity": "unavailable"}
         return {
             "responsive": isinstance(payload, Mapping),

@@ -188,18 +188,38 @@ def test_health_model_id_none_when_server_reports_nothing(monkeypatch):
 
 def test_health_polling_pulses_durable_operation_lease(monkeypatch):
     calls = []
-    times = iter((0.0, 0.0, 1.0, 2.0))
+    now = [0.0]
 
     def unavailable(_url, timeout=5):
+        assert 0 < timeout <= 5
+        now[0] += .5
         raise OSError("not ready")
 
     monkeypatch.setattr(server, "_json_get", unavailable)
     with pytest.raises(TimeoutError):
         server.health_check(
             {"server_port": 8080},
-            timeout=2,
-            monotonic=lambda: next(times),
-            sleep=lambda _seconds: None,
+            timeout=3.1,
+            monotonic=lambda: now[0],
+            sleep=lambda seconds: now.__setitem__(0, now[0] + seconds),
             pulse=lambda: calls.append("pulse"),
         )
     assert calls == ["pulse", "pulse"]
+
+
+@pytest.mark.parametrize('props', [{}, {'default_generation_settings': {'n_ctx': 8192}}, {'total_slots': 1}])
+def test_missing_server_geometry_is_not_filled_from_requested_settings(monkeypatch, props):
+    def fake_get(url, timeout=5):
+        if url.endswith('/health'):
+            return {'status': 'ok'}
+        if url.endswith('/v1/models'):
+            return {'data': [{'id': 'fixture'}]}
+        return props
+
+    monkeypatch.setattr(server, '_json_get', fake_get)
+    monkeypatch.setattr(server, 'system_metrics', lambda: {})
+    observed = server.health_check({'server_port': 8080, 'current_model': 'fixture',
+                                   'current_ctx': 8192, 'optimizations': {'parallel_slots': 1}}, timeout=1)
+    assert observed['context_per_slot'] == props.get('default_generation_settings', {}).get('n_ctx')
+    assert observed['parallel_slots'] == props.get('total_slots')
+    assert observed['context_total'] is None

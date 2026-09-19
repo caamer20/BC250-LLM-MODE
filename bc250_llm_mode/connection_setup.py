@@ -15,7 +15,6 @@ import os
 import secrets
 import stat
 import urllib.error
-import urllib.request
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -735,55 +734,41 @@ class ProbeTransport(Protocol):
 
 
 class BoundedHTTPProbeTransport:
-    """Small urllib adapter with hard response/deadline bounds."""
+    """Fixed private worker with whole-request deadlines and no redirects."""
 
     def request(
         self, *, method: str, url: str, token: str | None,
         body: dict[str, Any] | None = None, stream: bool = False,
         timeout: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
     ) -> ProbeHTTPResponse:
+        from .bounded_json_http import BoundedJSONHTTP
+
         timeout = max(0.1, min(float(timeout), MAX_PROBE_TIMEOUT_SECONDS))
-        encoded = json.dumps(body, separators=(",", ":")).encode("utf-8") if body else None
         headers = {"Accept": "text/event-stream" if stream else "application/json"}
-        if encoded is not None:
-            headers["Content-Type"] = "application/json"
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        request = urllib.request.Request(url, data=encoded, headers=headers, method=method)
+        http = BoundedJSONHTTP(maximum_bytes=MAX_PROBE_BODY_BYTES + 1, total_seconds=timeout)
+        with http.stream(method, url, json=body, headers=headers,
+                         first_sse_event=stream) as response:
+            status, raw = response.status_code, response.content
+        truncated = len(raw) > MAX_PROBE_BODY_BYTES
+        raw = raw[:MAX_PROBE_BODY_BYTES]
+        if stream:
+            for line in raw.splitlines():
+                if len(line) > 4096 or not line.startswith(b"data:"):
+                    continue
+                try:
+                    value = json.loads(line[5:].strip())
+                except (ValueError, UnicodeError, RecursionError):
+                    continue
+                if isinstance(value, dict):
+                    return ProbeHTTPResponse(status, valid_sse_event=True, truncated=truncated)
+            return ProbeHTTPResponse(status, valid_sse_event=False, truncated=truncated)
         try:
-            response = urllib.request.urlopen(request, timeout=timeout)
-        except urllib.error.HTTPError as exc:
-            response = exc
-        with response:
-            status = int(response.status)
-            if stream:
-                consumed = 0
-                while consumed < MAX_PROBE_BODY_BYTES:
-                    line = response.readline(min(4096, MAX_PROBE_BODY_BYTES - consumed + 1))
-                    if not line:
-                        break
-                    consumed += len(line)
-                    if line.startswith(b"data:"):
-                        payload = line[5:].strip()
-                        if payload == b"[DONE]":
-                            continue
-                        try:
-                            value = json.loads(payload)
-                        except ValueError:
-                            continue
-                        if isinstance(value, dict):
-                            return ProbeHTTPResponse(status, valid_sse_event=True)
-                return ProbeHTTPResponse(
-                    status, valid_sse_event=False,
-                    truncated=consumed >= MAX_PROBE_BODY_BYTES)
-            raw = response.read(MAX_PROBE_BODY_BYTES + 1)
-            truncated = len(raw) > MAX_PROBE_BODY_BYTES
-            raw = raw[:MAX_PROBE_BODY_BYTES]
-            try:
-                value = json.loads(raw) if raw else None
-            except ValueError:
-                value = None
-            return ProbeHTTPResponse(status, value, truncated=truncated)
+            value = json.loads(raw) if raw else None
+        except (ValueError, UnicodeError, RecursionError):
+            value = None
+        return ProbeHTTPResponse(status, value, truncated=truncated)
 
 
 @dataclass(frozen=True)

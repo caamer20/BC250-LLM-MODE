@@ -1,0 +1,213 @@
+{
+  "schema_version": 1,
+  "scope": "Developer qualification; candidate staged, not activated. No physical acceptance or release claim.",
+  "candidate": {
+    "source_commit": "3974ffa0381a03da2853141cf3348094a3c5aad4",
+    "version": "0.9.0.dev15",
+    "artifacts": {
+      "source.tar.gz": {
+        "sha256": "1aba1f52ea9195a4fc3892b7fa2c05457042a82d53b3bbe33dd9beb4e2dc2d2f",
+        "bytes": 1765087
+      },
+      "bc250_llm_mode-0.9.0.dev15.tar.gz": {
+        "sha256": "fbad82902ab6b5d9f27f19d395aca59fe7f933a9cc1c22d2c27e35b1526ffb20",
+        "bytes": 1161982
+      },
+      "bc250_llm_mode-0.9.0.dev15-py3-none-any.whl": {
+        "sha256": "eedd80343fe39c12c8e843c69a9a26727613e16af0ca77f5ed8f3f732eba0ba3",
+        "bytes": 841665
+      }
+    },
+    "package_files_verified": 198,
+    "python_modules_verified": 197
+  },
+  "macos": {
+    "selected": 1962,
+    "passed": 1943,
+    "skipped": 19,
+    "suites": {
+      "default": {
+        "tests": 1910,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 19
+      },
+      "slow": {
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "installed_checks": {
+      "installed-features": {
+        "exit_status": 0,
+        "tests": 93,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "installed-runtime": {
+        "exit_status": 0,
+        "tests": 46,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      },
+      "installed-probes": {
+        "exit_status": 0,
+        "tests": 81,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "bazzite": {
+    "selected": 1962,
+    "passed": 1947,
+    "skipped": 15,
+    "suites": {
+      "default": {
+        "tests": 1910,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 15
+      },
+      "slow": {
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "installed_checks": {
+      "installed-features": {
+        "exit_status": 0,
+        "tests": 93,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      },
+      "installed-probes": {
+        "exit_status": 0,
+        "tests": 81,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      }
+    },
+    "guest_runtime": {
+      "exit_status": 0,
+      "tests": 82,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    }
+  },
+  "github_python_3_11": {
+    "selected": 1962,
+    "passed": 1955,
+    "skipped": 7,
+    "suites": {
+      "default": {
+        "tests": 1910,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 7
+      },
+      "slow": {
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "github_python_3_14": {
+    "selected": 1962,
+    "passed": 1955,
+    "skipped": 7,
+    "suites": {
+      "default": {
+        "tests": 1910,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 7
+      },
+      "slow": {
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    }
+  },
+  "inventory": {
+    "exact_test_id_union_matches_all_four_environments": true,
+    "linux_compiler_skips_passed_in_guest": 8,
+    "remaining_linux_platform_skips": 7,
+    "installed_checks_overlap_full_suite": true
+  },
+  "native_ui": {
+    "macos_routes_and_scales": 28,
+    "macos_bonsai_widgets": 8,
+    "linux_routes_and_scales": 28,
+    "linux_bonsai_widgets": 8,
+    "linux_experience_scales": [
+      100,
+      200
+    ],
+    "scope": "Actual Tk with fixture services and isolated data; not human, physical desktop or real-model acceptance."
+  },
+  "live_helper_compatibility": {
+    "read_only_endpoints": [
+      "/health",
+      "/v1/models",
+      "/props",
+      "/metrics"
+    ],
+    "all_passed": true,
+    "context": 8192,
+    "slots": 1,
+    "generation_sent": false,
+    "scope": "Only the new loopback transport against the existing live model, before candidate qualification."
+  },
+  "preservation": {
+    "production_snapshot_unchanged": true,
+    "active_version": "0.9.0.dev14",
+    "active_model_preserved": true,
+    "context": 8192,
+    "slots": 1,
+    "model_health": 200,
+    "no_active_operations": true,
+    "no_recovery_barrier": true,
+    "no_temporary_inference_listener": true,
+    "activation_executed": false
+  },
+  "cleanup": {
+    "temporary_display_removed": true,
+    "other_containers_untouched": true,
+    "base_image_retained": true
+  },
+  "owner_untracked_files_preserved": 10,
+  "github": {
+    "pull_request": "https://github.com/caamer20/BC250-LLM-MODE/pull/8",
+    "code_ci": "https://github.com/caamer20/BC250-LLM-MODE/actions/runs/35431742124",
+    "conclusion": "success"
+  },
+  "release": {
+    "status": "BLOCKED",
+    "outstanding": [
+      "Bazzite/CachyOS fresh and upgraded physical journey matrix",
+      "at least 24-hour hardware soak",
+      "phone, desktop/reboot/recovery and accessibility evidence",
+      "independent security review",
+      "non-developer participant acceptance",
+      "owner-approved signed-release evidence"
+    ],
+    "activation_executed": false,
+    "updater_enabled": false,
+    "signed_release_published": false
+  }
+}

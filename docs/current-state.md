@@ -1,11 +1,21 @@
 # Current implementation state
 
+Source **0.9.0.dev15** is developer-qualified for production-hardening
+corrections: whole-request probe deadlines and response bounds, no credential
+redirects during connection verification, and no requested-value fallback for
+missing server geometry. See the [audit and scope](production-hardening-2026-09-19.md).
+Its exact 1,962-test inventory passes on Mac, Bazzite and GitHub Python 3.11/3.14,
+including all 52 slow gates. See the
+[candidate qualification](production-hardening-qualification-2026-09-19.json).
+The candidate is staged; the installed development application remains dev14.
+
 The installed application is **0.9.0.dev14**, code
 `a2639b4658c96e4fe06e0522b3212eea40a97cc2`, installed with the owner's explicit
 approval. It disables the verified Prism fork's oversized extra host-RAM prompt
-cache. Both Bonsai models remain installed; CRACK is active at 8,192 tokens /
-one slot on the same promoted Prism compatibility runtime, with FP16 disabled.
-The live launcher has `--cache-ram 0`. See the
+cache. At that deployment checkpoint, both Bonsai models were installed and CRACK
+was active at 8,192 tokens / one slot on the promoted Prism compatibility
+runtime, with FP16 disabled and `--cache-ram 0`. The owner has since changed
+the active model; the dev15 qualification preserves that current selection. See the
 [deployment record](bonsai-cache-deployment-2026-09-19.md).
 
 The exact 1,927-test inventory passes on macOS (1,908 + 19 skips), Bazzite

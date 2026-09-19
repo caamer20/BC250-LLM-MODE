@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0.dev15 — bounded probes and observed activation geometry (unreleased)
+
+- Apply whole-request deadlines and byte caps to local model, inference and
+  gateway probes so trickled headers/body cannot stall subsequent safety polls.
+- Prevent connection-verification keys from following redirects; bound remote
+  verification and Open WebUI warm-up through the private HTTP worker.
+- Preserve missing context/slot observations as unknown rather than copying
+  requested settings into activation evidence.
+- Reject ambiguous/fractional metrics as idle evidence and expand the effect
+  inventory to cover standard-library HTTP clients. No schema or GPU policy change.
+
 ## 0.9.0.dev14 — bounded Bonsai prompt caching (unreleased)
 
 - Disable the pinned fork's extra 8 GiB host-RAM prompt cache for the

@@ -8,13 +8,15 @@ import sys
 import tempfile
 import time
 import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 from .logging_utils import CommandRunner
 from .optimize import normalized_settings
 from .privilege import elevated
+from .loopback_http import request_bytes
+
+MAX_PROBE_RESPONSE_BYTES = 256 * 1024
 
 
 def require_safe_start(state: dict[str, Any]) -> None:
@@ -529,8 +531,14 @@ def restart_and_wait(state: dict[str, Any], runner: CommandRunner) -> dict[str, 
 
 
 def _json_get(url: str, timeout: float = 5) -> Any:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
-        return json.load(response)
+    raw = request_bytes(url, timeout=timeout, maximum_bytes=MAX_PROBE_RESPONSE_BYTES)
+    try:
+        value = json.loads(raw)
+    except RecursionError:
+        raise ValueError("Local model JSON exceeds its nesting limit") from None
+    if not isinstance(value, dict):
+        raise ValueError("Local model JSON must be an object")
+    return value
 
 
 def local_server_readiness(
@@ -584,14 +592,16 @@ def minimal_inference_probe(state: dict[str, Any], timeout: float = 20.0) -> dic
         "max_tokens": 1,
         "stream": False,
     }).encode("utf-8")
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{port}/v1/chat/completions",
-        data=body,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.load(response)
-    text = ((payload.get("choices") or [{}])[0].get("message") or {}).get("content")
+    raw = request_bytes(f"http://127.0.0.1:{port}/v1/chat/completions",
+                        timeout=timeout, maximum_bytes=MAX_PROBE_RESPONSE_BYTES, body=body)
+    try:
+        payload = json.loads(raw)
+    except RecursionError:
+        raise ValueError("Local model JSON exceeds its nesting limit") from None
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    choice = choices[0] if isinstance(choices, list) and choices else None
+    message = choice.get("message") if isinstance(choice, dict) else None
+    text = message.get("content") if isinstance(message, dict) else None
     if not isinstance(text, str):
         raise RuntimeError("inference probe returned no completion content")
     return {"ok": True, "sample": text[:64]}
@@ -617,19 +627,25 @@ def health_check(
     port = int(state.get("server_port", 8080))
     deadline = monotonic() + timeout
     last_error = "server did not respond"
+    def probe(path):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Model health deadline exceeded")
+        return _json_get(f"http://127.0.0.1:{port}/{path}", timeout=min(5, remaining))
+
     while monotonic() < deadline:
         if pulse is not None:
             pulse()
         try:
-            health = _json_get(f"http://127.0.0.1:{port}/health")
-            models = _json_get(f"http://127.0.0.1:{port}/v1/models")
+            health = probe("health")
+            models = probe("v1/models")
             try:
-                props = _json_get(f"http://127.0.0.1:{port}/props")
+                props = probe("props")
             except (OSError, urllib.error.URLError, ValueError):
                 props = {}
             actual_ctx = (
-                props.get("default_generation_settings", {}).get("n_ctx")
-                if isinstance(props, dict)
+                props["default_generation_settings"].get("n_ctx")
+                if isinstance(props, dict) and isinstance(props.get("default_generation_settings"), dict)
                 else None
             )
             metrics = system_metrics()
@@ -639,16 +655,16 @@ def health_check(
             if isinstance(props, dict) and props.get("model_alias"):
                 observed_model = props.get("model_alias")
             elif isinstance(models, dict):
-                data = models.get("data") or []
-                if data and isinstance(data[0], dict):
+                data = models.get("data")
+                if isinstance(data, list) and data and isinstance(data[0], dict):
                     observed_model = data[0].get("id")
             desired_model = state.get("current_model")
-            observed_slots = int(
-                props.get("total_slots")
-                if isinstance(props, dict) and props.get("total_slots") is not None
-                else normalized_settings(state.get("optimizations"))["parallel_slots"]
-            )
-            context_per_slot = int(actual_ctx or state.get("current_ctx", 8192))
+            # Missing or malformed server observations must never become
+            # proof of the desired context/slot configuration.
+            observed_slots = props.get("total_slots") if isinstance(props, dict) else None
+            if type(observed_slots) is not int or observed_slots <= 0:
+                observed_slots = None
+            context_per_slot = actual_ctx if type(actual_ctx) is int and actual_ctx > 0 else None
             result = {
                 "healthy": True,
                 "model_id": observed_model,
@@ -662,7 +678,8 @@ def health_check(
                 # deficient total allocation.
                 "n_ctx": context_per_slot,
                 "context_per_slot": context_per_slot,
-                "context_total": context_per_slot * observed_slots,
+                "context_total": (context_per_slot * observed_slots
+                                  if context_per_slot is not None and observed_slots is not None else None),
                 "requested_ctx": int(state.get("current_ctx", 8192)),
                 "parallel_slots": observed_slots,
                 "vram_used_mib": metrics.get("vram_used_mib"),
@@ -684,7 +701,9 @@ def health_check(
             return result
         except (OSError, urllib.error.URLError, ValueError) as exc:
             last_error = str(exc)
-            sleep(2)
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                sleep(min(2, remaining))
     if runner:
         show_server_failure(state, runner, last_error)
     raise TimeoutError(f"Model server was not healthy within {timeout}s: {last_error}")
