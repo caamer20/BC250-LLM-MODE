@@ -11,6 +11,9 @@
   and the application retains its qualified runtime and precision policy.
 - Reconcile the completed dev13 installation and publish its sanitized
   qualification record and the bounded conversion/build/measurement tools.
+- Install the exact qualified dev14 wheel with owner approval; verify its
+  live prompt-cache setting, native Chat, repeated requests, fresh rollback
+  backup and preservation of model/runtime, private data, service and boot settings.
 
 ## 0.9.0.dev13 — verified Bonsai installation (unreleased)
 

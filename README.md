@@ -29,13 +29,14 @@ developer qualification and the installed appliance. Historical qualification
 counts do not qualify a changed candidate; physical and external gates remain
 pending.
 
-Current installed development version: **0.9.0.dev13** (not `1.0.0`).
+Current installed development version: **0.9.0.dev14** (not `1.0.0`).
 The [Bonsai installation](docs/bonsai-installation-2026-09-18.md) is complete:
 both verified models are in Model Library, and CRACK is active at 8K / one slot
-on the pinned Prism compatibility runtime. Candidate-bound macOS, Linux,
-installed-wheel, and native Chat checks pass. Source **0.9.0.dev14** passes
-macOS, Bazzite, and GitHub qualification for a host-RAM cache fix; its installation awaits owner approval. See the
-[exact qualification record](docs/bonsai-cache-qualification-2026-09-18.json).
+on the pinned Prism compatibility runtime. Dev14 applies the verified fork's
+host-RAM prompt-cache bound. Candidate-bound macOS, Bazzite, installed-wheel,
+and GitHub checks pass. See the [exact qualification
+record](docs/bonsai-cache-qualification-2026-09-18.json) and
+[deployment record](docs/bonsai-cache-deployment-2026-09-19.md).
 [Performance measurements](docs/bonsai-performance-2026-09-18.md) found no
 demonstrated O2/FP16 speed gain. Physical acceptance and external release gates
 remain pending. Status

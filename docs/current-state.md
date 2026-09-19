@@ -1,34 +1,32 @@
 # Current implementation state
 
-The installed application is **0.9.0.dev13**, code
-`30d1b1d1d6d3823e3bd381d196fad76f933f9823`. Both Bonsai models are installed;
-CRACK is active at 8,192 tokens / one slot on the verified, promoted Prism
-compatibility runtime. Native Chat and actual model switching pass. The full
-1,924-test inventory passes on macOS (1,905 + 19 skips) and Bazzite
-(1,909 + 15 skips); guest checks cover eight compiler skips. See
-[Bonsai installation](bonsai-installation-2026-09-18.md) and its
-[exact qualification record](bonsai-installation-qualification-2026-09-18.json).
+The installed application is **0.9.0.dev14**, code
+`a2639b4658c96e4fe06e0522b3212eea40a97cc2`, installed with the owner's explicit
+approval. It disables the verified Prism fork's oversized extra host-RAM prompt
+cache. Both Bonsai models remain installed; CRACK is active at 8,192 tokens /
+one slot on the same promoted Prism compatibility runtime, with FP16 disabled.
+The live launcher has `--cache-ram 0`. See the
+[deployment record](bonsai-cache-deployment-2026-09-19.md).
 
-Source `0.9.0.dev14` adds a Prism-specific host-RAM prompt-cache bound and
-is developer-qualified at `a2639b4658c96e4fe06e0522b3212eea40a97cc2`.
-Its 1,927-test inventory passes on macOS (1,908 + 19 skips), Bazzite
+The exact 1,927-test inventory passes on macOS (1,908 + 19 skips), Bazzite
 (1,912 + 15 skips), and GitHub Python 3.11/3.14 (1,920 + seven skips each).
 All 52 slow gates, 82 guest runtime checks, installed features, and native UI
-checks pass. The exact wheel verifies all 197 package files. See the
+checks pass. The installed wheel verifies all 197 package files. See the
 [qualification record](bonsai-cache-qualification-2026-09-18.json).
-Dev14 application activation awaits explicit owner approval; automatic review
-rejected that action before execution. The active application remains dev13.
+The earlier automatic-review rejection was resolved by explicit owner approval
+before application activation. Fresh backups are retained.
 
 The optimized runtime and FP16 experiments passed their
 limited correctness checks but demonstrated no output-speed gain. They remain
 isolated; the application retains its previously qualified runtime and
-precision policy. Disabling the extra RAM cache allowed repeated requests with
-at least 2 GiB host memory available. See the
+precision policy. In the isolated comparisons, disabling the extra RAM cache
+allowed repeated requests with at least 2 GiB host memory available. See the
 [performance investigation](bonsai-performance-2026-09-18.md).
 
 The owner authorized GitHub source publication and the sanitized installation
 summary. [Pull request #6](https://github.com/caamer20/BC250-LLM-MODE/pull/6)
-contains the upgrades. The exact dev14 code passed
+merged all upgrades into `main` at `de2e555277691e369143e23ac6df8752b57b18e4`.
+The exact dev14 code passed
 [GitHub CI](https://github.com/caamer20/BC250-LLM-MODE/actions/runs/35406769009)
 on Python 3.11 and 3.14, including native Tk and package checks. External
 release gates remain pending.
@@ -36,7 +34,7 @@ release gates remain pending.
 ## Historical candidate checkpoints
 
 The following entries record their state at the time; references to dev9 as
-active or Bonsai installation as pending are superseded by the dev13 record above.
+active or Bonsai installation as pending are superseded by the dev14 record above.
 
 Source version `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the requested
 Bonsai 2 catalog entries and explicit runtime compatibility checks. Code
