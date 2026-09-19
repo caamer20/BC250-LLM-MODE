@@ -1,5 +1,44 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 19 dev15 production hardening — staged and qualified
+
+The owner requested production-readiness work within a 20-percentage-point
+quota ceiling. Source `0.9.0.dev15`, code
+`3974ffa0381a03da2853141cf3348094a3c5aad4`, fixes whole-request probe deadlines,
+credential-bearing redirect following during connection verification, and
+requested-value fallback for missing observed server geometry. Read
+`docs/production-hardening-2026-09-19.md` and its qualification JSON.
+Wheel SHA-256:
+`eedd80343fe39c12c8e843c69a9a26727613e16af0ca77f5ed8f3f732eba0ba3`.
+The same 1,962 selected tests pass on Mac (1,943 + 19 skips), Bazzite
+(1,947 + 15), and GitHub Python 3.11/3.14 (1,955 + seven each), including all
+52 slow gates. The guest passes 82/82 runtime checks and covers eight host
+compiler skips. Fresh installed environments verify 198 package files /
+197 Python modules; features 93/93, probes 81/81, actual Tk 28 route/scale
+and eight Bonsai widget checks pass. Linux native fixture journeys pass.
+
+The candidate is staged at `/var/tmp/bc250-dev15-3974ffa-tests`, not activated.
+The live application remains dev14. The owner changed the active model after
+the prior CRACK deployment: preserve the current selection, do not assume
+CRACK remains active or use old hardcoded activation scripts. Context remains
+8,192 / one slot. Pre/post-test application, launch configuration, model and
+gateway service identities/definitions, governor configuration and boot target
+match. The temporary qualification display is removed; all ten owner files
+are unchanged. Runtime trees, model files and backups are retained.
+No dev15 deployment, signed release, updater enablement or model-weight upload
+is claimed. Physical matrix, soak, independent security and human acceptance
+gates remain pending. Public source work is in PR #8.
+
+The owner also requested the original Qwen3.8 27B Aggressive IQ3_XS file from
+HauhauCS's MTP-GGUF repository (not the initially supplied DavidAU 9B link).
+It is not installed: its 11.34 GiB file plus the current 1 GiB conservative
+overhead exceeds the 12 GiB fast-memory budget before KV; that is an estimate,
+not an actual loading failure. Free disk was only 8.6 GiB before test staging,
+while managed acquisition reserves roughly 34.1 GiB. Unloading the current
+model does not resolve these full-capacity and disk constraints. Do not bypass
+fit gates, substitute a smaller quantization, or delete protected files without
+the relevant user choice. No download, registration or activation occurred.
+
 ## September 18 performance work and source-publication authorization
 
 The owner explicitly requested completion of optimized runtime, FP16, and GPU

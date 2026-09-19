@@ -44,9 +44,29 @@ Regression tests first reproduced the trickle, credential-redirect and
 requested-versus-observed defects against the previous implementation. Focused
 checks cover the corrected boundaries, existing native chat/search preflight,
 two-client verification/revocation, gateway behavior, Open WebUI transactions,
-and the execution inventory. Exact final inventory, package hashes, macOS/Linux
-results and installed-wheel checks belong in the accompanying qualification
-record once those runs complete.
+and the execution inventory. The exact code commit is
+`3974ffa0381a03da2853141cf3348094a3c5aad4`; its clean-built wheel SHA-256 is
+`eedd80343fe39c12c8e843c69a9a26727613e16af0ca77f5ed8f3f732eba0ba3`.
+The [qualification record](production-hardening-qualification-2026-09-19.json)
+binds the source archive, sdist, wheel and executed inventory.
+
+All four environments execute the same 1,962-test inventory, including all
+52 slow gates: macOS passes 1,943 with 19 platform skips; Bazzite passes 1,947
+with 15 skips; GitHub Python 3.11 and 3.14 each pass 1,955 with seven skips.
+Eight Bazzite compiler skips pass inside the existing guest's 82/82 installed
+runtime checks. Fresh hash-locked environments verify all 198 package files /
+197 Python modules against the exact source and wheel. Installed feature
+checks pass 93/93 and probe checks 81/81 on Mac and Linux. These overlap the
+full suite and are not additional unique tests.
+
+Actual Tk checks pass 28 routes/scales and eight Bonsai widgets on Mac and
+Linux. Linux also passes the source/summary/branch/clipboard/portable-backup
+journeys at 100% and 200% scale. These use isolated fixture services and data.
+The temporary display container and its socket are removed. The current dev14
+application, model selection, launch configuration, model/gateway service
+identities and definitions, governor configuration and graphical boot target
+match the pre-test snapshot. All ten owner-controlled untracked files remain
+unchanged. No candidate activation or production model inference was performed.
 
 A read-only compatibility check of the new transport against the running BC250
 completed `/health`, `/v1/models`, `/props` and `/metrics` requests. It observed
