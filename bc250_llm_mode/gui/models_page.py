@@ -34,6 +34,7 @@ from .view_state import Confirmation, Notice
 MODEL_PRESENTATION_STATES = frozenset({
     "AVAILABLE", "DOWNLOADING", "VALIDATING", "INSTALLED", "ACTIVE",
     "VERIFIED", "QUARANTINED", "REMOVING", "RECOVERY_REQUIRED",
+    "RUNTIME_REQUIRED",
 })
 MODEL_FILTERS = ("Recommended", "Installed", "Long context", "Multi-user", "All")
 MAX_MODEL_ROWS = 100
@@ -141,6 +142,7 @@ class ModelItemView:
     immutable_identity: bool = False
     standard_layout: bool = False
     memory_required_gib: float | None = None
+    runtime_requirement: str | None = None
 
     def __post_init__(self) -> None:
         if self.state not in MODEL_PRESENTATION_STATES:
@@ -150,6 +152,8 @@ class ModelItemView:
 def model_action(item: ModelItemView) -> ModelActionView:
     if item.busy or item.state in {"DOWNLOADING", "VALIDATING", "REMOVING", "RECOVERY_REQUIRED"}:
         return ModelActionView("activity", "Resolve recovery")
+    if item.runtime_requirement:
+        return ModelActionView("fit", "View runtime requirements")
     if item.state == "QUARANTINED" or item.fit_verdict == "NO-FIT":
         return ModelActionView("fit", "View why it cannot start")
     if item.remote:
@@ -178,7 +182,9 @@ def _measurement_summary(row: Any, *, now=None) -> tuple[bool, str]:
         value = summary.get(key)
         if isinstance(value, (int, float)) and math.isfinite(float(value)):
             parts.append(f"{label} {float(value):.1f}{suffix}")
-    return (True, "Measured locally: " + " · ".join(parts)) if parts else (
+    # Legacy library summaries do not bind a workload/runtime fingerprint.
+    # They must not count as current evidence in recommendation ranking.
+    return (False, "Historical benchmark (profile/runtime not recorded): " + " · ".join(parts)) if parts else (
         False, "Not measured on this machine")
 
 
@@ -192,6 +198,7 @@ def build_model_items(
     recovery_required: bool = False,
     inference_verified: bool = False,
     model_running: bool | None = None,
+    prism_runtime_ready: bool = False,
     now=None,
 ) -> tuple[ModelItemView, ...]:
     """Merge durable installations and curated remote candidates once."""
@@ -221,6 +228,10 @@ def build_model_items(
             else "ACTIVE" if active and model_running else "INSTALLED")
         byte_size = getattr(row, "byte_size", None)
         entry = catalog_by_id.get(str(getattr(row, "catalog_id", "") or ""))
+        from ..prism_runtime import installed_fit_catalog
+
+        entry = installed_fit_catalog(entry, getattr(row, "content_digest", None))
+        runtime_requirement = getattr(row, "runtime_requirement", entry.runtime_requirement if entry else None)
         installed_fit = None
         installed_quant = getattr(row, "quant", None)
         if entry is not None and installed_quant in entry.weights_gib_by_quant:
@@ -244,17 +255,24 @@ def build_model_items(
         architecture_compatible = bool(
             entry is not None and architecture == entry.family)
         measured_local, measurement_summary = _measurement_summary(row, now=now)
+        from ..prism_runtime import known_ptq1_artifact
+
+        prism_artifact = known_ptq1_artifact(getattr(row, "content_digest", None))
         items.append(ModelItemView(
             key=f"installed::{row.alias}",
             display_name=str(row.display_name),
             family=str(getattr(row, "architecture", None) or getattr(row, "catalog_id", None) or "custom"),
             size_gib=(float(byte_size) / 1024**3 if byte_size else None),
-            state="RECOVERY_REQUIRED" if recovery_required else state,
+            state=("RECOVERY_REQUIRED" if recovery_required else
+                   "RUNTIME_REQUIRED" if runtime_requirement and not quarantined else state),
             fit_verdict=(
                 getattr(row, "fit_verdict", None)
                 or (installed_fit.verdict if installed_fit is not None else None)
             ),
-            fit_detail=str(
+            fit_detail=(
+                f"{runtime_requirement}\nEstimated memory: "
+                if runtime_requirement else ""
+            ) + str(
                 getattr(row, "fit_detail", None)
                 or (installed_fit.detail if installed_fit is not None else None)
                 or "Fit evidence is unavailable for this custom artifact."
@@ -263,6 +281,7 @@ def build_model_items(
             description=(
                 f"Managed {getattr(row, 'format', None) or 'GGUF'} artifact · "
                 f"validation {validation or 'unverified'} · trust {trust or 'unverified'}"
+                + (" · Experimental Prism: up to 8,192 context, one slot" if prism_artifact else "")
             ),
             source_repo=getattr(row, "source_repo", None),
             catalog_id=getattr(row, "catalog_id", None),
@@ -285,10 +304,14 @@ def build_model_items(
             memory_required_gib=(
                 installed_fit.required_gib if installed_fit is not None else None
             ),
+            runtime_requirement=runtime_requirement,
         ))
     for entry in ADVERTISED_CATALOG:
         if entry.id in installed_catalog:
             continue
+        from ..prism_runtime import catalog_requirement
+
+        runtime_requirement = catalog_requirement(entry, prism_ready=prism_runtime_ready)
         quants = tuple(entry.allow_globs)
         preferred_quant = selected_quants.get(entry.id)
         quant = (
@@ -307,14 +330,19 @@ def build_model_items(
             # installed library and every other downloadable model.
             fit_verdict = "NO-FIT"
             fit_detail = f"NO-FIT — {exc}"
+        if entry.id == "bonsai2-27b" and prism_runtime_ready and (context > 8192 or slots != 1):
+            fit_verdict = "NO-FIT"
+            fit_detail = "Experimental Bonsai supports up to 8,192 context tokens and one slot."
         items.append(ModelItemView(
             key=f"catalog::{entry.id}",
             display_name=entry.display_name,
             family=entry.family,
             size_gib=entry.weights_gib_by_quant.get(quant),
-            state="RECOVERY_REQUIRED" if recovery_required else "AVAILABLE",
+            state=("RECOVERY_REQUIRED" if recovery_required else
+                   "RUNTIME_REQUIRED" if runtime_requirement else "AVAILABLE"),
             fit_verdict=fit_verdict,
-            fit_detail=fit_detail,
+            fit_detail=(f"{runtime_requirement}\nEstimated memory: {fit_detail}"
+                        if runtime_requirement else fit_detail),
             support_tier=validation_tier(entry),
             description=entry.notes,
             source_repo=entry.repo,
@@ -337,6 +365,7 @@ def build_model_items(
                 )
             ),
             memory_required_gib=fit_required_gib,
+            runtime_requirement=runtime_requirement,
         ))
     candidates = []
     for item in items:
@@ -349,6 +378,7 @@ def build_model_items(
             architecture_compatible=(
                 item.standard_layout
                 and (item.remote or item.catalog_id in catalog_by_id)
+                and item.runtime_requirement is None
             ),
             inference_verified=item.verified,
             measured_local=item.measurement_summary.startswith("Measured locally:"),
@@ -503,6 +533,7 @@ class ModelsPage(ttk.Frame):
         self.detail_body = tk.StringVar(value="")
         ttk.Label(right, textvariable=self.detail_title, font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
         ttk.Label(right, textvariable=self.detail_state).pack(anchor="w", pady=(2, 5))
+        ttk.Button(right, text="Compare local profile measurements…", command=self._compare_measurements).pack(anchor="w", pady=(0, 5))
         detail_frame = ttk.Frame(right)
         detail_frame.pack(fill="both", expand=True)
         self._detail_text = tk.Text(
@@ -591,6 +622,28 @@ class ModelsPage(ttk.Frame):
         self.search_var.set("")
         self._render_list()
 
+    def _compare_measurements(self):
+        item = self._selected()
+        if item is None or item.remote or not item.alias:
+            self.shell.drawer.show_details("Local measurements", "Select an installed model. A download or memory-fit estimate does not establish its speed on this machine.")
+            return
+        alias, name = item.alias, item.display_name
+        def show(cards):
+            body = self.shell.drawer.show_form(f"Local profile measurements — {name}")
+            ttk.Label(body, text="Measurements match this model artifact, runtime and profile. Context is the setting used for the short trial; it is not a full-context or soak qualification. Fit remains an estimate.", wraplength=760).pack(anchor="w")
+            for card in cards:
+                preview = card["preview"]
+                frame = ttk.LabelFrame(body, text=preview["profile"]["name"], padding=4)
+                frame.pack(fill="x", pady=3)
+                ttk.Label(frame, text=f"{preview['fit_verdict']} · estimated memory {preview['required_gib']:.2f} GiB · context {preview['context_per_slot']:,} × {preview['slots']}", wraplength=720).pack(anchor="w")
+                ttk.Label(frame, text=card["summary"], wraplength=720).pack(anchor="w")
+                if card["measurement"]["recorded_at"]:
+                    ttk.Label(frame, text="Recorded " + card["measurement"]["recorded_at"]).pack(anchor="w")
+                ttk.Button(frame, text="Review profile / calibrate…", command=lambda p=preview: self.shell.navigate(
+                    Route.PROFILES, {"profile_id": p["profile_id"], "model_alias": alias})).pack(anchor="e")
+            ttk.Button(body, text="Close", command=self.shell.drawer.clear).pack(anchor="e")
+        self.shell.request_observation(lambda: self.application.model_guidance.compare(alias), show)
+
     def _apply_preset(self, _event=None) -> None:
         try:
             preset = workload_preset(self.preset_var.get())
@@ -656,6 +709,7 @@ class ModelsPage(ttk.Frame):
                 ),
                 install_summary,
                 install_detail,
+                self.application.model_library.prism_runtime_ready(),
             )
 
         self.shell.request_observation(
@@ -668,7 +722,7 @@ class ModelsPage(ttk.Frame):
     def _apply_observation(self, result, *, context: int, slots: int) -> None:
         if self._disposed:
             return
-        installed, active, home, readiness, install_summary, install_detail = result
+        installed, active, home, readiness, install_summary, install_detail, prism_ready = result
         storage = ((home.get("cards") or {}).get("storage") or {})
         available = storage.get("available_bytes")
         next_available = (
@@ -687,6 +741,7 @@ class ModelsPage(ttk.Frame):
                 bool(readiness.native_chat_ready)
             ),
             model_running=bool(readiness.component("model").process_ready),
+            prism_runtime_ready=prism_ready,
         )
         requested = self._route_context.get("model_id")
         if requested:
@@ -1024,7 +1079,7 @@ class ModelsPage(ttk.Frame):
             self._secondary_action_code = action.secondary_code
             self._secondary_action_button.configure(text=action.secondary_label)
             self._secondary_action_button.pack(side="left", padx=5)
-        if not item.remote and item.state not in {"QUARANTINED", "RECOVERY_REQUIRED"}:
+        if not item.remote and item.state not in {"QUARANTINED", "RECOVERY_REQUIRED", "RUNTIME_REQUIRED"}:
             self._apply_draft_button.pack(side="left", padx=5)
         if not item.remote:
             self._remove_button.pack(side="right")
@@ -1051,12 +1106,15 @@ class ModelsPage(ttk.Frame):
         item = self._selected()
         if item is None:
             return
+        if item.runtime_requirement and code in {"install", "install-start", "activate"}:
+            code = "fit"
         if code == "activity":
             self.shell.navigate(Route.ACTIVITY)
             return
         if code == "fit":
             self.shell.notice_bar.show_notice(Notice(
-                "warning", "This model cannot start with the selected workload",
+                "warning", ("This model needs another runtime" if item.runtime_requirement
+                            else "This model cannot start with the selected workload"),
                 item.fit_detail or "Fit evidence is missing. Review the model details.",
                 dismissible=False,
             ))

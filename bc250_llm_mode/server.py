@@ -30,6 +30,17 @@ def require_safe_start(state: dict[str, Any]) -> None:
         latch = ThermalStateService.for_database(database).current()["latch_state"]
     if latch == "stopped":
         raise ThermalLatchProtected("Thermal stop is latched. Let the GPU cool and explicitly reset the latch before starting.")
+    from .prism_runtime import PRISM_SETTINGS, known_ptq1_artifact, supports_prism_state
+
+    selected = next((row for row in state.get("installed_models", [])
+                     if row.get("id") == state.get("current_model")), {})
+    if known_ptq1_artifact(selected.get("content_digest")):
+        if not supports_prism_state(state):
+            raise RuntimeError("This Bonsai file requires the verified Prism runtime.")
+        settings = normalized_settings(state.get("optimizations"))
+        if (int(state.get("current_ctx") or 0) > 8192
+                or any(settings.get(key) != value for key, value in PRISM_SETTINGS.items())):
+            raise RuntimeError("Bonsai requires up to 8,192 context, one slot and its compatibility settings. Start it from Model Library.")
 
 
 def current_model_record(state: dict[str, Any]) -> dict[str, Any]:
@@ -193,6 +204,22 @@ if isinstance(threads, int) and threads >= 1:
 # Use llama.cpp's supported long spelling so the generated launcher remains
 # readable while matching both current and older supported builds.
 argv += ["--cache-reuse", "256", "--defrag-thold", "0.1"]
+if SCHEMA == 2 and h.get("runtime_component_id") == "@PRISM_BUILD_ID@":
+    # This fork otherwise retains up to 8 GiB of prompt states in host RAM.
+    # The BC250's small host allocation is separate from its GPU KV budget.
+    # Bind this supported switch to the exact runtime, including when that
+    # runtime serves an ordinary model. Older runtimes may lack the switch.
+    argv += ["--cache-ram", "0"]
+if h.get("model_runtime") == "prism-ptq1":
+    if SCHEMA != 2 or h.get("runtime_component_id") != "@PRISM_BUILD_ID@":
+        sys.exit("handoff invalid: Bonsai requires the verified Prism runtime")
+    if slots != 1 or ctx_total > 8192 or int(h["batch_size"]) > 128 or int(h["ubatch_size"]) > 128:
+        sys.exit("handoff invalid: Bonsai compatibility settings exceeded")
+    if h.get("threads") != 2 or h["kv_cache_type"] != "q8_0" or h["flash_attention"] != "auto" or h.get("fast_sync"):
+        sys.exit("handoff invalid: Bonsai compatibility settings differ")
+    argv += ["--load-mode", "mmap", "--reasoning", "off", "--no-context-shift"]
+elif h.get("model_runtime") is not None:
+    sys.exit("handoff invalid: unknown model runtime")
 for item in argv:
     print(item)
 PYH
@@ -278,7 +305,10 @@ def generate_launcher(state: dict[str, Any]) -> Path:
     app_dir.mkdir(parents=True, exist_ok=True)
     launcher = app_dir / "run-model.sh"
     handoff_path = app_dir / "runtime-handoff.json"
-    content = LAUNCHER_TEMPLATE.replace("@HANDOFF@", str(handoff_path))
+    from .prism_runtime import pinned_build_id
+
+    content = (LAUNCHER_TEMPLATE.replace("@HANDOFF@", str(handoff_path))
+               .replace("@PRISM_BUILD_ID@", pinned_build_id()))
     launcher.write_text(content, encoding="utf-8")
     launcher.chmod(0o755)
     return launcher

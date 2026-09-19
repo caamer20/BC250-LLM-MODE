@@ -52,6 +52,8 @@ class ProfilesPage(ttk.Frame):
         self._disposed = False
         self._profiles: dict[str, dict[str, Any]] = {}
         self._preview: dict[str, Any] | None = None
+        self._model_alias: str | None = None
+        self._requested_profile: str | None = None
 
         ttk.Label(
             self,
@@ -154,10 +156,12 @@ class ProfilesPage(ttk.Frame):
         self._detail = tk.StringVar(value="")
         self._fit = tk.StringVar(value="")
         self._evidence = tk.StringVar(value="")
+        self._measurement = tk.StringVar(value="Local measurements are checked for this exact preview.")
         ttk.Label(summary, textvariable=self._headline, font=("TkDefaultFont", 13, "bold")).pack(anchor="w")
         ttk.Label(summary, textvariable=self._detail, wraplength=480).pack(anchor="w", fill="x")
         ttk.Label(summary, textvariable=self._fit).pack(anchor="w", pady=(4, 0))
         ttk.Label(summary, textvariable=self._evidence).pack(anchor="w")
+        ttk.Label(summary, textvariable=self._measurement, wraplength=480).pack(anchor="w", fill="x", pady=(4, 0))
         actions = ttk.Frame(summary)
         actions.pack(fill="x", pady=(6, 0))
         self._apply_button = ttk.Button(actions, text="Apply profile", command=self._confirm_apply)
@@ -179,7 +183,9 @@ class ProfilesPage(ttk.Frame):
         return self
 
     def enter(self, route_context=None) -> None:
-        del route_context
+        if isinstance(route_context, dict):
+            self._model_alias = route_context.get("model_alias")
+            self._requested_profile = route_context.get("profile_id")
         self.refresh()
 
     def _selected_ids(self) -> tuple[str, ...]:
@@ -195,15 +201,19 @@ class ProfilesPage(ttk.Frame):
         if payload is not None:
             self._apply(payload)
             return
-        selected = self._selected_one() or "builtin-interactive"
+        selected = self._requested_profile or self._selected_one() or "builtin-interactive"
+        alias = self._model_alias
 
         def observe():
             profiles = self.application.workload_profiles.list()
             valid_ids = {item["profile_id"] for item in profiles}
             profile_id = selected if selected in valid_ids else "builtin-interactive"
-            preview = self.application.workload_profiles.preview(profile_id)
+            preview = self.application.workload_profiles.preview(profile_id, model_alias=alias)
+            measurement = self.application.model_guidance.for_preview(preview)
+            preview["measurement_summary"] = measurement.summary
+            preview["measurement_status"] = measurement.status
             suggestions = self.application.performance_coach.suggestions(
-                profile_id=profile_id
+                profile_id=profile_id, model_alias=alias
             )
             return profiles, preview, suggestions
 
@@ -214,13 +224,16 @@ class ProfilesPage(ttk.Frame):
             return
         view = build_profiles_view(*payload)
         previous = self._selected_ids()
+        if self._requested_profile:
+            previous = (self._requested_profile,)
+            self._requested_profile = None
         self._profiles = {item["profile_id"]: item for item in view.profiles}
         for item in self._tree.get_children():
             self._tree.delete(item)
         for item in view.profiles:
             self._tree.insert(
                 "", "end", iid=item["profile_id"], text=item["name"],
-                values=(item["purpose"], item["evidence_class"]),
+                values=(item["purpose"], "Select to check"),
             )
         for item in previous:
             if item in self._profiles:
@@ -239,9 +252,10 @@ class ProfilesPage(ttk.Frame):
                 f"{format_number(item['headroom_gib'], decimals=2)} GiB headroom"
             )
             self._evidence.set(
-                f"{item['evidence_class']} · thermal {item['thermal_readiness']} · "
+                f"{item.get('measurement_status', 'NOT_MEASURED')} · thermal {item['thermal_readiness']} · "
                 f"rollback {'ready' if item['rollback_available'] else 'not yet recorded'}"
             )
+            self._measurement.set(item.get("measurement_summary", "Not measured for this exact setup."))
             state = "normal" if item["ready_to_apply"] else "disabled"
             self._apply_button.configure(state=state)
             self._calibrate_button.configure(state=state)
@@ -348,19 +362,17 @@ class ProfilesPage(ttk.Frame):
         if not selected:
             return
 
-        def show(previews) -> None:
+        def show(cards) -> None:
             lines = [
-                f"{item['profile']['name']}: {item['fit_verdict']} · "
-                f"{format_tokens(item['context_per_slot'])} × "
-                f"{format_number(item['slots'])} · "
-                f"{format_number(item['required_gib'], decimals=2)} GiB · "
-                f"{item['evidence_class']}"
-                for item in previews
+                f"{card['preview']['profile']['name']}: {card['preview']['fit_verdict']} · "
+                f"estimated memory {format_number(card['preview']['required_gib'], decimals=2)} GiB\n"
+                f"{card['summary']}\n"
+                for card in cards
             ]
             self.shell.drawer.show_details("Profile comparison", "\n".join(lines))
 
         self.shell.request_observation(
-            lambda: self.application.workload_profiles.compare(selected), show
+            lambda: self.application.model_guidance.compare(self._model_alias, selected), show
         )
 
     def _editor_values(self) -> dict[str, Any]:

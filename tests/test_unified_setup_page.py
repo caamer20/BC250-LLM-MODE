@@ -157,3 +157,34 @@ def test_setup_page_records_the_full_canonical_chain(tmp_path):
         harness._record_setup_stage(expected, next_stage, {"test": True})
     application.setup.mark_setup_complete()
     assert application.setup.current_workflow()["stage"] == "COMPLETE"
+
+
+@pytest.mark.parametrize("verification_ok", [True, False])
+def test_first_model_chapter_requires_runtime_verification_before_advancing(verification_ok):
+    from types import SimpleNamespace
+    from bc250_llm_mode.runtime_lifecycle_command import RuntimeLifecycleOutcome
+
+    events = []
+    def activate(payload):
+        events.append("model")
+        return SimpleNamespace(ok=True, operation_id="model-operation")
+    def verify(**kwargs):
+        events.append("runtime")
+        return RuntimeLifecycleOutcome("runtime-operation", "SUCCEEDED" if verification_ok else "FAILED_ROLLED_BACK", "UPDATE")
+    application = SimpleNamespace(
+        activation=SimpleNamespace(activate=activate),
+        runtime_lifecycle=SimpleNamespace(verify_prepared=verify),
+        optimizations=SimpleNamespace(normalized=lambda value: {"parallel_slots": 1}),
+        read_model=lambda: {"current_model": "fixture-model"},
+    )
+    page = SimpleNamespace(current_step=8, state_data={"installed_alias": "fixture-model"},
+                           application=application, track_operation_id=lambda value: None,
+                           _after_server=lambda: events.append("advance"))
+    page._work = lambda action, done: (action(), done())
+    if verification_ok:
+        SetupWindow.continue_step(page)
+        assert events == ["model", "runtime", "advance"]
+    else:
+        with pytest.raises(RuntimeError, match="Runtime verification ended"):
+            SetupWindow.continue_step(page)
+        assert events == ["model", "runtime"]

@@ -70,6 +70,7 @@ CODE_RUNTIME_COMPONENT_MISMATCH = "RUNTIME_COMPONENT_MISMATCH"
 CODE_RUNTIME_MODEL_MISMATCH = "RUNTIME_MODEL_MISMATCH"
 CODE_RUNTIME_INFERENCE_FAILED = "RUNTIME_INFERENCE_FAILED"
 CODE_RUNTIME_PROMOTED = "RUNTIME_PROMOTED"
+CODE_RUNTIME_INSTALLED = "RUNTIME_INSTALLED"
 CODE_ROLLBACK_TARGET_MISSING = "RUNTIME_ROLLBACK_TARGET_MISSING"
 CODE_RUNTIME_RESTORED = "RUNTIME_RESTORED"
 CODE_RESTORATION_UNCERTAIN = "RUNTIME_RESTORATION_UNCERTAIN"
@@ -192,6 +193,7 @@ class ResolvedRuntimeSourceV1:
     source_commit: str
     resolution: str  # PIN | COMMIT
     already_active: bool = False
+    prepared_build_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -227,6 +229,8 @@ class BuildEnvironmentEvidenceV1:
     toolchain: dict[str, str] = field(default_factory=dict)
     target_arch: str = ""
     build_dir_locator: str = ""
+    # Older receipts without a source binding are safely refused by the host.
+    source_commit: str = ""
 
 
 @dataclass(frozen=True)
@@ -264,6 +268,14 @@ class PriorRuntimeSnapshotV1:
     observed_context_total: int | None = None
     observed_slots: int | None = None
     inference_verified: bool = False
+    target_tree_id: str | None = None
+    target_locator: str | None = None
+    rollback_tree_id: str | None = None
+    known_good_payload: dict[str, Any] | None = None
+    # Only fresh, observed no-model state may defer live verification. Old
+    # snapshots never acquire this permission merely by being resumed.
+    installation_only: bool = False
+    installation_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -502,11 +514,14 @@ class RuntimeLifecycleHost(Protocol):
         mode: str,
     ) -> ProbeResult: ...
     def verify_runtime_identity(
-        self, snapshot: PriorRuntimeSnapshotV1, target_build_id: str
+        self, snapshot: PriorRuntimeSnapshotV1, target_build_id: str, pulse: Any = None
     ) -> RuntimeIdentityEvidenceV1: ...
     def verify_runtime_inference(
         self, target_build_id: str
     ) -> RuntimeInferenceEvidenceV1: ...
+    def observe_initial_installation(
+        self, snapshot: PriorRuntimeSnapshotV1, target_build_id: str
+    ) -> ProbeResult: ...
 
     # -- promotion / restoration / finalization --------------------------------------------
     def promote_verified_runtime(
@@ -572,6 +587,16 @@ def _already_active(ctx: EffectContext) -> bool:
     return bool(resolved.get("already_active"))
 
 
+def _reuse_active_build(ctx: EffectContext) -> bool:
+    resolved = ctx.prior_outputs.get("resolve_source") or {}
+    return bool(resolved.get("already_active") or resolved.get("prepared_build_id"))
+
+
+def _installation_only(ctx: EffectContext) -> bool:
+    snapshot = ctx.prior_outputs.get("capture_activation_boundary") or {}
+    return snapshot.get("installation_only") is True
+
+
 def _noop_output(extra: dict[str, Any] | None = None) -> dict[str, Any]:
     base: dict[str, Any] = {"skipped": True}
     base.update(extra or {})
@@ -596,6 +621,9 @@ def _target_build_id(ctx: EffectContext) -> str:
     smoke = _smoke_or_none(ctx)
     if smoke is not None:
         return smoke.build_id
+    prepared = (ctx.prior_outputs.get("resolve_source") or {}).get("prepared_build_id")
+    if prepared:
+        return prepared
     snapshot = _resolve_output(
         ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
     )
@@ -652,7 +680,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 2. preflight_build
     def preflight_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return _noop_output()
         return evidence_dict(host.preflight_build(ctx.request))
 
@@ -678,7 +706,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 3. fetch_source
     def fetch_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return _noop_output()
         resolved = _resolve_output(ctx, "resolve_source", ResolvedRuntimeSourceV1)
         return evidence_dict(
@@ -704,7 +732,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 4. configure_build
     def configure_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return _noop_output()
         resolved = _resolve_output(ctx, "resolve_source", ResolvedRuntimeSourceV1)
         return evidence_dict(
@@ -733,7 +761,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 5. compile_candidate
     def compile_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return _noop_output()
         environment = _resolve_output(
             ctx, "configure_build", BuildEnvironmentEvidenceV1
@@ -759,7 +787,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 6. smoke_candidate
     def smoke_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return _noop_output()
         resolved = _resolve_output(ctx, "resolve_source", ResolvedRuntimeSourceV1)
         environment = _resolve_output(
@@ -797,7 +825,8 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
     # 7. capture_activation_boundary
     def capture_execute(ctx: EffectContext) -> dict[str, Any]:
         smoke = _smoke_or_none(ctx)
-        target_id = None if smoke is None else smoke.build_id
+        target_id = (smoke.build_id if smoke else
+                     (ctx.prior_outputs.get("resolve_source") or {}).get("prepared_build_id"))
         return evidence_dict(
             host.capture_activation_boundary(ctx.request, target_id)
         )
@@ -807,7 +836,8 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
         host.verify_activation_boundary(
             ctx.request,
             _resolve_output(ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1),
-            None if smoke is None else smoke.build_id,
+            (smoke.build_id if smoke else
+             (ctx.prior_outputs.get("resolve_source") or {}).get("prepared_build_id")),
         )
         return {}
 
@@ -816,7 +846,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 8. exchange_active_tree (critical)
     def exchange_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _reuse_active_build(ctx):
             return evidence_dict(
                 TreeExchangeEvidenceV1(
                     classification="SKIPPED_ALREADY_ACTIVE",
@@ -839,6 +869,8 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             return ProbeResult(
                 RecoveryClass.COMPLETE, "SKIPPED_ALREADY_ACTIVE"
             )
+        if _reuse_active_build(ctx):
+            return ProbeResult(RecoveryClass.COMPLETE, "UNCHANGED_ACTIVE_BUILD", output=_noop_output())
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
@@ -849,6 +881,10 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     def exchange_verify(ctx: EffectContext) -> dict[str, Any]:
         if _is_skipped(ctx.prior_outputs.get("exchange_active_tree")):
+            if not _already_active(ctx):
+                host.verify_exchange(
+                    _resolve_output(ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1),
+                    _target_build_id(ctx), mode="update")
             return {}
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
@@ -883,7 +919,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 9. publish_component_handoff (critical)
     def publish_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _already_active(ctx) or _installation_only(ctx):
             return _noop_output()
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
@@ -898,7 +934,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
         )
 
     def publish_probe(ctx: EffectContext) -> ProbeResult:
-        if _already_active(ctx):
+        if _already_active(ctx) or _installation_only(ctx):
             return ProbeResult(RecoveryClass.COMPLETE, "SKIPPED_NOOP_BRANCH")
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
@@ -915,7 +951,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 10. restart_runtime (critical)
     def restart_execute(ctx: EffectContext) -> dict[str, Any]:
-        if _already_active(ctx):
+        if _already_active(ctx) or _installation_only(ctx):
             return _noop_output()
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
@@ -927,7 +963,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
         )
 
     def restart_probe(ctx: EffectContext) -> ProbeResult:
-        if _already_active(ctx):
+        if _already_active(ctx) or _installation_only(ctx):
             return ProbeResult(RecoveryClass.COMPLETE, "SKIPPED_NOOP_BRANCH")
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
@@ -948,9 +984,13 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
         target = _target_build_id(ctx)
-        identity = host.verify_runtime_identity(snapshot, target)
+        if _installation_only(ctx):
+            result = host.observe_initial_installation(snapshot, target)
+            _require_complete(result, "INITIAL_INSTALLATION_UNPROVEN")
+            return dict(result.output or {})
+        identity = host.verify_runtime_identity(snapshot, target, pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(target)
-        if not identity.component_ok or not identity.health_ok:
+        if not identity.component_ok or not identity.binary_digest_ok or not identity.health_ok:
             from .workflow import StepFailure
 
             raise StepFailure(
@@ -984,7 +1024,9 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
         target = _target_build_id(ctx)
-        identity = host.verify_runtime_identity(snapshot, target)
+        if _installation_only(ctx):
+            return host.observe_initial_installation(snapshot, target)
+        identity = host.verify_runtime_identity(snapshot, target, pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(target)
         ok = (
             identity.component_ok
@@ -1008,6 +1050,8 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
 
     # 12. promote_runtime (critical)
     def promote_execute(ctx: EffectContext) -> dict[str, Any]:
+        if _installation_only(ctx):
+            return _noop_output({"inference_deferred": True})
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
@@ -1032,6 +1076,10 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
         snapshot = _resolve_output(
             ctx, "capture_activation_boundary", PriorRuntimeSnapshotV1
         )
+        if _installation_only(ctx):
+            _require_complete(host.observe_initial_installation(snapshot, _target_build_id(ctx)),
+                              "INITIAL_INSTALLATION_UNPROVEN")
+            return {}
         result = host.observe_promotion(
             snapshot, _target_build_id(ctx), mode="update"
         )
@@ -1047,7 +1095,7 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
         exchange_raw = ctx.prior_outputs.get("exchange_active_tree")
         promotion = (
             _typed(RuntimePromotionEvidenceV1, promotion_raw)
-            if promotion_raw
+            if promotion_raw and not _is_skipped(promotion_raw)
             else None
         )
         exchange = (
@@ -1071,6 +1119,9 @@ def _update_step_callbacks(host: RuntimeLifecycleHost):
             snapshot, _target_build_id(ctx), mode="update"
         )
         _require_complete(result, CODE_CLEANUP_DEFERRED)
+        if _installation_only(ctx):
+            _require_complete(host.observe_initial_installation(snapshot, _target_build_id(ctx)),
+                              "INITIAL_INSTALLATION_UNPROVEN")
         return {}
 
     return {
@@ -1214,6 +1265,12 @@ def build_runtime_update_workflow(host: RuntimeLifecycleHost) -> WorkflowDefinit
     )
 
     def terminal_decision(request, outputs) -> TerminalDecision:
+        if (outputs.get("capture_activation_boundary") or {}).get("installation_only") is True:
+            return TerminalDecision(
+                OperationState.SUCCEEDED, CODE_RUNTIME_INSTALLED,
+                {"model_verification_pending": True},
+                "runtime installed; select and activate a model to finish verification",
+            )
         already_active = bool((outputs.get("resolve_source") or {}).get(
             "already_active"
         ))
@@ -1424,11 +1481,11 @@ def _rollback_step_callbacks(host: RuntimeLifecycleHost):
         snapshot = _resolve_output(
             ctx, "capture_rollback_boundary", PriorRuntimeSnapshotV1
         )
-        identity = host.verify_runtime_identity(snapshot, _target_id(ctx))
+        identity = host.verify_runtime_identity(snapshot, _target_id(ctx), pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(_target_id(ctx))
         from .workflow import StepFailure
 
-        if not identity.component_ok or not identity.health_ok:
+        if not identity.component_ok or not identity.binary_digest_ok or not identity.health_ok:
             raise StepFailure(
                 CODE_RUNTIME_COMPONENT_MISMATCH,
                 "live component identity mismatch",
@@ -1452,7 +1509,7 @@ def _rollback_step_callbacks(host: RuntimeLifecycleHost):
         snapshot = _resolve_output(
             ctx, "capture_rollback_boundary", PriorRuntimeSnapshotV1
         )
-        identity = host.verify_runtime_identity(snapshot, _target_id(ctx))
+        identity = host.verify_runtime_identity(snapshot, _target_id(ctx), pulse=lambda: ctx.pulse(cancellation_safe=False))
         inference = host.verify_runtime_inference(_target_id(ctx))
         ok = (
             identity.component_ok

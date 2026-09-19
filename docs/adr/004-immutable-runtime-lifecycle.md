@@ -201,6 +201,48 @@ clone/build path are deleted in the same boundary that wires the last
 caller. Both routes are never callable at once. Fresh installations obtain
 their first runtime through the same durable pinned update workflow.
 
+### September 17 correction: installation before the first model
+
+The first Setup runtime step precedes model selection. It cannot truthfully
+promote a known-good runtime because no model exists for inference yet.
+`RUNTIME_UPDATE v1` therefore distinguishes installation from promotion:
+
+- With no selected model, no known-good/promoted runtime, and a proven stopped
+  service, the workflow may publish a smoke-tested immutable runtime. A prior
+  tree may be absent or an exactly identified, previously completed unpromoted
+  installation. It preserves the handoff and never starts a service, runs
+  inference or writes promoted/known-good state. Its terminal code is
+  `RUNTIME_INSTALLED`, with model verification explicitly pending.
+- This branch is selected from observed state at the leased activation
+  boundary, never from a caller-supplied skip/force option. Its decision and
+  configuration fingerprint are durable evidence; old snapshots default to
+  the full verification path. Revalidation checks the binary, unchanged
+  configuration/handoff/lineage, and stopped service before completion.
+- Repeating the same prepared installation reuses the exact immutable build
+  after observing its source, recipe, binaries, owned active location and
+  successful installation operation. It does not compile again or call the
+  result promoted. Unexpected identity or source changes fail closed.
+- Setup then uses `MODEL_ACTIVATE v1` for the chosen model. Before advancing
+  past its server chapter, it invokes the same runtime update command with
+  the prepared build's exact source commit and expected active build ID.
+  This reuses that build, publishes handoff v2, proves a new invocation,
+  checks model/context/slots and inference, and only then promotes it.
+  Runtime component promotion remains owned by the runtime lifecycle.
+- Both operations are durable. If Setup exits between them, the next attempt
+  observes the completed model activation and finishes runtime verification.
+  Failed verification restores the prior service/configuration identity and
+  preserves the unpromoted runtime for inspection or retry.
+- If the first model activation fails, its restoration explicitly restores
+  the prior absence of a selected model rather than inheriting the failed
+  candidate through ordinary settings defaults. Revision lineage advances;
+  model files, prior settings and the thermal latch are preserved. The
+  activation adapter owns service stopping and exact handoff restoration.
+
+No new database schema, operation type, free-form build settings or alternate
+installation route is introduced. CLI/System status labels an installed but
+unpromoted runtime explicitly. Profile calibration remains unavailable until
+the normal promoted/known-good gates are satisfied.
+
 ## 12. Phase-scoped resource leasing (ADR 002 addendum summary)
 
 The executor gains a generic mechanism so workflows acquire each resource

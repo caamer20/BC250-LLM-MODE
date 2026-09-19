@@ -598,6 +598,10 @@ class WorkloadProfileQueryService:
     @staticmethod
     def _verified_digest(model: dict) -> str | None:
         digest = str(model.get("content_digest") or "").lower()
+        # Durable acquisition stores "sha256:<hex>". Profile identities and
+        # the calibration file hasher use bare hex; preserve their existing
+        # fingerprint contract while accepting the production representation.
+        digest = digest.removeprefix("sha256:")
         trust = str(model.get("artifact_trust_state") or "").upper()
         status = str(model.get("validation_status") or "").lower()
         if _SHA256.fullmatch(digest) and trust == "VERIFIED" and status not in {

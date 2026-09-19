@@ -51,6 +51,8 @@ class CalibrationPlanV1:
     model_alias: str
     runtime_component_identity: str
     candidates: tuple[dict[str, Any], ...]
+    model_content_digest: str | None = None
+    model_quant: str | None = None
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,8 @@ def _plan(ctx: EffectContext) -> CalibrationPlanV1:
         model_alias=str(value["model_alias"]),
         runtime_component_identity=str(value["runtime_component_identity"]),
         candidates=tuple(dict(item) for item in value.get("candidates", ())),
+        model_content_digest=value.get("model_content_digest"),
+        model_quant=value.get("model_quant"),
     )
 
 

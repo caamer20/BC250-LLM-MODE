@@ -1,0 +1,566 @@
+{
+  "record_type": "developer_qualification_and_physical_development_deployment_not_signed_release_evidence",
+  "record_version": 1,
+  "recorded_at": "2026-09-17T16:30:18.900155+00:00",
+  "source_commit": "d3fcf3bf9cd3fbb39b8c6f6749330973990a076c",
+  "source_ref": "refs/heads/codex/chat-experience-dev6",
+  "version": "0.9.0.dev9",
+  "binding": "The clean source inventory matches commit build inputs and every installed package file matches the exact wheel. Documentation-only closeout changes no build inputs.",
+  "database_schema": 14,
+  "conversation_write_schema": 2,
+  "conversation_read_schemas": [
+    1,
+    2
+  ],
+  "macos": {
+    "default": {
+      "selected": 1771,
+      "passed": 1767,
+      "skipped": 4,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 137.556,
+      "exit_status": 0,
+      "skip_reasons": {
+        "tests/test_http_worker_linux_memory.py::test_http_worker_accepts_large_interpreter_virtual_baseline": "('tests/test_http_worker_linux_memory.py', 13, 'Skipped: Linux address-space accounting')",
+        "tests/test_profile_exchange_helper.py::test_real_same_filesystem_exchange_on_linux": "('tests/test_profile_exchange_helper.py', 134, 'Skipped: real exchange requires Linux')",
+        "tests/test_review_boundaries_rv.py::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "('tests/test_review_boundaries_rv.py', 276, 'Skipped: Linux IP_FREEBIND private bridge reservation')",
+        "tests/test_runtime_process.py::test_local_exchange_swaps_content_atomically": "('tests/test_runtime_process.py', 206, 'Skipped: renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above')"
+      },
+      "python": "3.14.7",
+      "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O"
+    },
+    "slow": {
+      "selected": 52,
+      "passed": 52,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 72.454,
+      "exit_status": 0,
+      "skip_reasons": {},
+      "python": "3.14.7",
+      "platform": "macOS-15.7.9-x86_64-i386-64bit-Mach-O"
+    },
+    "combined": {
+      "selected": 1823,
+      "passed": 1819,
+      "skipped": 4
+    }
+  },
+  "bazzite": {
+    "default": {
+      "selected": 1771,
+      "passed": 1770,
+      "skipped": 1,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 280.339,
+      "exit_status": 0,
+      "skip_reasons": {
+        "tests/test_profile_exchange_helper.py::test_local_exchange_unsupported_off_linux": "('/var/roothome/.bc250-deployments/20260917-d3fcf3b/source/tests/test_profile_exchange_helper.py', 125, 'Skipped: off-Linux unsupported path only')"
+      },
+      "python": "3.14.6",
+      "platform": "Linux-7.1.3-ogc5.1.fc44.x86_64-x86_64-with-glibc2.43"
+    },
+    "slow": {
+      "selected": 52,
+      "passed": 52,
+      "skipped": 0,
+      "failures": 0,
+      "errors": 0,
+      "seconds": 161.922,
+      "exit_status": 0,
+      "skip_reasons": {},
+      "python": "3.14.6",
+      "platform": "Linux-7.1.3-ogc5.1.fc44.x86_64-x86_64-with-glibc2.43"
+    },
+    "combined": {
+      "selected": 1823,
+      "passed": 1822,
+      "skipped": 1
+    }
+  },
+  "installed_wheel": {
+    "version": "0.9.0.dev9",
+    "python_module_count": 194,
+    "package_file_count": 195,
+    "all_source_installed_wheel_files_match": true,
+    "wheel_sha256": "b9059ec6715d7e357b82359daabd6e0ad316b87459984eec85193b951b1a8554",
+    "pip_check": "No broken requirements found.",
+    "feature_checks": {
+      "selected": 50,
+      "passed": 50,
+      "failures": 0,
+      "errors": 0
+    },
+    "dependency_source": "Fresh environment installed with release/constraints/python-3.14.txt --require-hashes --only-binary=:all:"
+  },
+  "real_tk": {
+    "tk": 9.0,
+    "route_scale_checks": 28,
+    "threads_after_close": 1,
+    "experience": [
+      {
+        "scale": 100,
+        "transcript_height": 459,
+        "composer_height": 66,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      },
+      {
+        "scale": 200,
+        "transcript_height": 441,
+        "composer_height": 66,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      }
+    ],
+    "scope": "Exact installed wheel on physical Bazzite under isolated Xvfb, with temporary profiles and fixture transports. Separate native live-model/provider measurement below. No interactive desktop/human acceptance inferred."
+  },
+  "live_native_chat": {
+    "version": "0.9.0.dev9",
+    "context": 128000,
+    "slots": 1,
+    "real_search_results": 1,
+    "display": "isolated Xvfb on physical Bazzite",
+    "prompts_and_completions_retained": false,
+    "human_acceptance": "pending",
+    "native_web_chat": {
+      "classification": "COMPLETED",
+      "error_code": null,
+      "duration_ms": 4970,
+      "time_to_first_token_ms": 4380,
+      "visible_characters": 285,
+      "source_url_cited_exactly": true,
+      "model_counted": true
+    },
+    "native_save_and_source_roundtrip": "passed",
+    "rss_after_chat_kib": 77084,
+    "idle_cpu_percent_one_core": 0.46,
+    "idle_sample_seconds": 15,
+    "idle_rss_kib": 77084,
+    "navigation_changes": 100,
+    "rss_after_navigation_kib": 78756,
+    "rss_peak_kib": 78156,
+    "threads_during_window": 4,
+    "threads_after_close": 1,
+    "tk_errors": [],
+    "unraisable_errors": []
+  },
+  "deployment": {
+    "source_commit": "d3fcf3bf9cd3fbb39b8c6f6749330973990a076c",
+    "version": "0.9.0.dev9",
+    "method": "manual development deployment",
+    "signed_release": false,
+    "automatic_updates_enabled": false,
+    "stages": [
+      {
+        "stage": "verified_private_rollback_snapshot",
+        "at_epoch": 1789662156.6860325
+      },
+      {
+        "stage": "services_stopped",
+        "at_epoch": 1789662157.5212028
+      },
+      {
+        "stage": "atomic_environment_exchange_complete",
+        "at_epoch": 1789662157.525988
+      },
+      {
+        "stage": "new_environment_healthy_with_original_settings",
+        "at_epoch": 1789662166.06502
+      },
+      {
+        "stage": "development_update_complete",
+        "at_epoch": 1789662166.187678
+      }
+    ],
+    "old_version": "0.9.0.dev5",
+    "old_checkout": "10adcca9df1123bda25a6148096f2a40ab22518c",
+    "services_before": {
+      "bc250-llm.service": {
+        "ActiveState": "active",
+        "SubState": "running",
+        "UnitFileState": "disabled",
+        "MainPID": "22472"
+      },
+      "bc250-openwebui-gateway.service": {
+        "ActiveState": "active",
+        "SubState": "running",
+        "UnitFileState": "static",
+        "MainPID": "22806"
+      }
+    },
+    "default_target_before": "graphical.target",
+    "rollback_directory": "/root/.bc250-deployments/20260917-d3fcf3b/rollback",
+    "context_before": 128000,
+    "slots_before": 1,
+    "database_backup_integrity": "ok",
+    "private_files_backed_up": 14,
+    "private_bytes_backed_up": 18043,
+    "services_after": {
+      "bc250-llm.service": {
+        "ActiveState": "active",
+        "SubState": "running",
+        "UnitFileState": "disabled",
+        "MainPID": "170136"
+      },
+      "bc250-openwebui-gateway.service": {
+        "ActiveState": "active",
+        "SubState": "running",
+        "UnitFileState": "static",
+        "MainPID": "170154"
+      }
+    },
+    "private_files_preserved": 14,
+    "service_units_unchanged": true,
+    "model_context_settings_unchanged": true,
+    "default_target_after": "graphical.target",
+    "native_search_provider_configured": true,
+    "checkout_after": "d3fcf3bf9cd3fbb39b8c6f6749330973990a076c",
+    "completed": true
+  },
+  "post_deployment": {
+    "version": "0.9.0.dev9",
+    "context": 128000,
+    "slots": 1,
+    "gateway_unauthenticated_status": 401,
+    "gateway_authenticated_models_status": 200,
+    "gateway_authenticated_sse": true,
+    "private_files_preserved": 14,
+    "database_integrity": "ok",
+    "database_schema": 14,
+    "provider_saved": true,
+    "prompts_and_completions_retained": false,
+    "credentials_printed_or_exported": false,
+    "qualification_script_correction": "Used documented current() provider accessor after diagnostic AttributeError; no package change."
+  },
+  "private_backup_restore_and_downgrade": {
+    "snapshot_restored_to_isolated_directory": true,
+    "restored_private_files_verified": 14,
+    "restored_database_integrity": "ok",
+    "existing_conversations_opened_in_dev9": 2,
+    "actual_dev5_reader_refuses_new_schema2": true,
+    "schema2_file_preserved_after_refusal": true,
+    "production_profile_restored_or_overwritten": false,
+    "power_loss_recovery_qualified": false,
+    "private_content_exported": false
+  },
+  "search_provider": {
+    "image": "docker.io/searxng/searxng@sha256:56d6ce4c64e76ca0b78ab21884d25b6112f81c68a3838afdc9945ad3d315e4c6",
+    "image_digest_matches_running_container": true,
+    "container_running": true,
+    "provider_url": "http://127.0.0.1:8888",
+    "automatic_restart": false,
+    "boot_service_installed": false
+  },
+  "provider_failure_recovery_and_resources": {
+    "stopped_provider_error_type": "SourceInputError",
+    "failure_seconds": 0.266,
+    "restarted_provider_search_results": 4,
+    "loopback_binding": {
+      "8080/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "8888"
+        }
+      ]
+    },
+    "memory_limit_bytes": 402653184,
+    "restart_policy": {
+      "Name": "no",
+      "MaximumRetryCount": 0
+    },
+    "read_only_rootfs": true,
+    "cap_drop": [
+      "CAP_CHOWN",
+      "CAP_DAC_OVERRIDE",
+      "CAP_FOWNER",
+      "CAP_FSETID",
+      "CAP_KILL",
+      "CAP_NET_BIND_SERVICE",
+      "CAP_SETFCAP",
+      "CAP_SETGID",
+      "CAP_SETPCAP",
+      "CAP_SETUID",
+      "CAP_SYS_CHROOT"
+    ],
+    "security_opt": [
+      "no-new-privileges"
+    ],
+    "stats": [
+      {
+        "id": "518449fa0fc3",
+        "name": "bc250-searxng",
+        "cpu_time": "1.12579s",
+        "cpu_percent": "39.43%",
+        "avg_cpu": "39.43%",
+        "mem_usage": "97.76MB / 402.7MB",
+        "mem_percent": "24.28%",
+        "net_io": "124.3kB / 43.32kB",
+        "block_io": "37.96MB / 0B",
+        "pids": "14"
+      }
+    ],
+    "prompts_and_completions_retained": false
+  },
+  "profile_preflight": {
+    "measurements_performed": false,
+    "reason": "Current runtime lacks promoted build identity; small model is not verified. No identity or calibration evidence fabricated.",
+    "previews": [
+      {
+        "profile_id": "builtin-cool",
+        "profile_revision": 1,
+        "model_alias": "local-a3515b591cfc",
+        "model_quant": "Q5_K_M",
+        "model_content_digest": null,
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": "MODEL_UNVERIFIED",
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 1,
+        "fit_verdict": "FITS",
+        "required_gib": 3.369,
+        "headroom_gib": 8.631,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-interactive",
+        "profile_revision": 1,
+        "model_alias": "local-a3515b591cfc",
+        "model_quant": "Q5_K_M",
+        "model_content_digest": null,
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": "MODEL_UNVERIFIED",
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 1,
+        "fit_verdict": "FITS",
+        "required_gib": 3.369,
+        "headroom_gib": 8.631,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-long-context",
+        "profile_revision": 1,
+        "model_alias": "local-a3515b591cfc",
+        "model_quant": "Q5_K_M",
+        "model_content_digest": null,
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": "MODEL_UNVERIFIED",
+        "tight_confirmation_required": true,
+        "context_per_slot": 131072,
+        "slots": 1,
+        "fit_verdict": "TIGHT",
+        "required_gib": 11.8065,
+        "headroom_gib": 0.1935,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-shared",
+        "profile_revision": 1,
+        "model_alias": "local-a3515b591cfc",
+        "model_quant": "Q5_K_M",
+        "model_content_digest": null,
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": "MODEL_UNVERIFIED",
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 2,
+        "fit_verdict": "FITS",
+        "required_gib": 3.369,
+        "headroom_gib": 8.631,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-cool",
+        "profile_revision": 1,
+        "model_alias": "ornith-1.5-9b",
+        "model_quant": "Q4_K_M",
+        "model_content_digest": "70c112196e0b7023803c9762752e46d29e612a92c83f995bc3ba1ceb07e8fab6",
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": null,
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 1,
+        "fit_verdict": "FITS",
+        "required_gib": 6.9925,
+        "headroom_gib": 5.0075,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-interactive",
+        "profile_revision": 1,
+        "model_alias": "ornith-1.5-9b",
+        "model_quant": "Q4_K_M",
+        "model_content_digest": "70c112196e0b7023803c9762752e46d29e612a92c83f995bc3ba1ceb07e8fab6",
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": null,
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 1,
+        "fit_verdict": "FITS",
+        "required_gib": 6.9925,
+        "headroom_gib": 5.0075,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-long-context",
+        "profile_revision": 1,
+        "model_alias": "ornith-1.5-9b",
+        "model_quant": "Q4_K_M",
+        "model_content_digest": "70c112196e0b7023803c9762752e46d29e612a92c83f995bc3ba1ceb07e8fab6",
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": null,
+        "tight_confirmation_required": true,
+        "context_per_slot": 65536,
+        "slots": 1,
+        "fit_verdict": "TIGHT",
+        "required_gib": 10.93,
+        "headroom_gib": 1.07,
+        "rollback_available": false
+      },
+      {
+        "profile_id": "builtin-shared",
+        "profile_revision": 1,
+        "model_alias": "ornith-1.5-9b",
+        "model_quant": "Q4_K_M",
+        "model_content_digest": "70c112196e0b7023803c9762752e46d29e612a92c83f995bc3ba1ceb07e8fab6",
+        "runtime_component_identity": null,
+        "evidence_class": "ESTIMATED",
+        "refusal_code": null,
+        "tight_confirmation_required": false,
+        "context_per_slot": 8192,
+        "slots": 2,
+        "fit_verdict": "FITS",
+        "required_gib": 6.9925,
+        "headroom_gib": 5.0075,
+        "rollback_available": false
+      }
+    ]
+  },
+  "temporary_display_cleanup": {
+    "temporary_display_container_removed": true,
+    "inference_container_unchanged": true,
+    "search_provider_running": true
+  },
+  "compileall": "passed",
+  "git_diff_check": "passed",
+  "artifacts": {
+    "bc250_llm_mode-0.9.0.dev9-py3-none-any.whl": {
+      "sha256": "b9059ec6715d7e357b82359daabd6e0ad316b87459984eec85193b951b1a8554",
+      "bytes": 818181
+    },
+    "bc250_llm_mode-0.9.0.dev9.tar.gz": {
+      "sha256": "6c737c07369c0f52e54a95c63b588b65f5c9875d547f829bd864abd04e709781",
+      "bytes": 751516
+    },
+    "checksums.sha256": {
+      "sha256": "091e05a8de929b841389cc586eb43b72d5096f35298065303e2a43b71918325b",
+      "bytes": 208
+    },
+    "release-manifest.json": {
+      "sha256": "a9b6c70041d9b686930db0c38e311d89201698540a90b5b62f498fdeb9bf7b4b",
+      "bytes": 2346
+    },
+    "sbom.cdx.json": {
+      "sha256": "eb8d32ceebdece3fb4376c04e478689925a0b1a8d53de1ddc20d9ce2690edce6",
+      "bytes": 4102
+    }
+  },
+  "developer_report_digests": {
+    "artifact-verification.txt": "a6d0bba236087f3eea18fc30b47aad59f16e6345d80b04c0c15a121c7fc9c1ed",
+    "bazzite/evidence/backup-restore-and-compatibility.json": "14d60431f49f5bf3300dcbc9cd13c6a58b625bcedf943c3ea4ed79a9a2db5b84",
+    "bazzite/evidence/default-inventory.json": "5b6fc38794116aeceddba106f3b289a12670b8e27dcd702adadc865b48d8a35d",
+    "bazzite/evidence/default.log": "c5f074f231a0346a266800b87cca4225b9aa584448d5af38a1d8e01ed58b8b8f",
+    "bazzite/evidence/default.xml": "5f77076761982efe3ba7597b9e6df06d60470f331c3af9e296d8564b6d5a29d7",
+    "bazzite/evidence/deployment.json": "6440c67f552d9f3d2190a025c51ec8951695b288d48f4c058658d17d149f928e",
+    "bazzite/evidence/installed-identity.json": "6b512ade547fc7e52553fbba4eae179d933f9826d8debe1395822cc81ab7b676",
+    "bazzite/evidence/installed-tests.log": "cf38e8e9c1c5ef60d9f68b5a5fca32a6a7e6ff778dbd67e4e632c0b711039492",
+    "bazzite/evidence/installed-tests.xml": "9e4a08c97c6c1c4ef41d98a1bef5af053d87a3567ba8fb36a9ed45f2448d6d1b",
+    "bazzite/evidence/live-native-web-chat.json": "7503fc5ab0f41571fc690b72bd4380623fad29814ea85d18031c1a44c4daf183",
+    "bazzite/evidence/live-provider-recovery.json": "ec3e4d5a76aa7b4a0110cd95a6d8b5d0331e95234adcad125b136618de39a2b2",
+    "bazzite/evidence/post-deployment.json": "9f363271e8725f7e683451e27374c06cdcb89b9b6ad8c186c2dcf4ccee45e4d5",
+    "bazzite/evidence/profile-qualification-preflight.json": "cd4ab2126933c1184939a38deb3c517747c1513d75a51f373dfc5af04d8d9073",
+    "bazzite/evidence/provider-identity.json": "835ce8bbb83990854d27bf52e3d1387fdf9cc2a7932326a9e6eb9c212306a8d2",
+    "bazzite/evidence/real_tk_experience_smoke.json": "e0d7c7300ff88eb870659f8ff10e4b29926f53867de42d7a7998222e5e99d21c",
+    "bazzite/evidence/real_tk_experience_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bazzite/evidence/real_tk_smoke.json": "9f22709230de49e036103778841135d6ada421dde833576b0bf449a4f9916908",
+    "bazzite/evidence/real_tk_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bazzite/evidence/slow-inventory.json": "cf37010de3d854a2f8fda9e9d35d74335caa34c52a799abf2b95318babfb3b3c",
+    "bazzite/evidence/slow.log": "b390a09c29c57dee7164021f41abed3e5fd7b2f78b7d976965f62afa3c20d8ac",
+    "bazzite/evidence/slow.xml": "f8a8ec6ac434c186cc50ddfd381f72301f6e2c4c1a08863258a33a62e6c5b69b",
+    "bazzite/evidence/staged-live-native-web-chat.json": "d932173a1c844c91e933ffa41cd52043dd5cf7c78df2856f630a1b0405609af2",
+    "bazzite/evidence/staging.log": "3c3f5189e65c10623d5c53144713fdd9dbad925de60df463290aebde203254ed",
+    "bazzite/evidence/suite-results.json": "c12a98a4b2f2cf2af9f7de9bcaf3b0785c5f7884ff074da1b718afa84cac3ba5",
+    "bazzite/evidence/temporary-display-cleanup.json": "37f3f691654a8ba566460f5ff1bf4da76bce724910fa30bb0f01c4425d8f5151",
+    "macos-default-inventory.json": "4e43641d4836c9c1270577cdea84acb84fe814828332759a924447795cc50196",
+    "macos-default-log": "5e98e1571b80969157fef4c288bda78c708ab491e7d50bf19452f2def881bed1",
+    "macos-default-xml": "da19a589595e01f9da1dd7dca52cdf88d335ab6e5af3f5c9392de89c2aa29ab4",
+    "macos-slow-inventory.json": "d02d41daac0905983b3583f091814d8712fc8f94d41478d7ccd20be9c6a68d35",
+    "macos-slow-log": "a2feae878fb1e01e9f834a75efb0b31fc09ba07f46ef12dc0dac988f72b24d47",
+    "macos-slow-xml": "0db23aa1d3744371dda05abb482add8a01a36ce4def3fe8414e171867af96d13",
+    "release-decision.json": "e30de3c44f46be76818d2e6f3fabe358c4decc75cde3a9788b33d61e37712974",
+    "source-inventory.json": "1db7a3252adee2938926f3d4c91a81410114b6b2adc1d5eb556953960b32fce8"
+  },
+  "release_evaluator": {
+    "artifact_verification": "passed",
+    "eligible_for_rc": false,
+    "eligible_for_1_0_0": false,
+    "blocking_codes": [
+      "BACKUP_RESTORE_EVIDENCE_MISSING",
+      "CLEAN_WHEEL_EVIDENCE_MISSING",
+      "DOCUMENTATION_DRIFT",
+      "HARDWARE_QUALIFICATION_MISSING",
+      "HUMAN_ACCEPTANCE_MISSING",
+      "LIMITATION_ACCEPTANCE_MISSING",
+      "MILESTONE_EVIDENCE_MISSING",
+      "PROVENANCE_MISSING_OR_MISMATCHED",
+      "REPOSITORY_NOT_PUBLISHED",
+      "SBOM_MISSING_OR_MISMATCHED",
+      "SECURITY_REVIEW_MISSING",
+      "SIGNATURE_MISSING_OR_INVALID",
+      "SOAK_EVIDENCE_MISSING",
+      "TEST_EVIDENCE_MISSING"
+    ],
+    "explanation": "Unsigned diagnostics do not satisfy candidate-bound verified release evidence."
+  },
+  "prior_diagnostic_limitations": [
+    "Dev6 Linux worker failed under the previous 256 MiB virtual-memory cap; dev7 raises the bounded ceiling to 384 MiB.",
+    "Dev7 real Tk journeys exposed worker-thread cyclic finalization; dev8 routes collection through the UI refresh coordinator.",
+    "Verified acquisition digests carried a sha256: prefix that profile identity did not accept; dev9 normalizes only verified inputs.",
+    "A short 512-token citation diagnostic on dev7 returned EMPTY_RESPONSE; native default 2048-token cited answers passed before and after dev9 activation.",
+    "Initial remote test TMPDIR inside /root violated test isolation; final runs used a private /var/tmp directory.",
+    "A post-deployment diagnostic initially used a nonexistent provider getter; rerun uses documented current() without package changes."
+  ],
+  "pending": [
+    "Hosted Linux Python 3.11/3.14 CI and remote source publication for this candidate",
+    "Bazzite/CachyOS fresh/upgraded four-cell journeys; only the existing Bazzite upgrade received this development deployment",
+    "Small-model verified identity and promoted runtime/known-good identity before exact small/9B profile calibration; explicit TIGHT confirmation as applicable",
+    "Long-context stress, phone/second-device client, desktop/reboot, real interruption/recovery, thermal and soak qualification",
+    "Keyboard-only, screen-reader and non-developer acceptance on supported desktops",
+    "Independent security review",
+    "Owner-gated signed release, trust root and publication"
+  ],
+  "remote_publication": "No GitHub push, release tag or package publication. BC250 local source checkout fast-forwarded to the code commit.",
+  "owner_untracked_files_preserved": 10,
+  "compatibility_limit": "Actual dev5 reader refuses newly written schema-2 conversations and leaves their bytes intact. Existing schema-1 files remain readable by dev9. Database schema remains 14.",
+  "documentation_closeout_checks": {
+    "existing_release_docs_consistency_tests_passed": 6,
+    "all_frozen_build_inputs_unchanged": true,
+    "all_recorded_developer_report_digests_match": true,
+    "git_diff_check": "passed"
+  }
+}

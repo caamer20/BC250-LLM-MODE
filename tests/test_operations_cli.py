@@ -158,12 +158,13 @@ def test_unknown_operation_maps_to_exit_one(world, capsys):
 def test_operations_cli_from_installed_wheel(tmp_path):
     """P1 exit gate: JSON contracts work from the installed console script
     with the repository root absent from sys.path."""
+    from package_build_fixture import clean_build_source
     wheel_dir = tmp_path / "wheel"
     wheel_dir.mkdir()
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps",
          "--no-build-isolation", "--wheel-dir", str(wheel_dir),
-         str(REPO_ROOT)],
+         str(clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -171,7 +172,7 @@ def test_operations_cli_from_installed_wheel(tmp_path):
     target.mkdir()
     wheels = list(wheel_dir.glob("*.whl"))
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )

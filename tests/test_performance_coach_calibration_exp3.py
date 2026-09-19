@@ -104,7 +104,9 @@ def _profile_world(tmp_path: Path) -> ProfileWorld:
         SettingsRepository(conn).set_revision(1)
         ModelArtifactRepository(conn).record_verified(
             artifact_id="artifact-small",
-            content_digest=hashlib.sha256(content).hexdigest(),
+            # The production acquisition adapter stores algorithm-qualified
+            # digests; profile identities normalize them to bare SHA-256 hex.
+            content_digest="sha256:" + hashlib.sha256(content).hexdigest(),
             byte_size=len(content),
             canonical_path=str(path),
             architecture="llama",

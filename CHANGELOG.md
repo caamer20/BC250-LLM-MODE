@@ -1,5 +1,157 @@
 # Changelog
 
+## 0.9.0.dev14 — bounded Bonsai prompt caching (unreleased)
+
+- Disable the pinned fork's extra 8 GiB host-RAM prompt cache for the
+  verified Prism runtime. Retain the active slot's Q8 GPU KV cache and keep the
+  fork-specific switch out of ordinary runtime commands.
+- Record matched-input O0/O2 and FP32/FP16 experiments, answer checks,
+  generation timings, and GPU clock/temperature observations. No decoder
+  speed improvement was demonstrated; the optimized build remains isolated
+  and the application retains its qualified runtime and precision policy.
+- Reconcile the completed dev13 installation and publish its sanitized
+  qualification record and the bounded conversion/build/measurement tools.
+
+## 0.9.0.dev13 — verified Bonsai installation (unreleased)
+
+- Integrate the exact audited Prism compatibility bundle with the existing
+  durable runtime update workflow. Verify source, build manifest, environment
+  and all three binaries before candidate registration; retain normal atomic
+  exchange, receipt, live inference, promotion and rollback checks.
+- Recognize the verified official PTQ1 model and lossless CRACK PTQ1 repack by
+  full content identity. Import them into the managed Model Library with
+  correct catalog, quantization and provenance. Original PQ2 and unknown
+  Hadamard files remain unsupported. Enable starts only with the exact promoted
+  Prism build, up to 8K context, one slot and bounded compatibility settings.
+- Preserve promoted runtime identity in application snapshots by reading its
+  repositories before the database connection closes.
+- Use independent copy-on-write local copies where supported, reserve both
+  staging and publication copies, restart partial copies correctly and verify
+  copied bytes against the originally resolved source identity.
+- This remains an unoptimized compatibility runtime. Sustained performance,
+  broader context/profile qualification and external release gates are pending.
+
+## 0.9.0.dev12 — Bonsai 2 discovery and runtime requirements (unreleased)
+
+- Add the requested official Bonsai 2 27B PTQ1_0 and dealignai CRACK PQ2_0
+  entries with exact published filenames and weight sizes. Separate memory
+  estimates from the custom-runtime requirement; neither is advertised as a
+  verified or recommended BC250 model.
+- Show runtime requirements in Model Library and CLI search, and refuse
+  incompatible catalog downloads before network transfer. The current
+  application runtime and device installation are unchanged.
+- Inspect bounded GGUF metadata after the architecture key so rotated Bonsai
+  weights cannot bypass the runtime requirement through a renamed local file.
+  Preserve ordinary catalog fingerprints and test real acquisition quarantine
+  plus activation refusal.
+- Record the publisher identities and separate pinned PrismML Vulkan build
+  preparation. Full-model and hardware performance evidence remains pending.
+
+## 0.9.0.dev11 — first runtime installation before model selection (unreleased)
+
+- Complete fresh runtime installation without starting an empty-model service
+  or claiming promotion. Preserve the stopped service, handoff and absent
+  known-good state, and report that model verification is pending.
+- Reuse the exact prepared build when Setup resumes. After model activation,
+  finish the same durable runtime workflow with its immutable source/build
+  identity; require a new invocation, correct model/context/slots and inference
+  before advancing Setup or promoting the runtime. No second build is needed.
+- Recheck configuration, thermal state and executable identities at the
+  activation boundary. Restore the prior state if verification fails, retain
+  all potentially useful files, and recover interrupted initial publication.
+- Restore an explicit empty model selection after failed first inference,
+  preserving the model inventory, prior settings and thermal latch. Retry can
+  proceed without an artificial recovery barrier or a second runtime build.
+- Refresh the fixed exchange helper by atomic replacement and verify its file
+  digest; repeated staging and hostile destination symlinks are covered.
+- Add production-adapter setup/recovery journeys with explicit platform and
+  model-service fixtures. Isolated Linux/CMake qualification subsequently
+  passed after owner approval; device deployment, participant and release
+  gates remain pending. Dev9 remains the active physical installation.
+
+## 0.9.0.dev10 — runtime build and recovery corrections (unreleased)
+
+- Resolve tags, branches and exact commits through real Git; refuse ambiguous
+  names, changed refs and dirty worktrees. Fetch the frozen commit with lease
+  heartbeats and bind compilation to that source and the observed container.
+- Fix stdin delivery, bounded output tails, process cleanup and the shipped
+  exchange helper's argv handling. Guest build processes now require host
+  heartbeats, because killing a Podman client can leave its guest running.
+- Build the selected CMake targets at their actual paths, use static llama.cpp
+  libraries for relocation, and smoke-test the quantizer's supported help
+  command. Publish durable manifests with bytes and atomic replacement.
+- Preserve the displaced runtime at the original exchange location. Bind both
+  trees into the durable snapshot, verify manifests and server hashes during
+  recovery, and update tree locations and component pointers accurately.
+  Finalization retains trees instead of deleting uncertain candidates.
+- Record legacy binaries as observed and unverified; require actual launch
+  receipts, model/context/slot agreement and inference before promotion.
+  Restore the prior component and known-good configuration exactly on failure.
+- Add real Git/CMake/filesystem and production-workflow regression coverage.
+  Qualification and deployment are recorded separately; dev9 remains the
+  installed development build until a later verified cutover is recorded.
+
+## 0.9.0.dev9 — acquired-model profile identity correction (unreleased)
+
+- The physical model inventory exposed a representation mismatch: verified
+  acquired artifacts use `sha256:<hex>`, but profile identity validation
+  expected bare hex. Normalize the acquisition representation at the profile
+  boundary, preserving existing fingerprints and all trust/validation checks.
+- Calibration adapter tests now use the same algorithm-qualified digest as
+  production acquisition, with malformed/unverified input regression cases.
+
+## 0.9.0.dev8 — native GUI collection correction (unreleased)
+
+- Real Linux Tk journeys exposed cyclic dialog objects being finalized by
+  Python's automatic collector on a worker, stalling a later action. GUI task
+  lanes now pause automatic cyclic collection and use the existing UI refresh
+  coordinator for collection. The prior GC setting is restored after workers
+  finish; delayed completions retain their UI owners for main-thread cleanup.
+- Added regressions for worker allocation pressure and a task completing after
+  the window's short close budget. Real native journeys pass on Linux and macOS.
+
+## 0.9.0.dev7 — Bazzite HTTP worker correction (unreleased)
+
+- Physical Bazzite validation found that Fedora Python's initial virtual
+  footprint left too little headroom under the 256 MiB HTTP-child limit to
+  import its dependencies. Raised the finite limit to 384 MiB, matching the PDF
+  child ceiling, while preserving request, response, CPU and elapsed-time bounds.
+- Added a Linux regression that reserves a large interpreter baseline before
+  executing the real HTTP worker against a local endpoint.
+- This changes the candidate identity; dev6 local evidence is historical and
+  must not be used to qualify the corrected package.
+
+## 0.9.0.dev6 — conversation and recovery improvements (unreleased)
+
+- Added explicit context omission previews, bounded model/template token
+  counting with a labelled estimate fallback, preserved instructions and
+  saved history, and reviewed summaries into separate conversations.
+- Added bounded native Markdown/code rendering, code copying, editable prompt
+  branches, per-conversation instructions/response limits/temperature, and a
+  private editable template library. Consolidated secondary actions into
+  native menus to keep the composer and Send visible.
+- Added verified portable conversation/draft/source backups and selected
+  display/template export. Import creates new files with stable source-bound
+  identities, resumes after interruption, and preserves existing conversations,
+  credentials, service settings, and notification consent.
+- Added reviewed local text/Markdown/PDF sources, with file/text/page/process
+  limits and private persistence. PDF extraction uses a hash-pinned pypdf
+  dependency in a short-lived resource-limited child.
+- Added explicit SearXNG searches and selected source excerpts/URLs. Only the
+  edited query goes to the provider; no conversation upload, automatic search,
+  page fetching, or model-controlled host tools were added.
+- Added exact model/runtime/profile measurement comparisons and honest missing
+  or stale states. Calibration distinguishes tokens/s from chunk-rate fallback;
+  older unattributed measurements cannot rank a current profile as measured.
+- Fixed worker closure cleanup so Tk objects are finalized by the UI thread,
+  including when completion queues are full. Added real Tk experience journeys.
+- Fixed cleanup previews becoming stale merely because a second elapsed:
+  proposed retention is stable within the existing confirmation window.
+- Clean-wheel gates now exclude ignored historical build output and verify the
+  current package version with hash-locked dependencies.
+- This is a new development candidate. Existing dev5 deployment evidence and
+  physical/security/human/release gates do not qualify these changes.
+
 ## 0.9.0.dev5 — accurate gateway boot status
 
 - A systemd `static` gateway unit is no longer labelled boot-enabled. The

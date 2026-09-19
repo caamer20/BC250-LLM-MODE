@@ -30,7 +30,7 @@ FIXED_PROMPT = (
     "be useful when an internet connection is unavailable."
 )
 MAX_MEASURED_UNITS = 96
-RECEIPT_SCHEMA_VERSION = 1
+RECEIPT_SCHEMA_VERSION = 2
 MAX_SSE_LINE_BYTES = 64 * 1024
 _RECEIPT_FIELDS = frozenset(
     {
@@ -162,11 +162,14 @@ class CalibrationServerPort:
                     "calibration stream ended with an incomplete event",
                 )
         elapsed = max(0.001, monotonic() - start)
+        import math
         generation = timings.get("predicted_per_second")
-        if not isinstance(generation, (int, float)) or generation <= 0:
+        generation_unit = "tokens/s"
+        if isinstance(generation, bool) or not isinstance(generation, (int, float)) or not math.isfinite(generation) or generation <= 0:
             generation = generated_units / elapsed
+            generation_unit = "chunks/s"
         prompt_rate = timings.get("prompt_per_second")
-        if not isinstance(prompt_rate, (int, float)) or prompt_rate < 0:
+        if isinstance(prompt_rate, bool) or not isinstance(prompt_rate, (int, float)) or not math.isfinite(prompt_rate) or prompt_rate < 0:
             prompt_rate = 0.0
         if generated_units < 1 or first_at is None:
             raise StepFailure(
@@ -186,6 +189,7 @@ class CalibrationServerPort:
             "time_to_first_unit_ms": max(0, int((first_at - start) * 1000)),
             "prompt_per_second": round(float(prompt_rate), 4),
             "generation_per_second": round(float(generation), 4),
+            "generation_unit": generation_unit,
             "peak_temperature_c": round(peak, 2) if peak is not None else None,
             "throttling_class": throttling,
             "measured_units": generated_units,
@@ -258,8 +262,9 @@ class CalibrationHostAdapter:
             return None
         if (
             not isinstance(value, dict)
-            or set(value) != _RECEIPT_FIELDS
-            or value.get("schema_version") != RECEIPT_SCHEMA_VERSION
+            or value.get("schema_version") not in {1, RECEIPT_SCHEMA_VERSION}
+            or set(value) != (_RECEIPT_FIELDS if value.get("schema_version") == 1 else _RECEIPT_FIELDS | {"generation_unit"})
+            or (value.get("schema_version") == 2 and value.get("generation_unit") not in {"tokens/s", "chunks/s", "units/s"})
             or value.get("status") != "COMPLETE"
             or not isinstance(value.get("candidate_index"), int)
             or not 0 <= int(value["candidate_index"]) < 3
@@ -415,6 +420,8 @@ class CalibrationHostAdapter:
             model_alias=request.model_alias,
             runtime_component_identity=component,
             candidates=tuple(candidates[:3]),
+            model_content_digest=str(preview["model_content_digest"]),
+            model_quant=str(preview["model_quant"]),
         )
 
     def capture_baseline(
@@ -557,6 +564,7 @@ class CalibrationHostAdapter:
             "completed_at": self._clock(),
             **metrics,
         }
+        output["generation_unit"] = metrics.get("generation_unit", "units/s")
         receipt = {"schema_version": RECEIPT_SCHEMA_VERSION, **output}
         target = self._receipt(ctx.operation_id, index)
         ensure_private_dir(target.parent)

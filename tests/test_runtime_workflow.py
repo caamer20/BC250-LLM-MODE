@@ -57,6 +57,20 @@ TERMINAL = frozenset(
 )
 
 
+def test_binary_digest_failure_cannot_promote_a_healthy_runtime(tmp_path, monkeypatch):
+    from dataclasses import replace
+    harness = Harness(tmp_path)
+    harness.seed_prior()
+    original = harness.host.verify_runtime_identity
+    monkeypatch.setattr(harness.host, "verify_runtime_identity",
+                        lambda snapshot, target, pulse=None: replace(
+                            original(snapshot, target, pulse=pulse), binary_digest_ok=False))
+    harness.enqueue_update()
+    harness.run_to_terminal()
+    assert harness.state() is OperationState.FAILED_ROLLED_BACK
+    assert harness._component()["promoted_build_id"] == harness.prior_build_id
+
+
 class Harness:
     def __init__(self, tmp_path: Path) -> None:
         self.root = tmp_path / "profile"

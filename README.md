@@ -24,11 +24,21 @@ journey and resource qualification uses the deliberately pending
 
 ## Release status
 
-The [September 4 review implementation record](docs/review-implementation-status.md)
-is the current corrective checkpoint. Historical qualification counts do not
-qualify this changed checkout; physical and external gates remain pending.
+The [current state record](docs/current-state.md) distinguishes source,
+developer qualification and the installed appliance. Historical qualification
+counts do not qualify a changed candidate; physical and external gates remain
+pending.
 
-Current version: **0.9.0.dev5** (development line; not `1.0.0`). Status
+Current installed development version: **0.9.0.dev13** (not `1.0.0`).
+The [Bonsai installation](docs/bonsai-installation-2026-09-18.md) is complete:
+both verified models are in Model Library, and CRACK is active at 8K / one slot
+on the pinned Prism compatibility runtime. Candidate-bound macOS, Linux,
+installed-wheel, and native Chat checks pass. Source **0.9.0.dev14** passes
+macOS, Bazzite, and GitHub qualification for a host-RAM cache fix; its installation awaits owner approval. See the
+[exact qualification record](docs/bonsai-cache-qualification-2026-09-18.json).
+[Performance measurements](docs/bonsai-performance-2026-09-18.md) found no
+demonstrated O2/FP16 speed gain. Physical acceptance and external release gates
+remain pending. Status
 vocabulary: *implemented* (code + developer tests pass), *developer-qualified*
 (all executable local/CI checks pass), *evidence pending* (hardware/human/
 external evidence absent), *release blocked* (a policy-required item is
@@ -278,7 +288,7 @@ Tailscale is optional and is not installed by this application. On Linux, `tails
 
 ## Choosing a model
 
-The advertised catalog currently includes 38 ready-made GGUF models. Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot. The sixteen newest entries remain **Preview** until each completes a physical BC-250 Vulkan load and generation check. Conversion-only source identities are intentionally hidden while the build has no pinned, verified converter; already-converted local GGUFs can still be discovered and imported.
+The catalog includes 38 ordinary GGUF candidates and two Bonsai 2 entries with explicit custom-runtime requirements. Bonsai 2 uses the separately verified Prism runtime; the exact official PTQ1 file and losslessly repacked CRACK PTQ1 file can be imported and activated at up to 8K / one slot. The publisher’s original CRACK PQ2 file remains unsupported. See [installation and compatibility limits](docs/bonsai-installation-2026-09-18.md). Projected totals below use Q8 KV cache, the default four concurrent request slots, and approximately 1 GiB runtime overhead. Context values are per user/slot. Preview entries remain unqualified until each completes a physical BC-250 Vulkan load and generation check. Conversion-only source identities are intentionally hidden while the build has no pinned, verified converter; already-converted local GGUFs can still be discovered and imported.
 
 | Model | Role | Recommended quant | 8k × 4 users | 16k × 4 users | 32k × 4 users |
 | --- | --- | --- | ---: | ---: | ---: |

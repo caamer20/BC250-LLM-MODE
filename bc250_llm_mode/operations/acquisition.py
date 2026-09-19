@@ -212,7 +212,7 @@ class AcquisitionHost(Protocol):
     ) -> SourceIdentity: ...
 
     def observe_local_source(
-        self, request: ModelImportRequestV1
+        self, request: ModelImportRequestV1, *, pulse: Any = None
     ) -> SourceIdentity: ...
 
     def preflight_storage(
@@ -572,13 +572,13 @@ def build_import_workflow(host: AcquisitionHost) -> WorkflowDefinition:
     cb = _acquire_step_callbacks(host)
 
     def resolve_local_execute(ctx: EffectContext) -> dict[str, Any]:
-        identity = host.observe_local_source(ctx.request)
+        identity = host.observe_local_source(ctx.request, pulse=ctx.pulse)
         return {"source_identity": _evidence(identity)}
 
     def probe_local(ctx: EffectContext) -> ProbeResult:
         output = ctx.prior_outputs.get("resolve_source") or {}
         identity = output.get("source_identity") or {}
-        fresh = host.observe_local_source(ctx.request)
+        fresh = host.observe_local_source(ctx.request, pulse=ctx.pulse)
         if identity and not _identity_matches(identity, fresh):
             return ProbeResult(RecoveryClass.REVERTIBLE, CODE_LOCAL_SOURCE_CHANGED)
         if identity:
@@ -630,6 +630,5 @@ def build_import_workflow(host: AcquisitionHost) -> WorkflowDefinition:
         cancel_finalizer=lambda request, operation_id="", h=host: h.release_on_cancellation(request, operation_id=operation_id),
         preflight=lambda request: None,
     )
-
 
 

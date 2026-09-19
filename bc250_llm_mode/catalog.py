@@ -51,6 +51,10 @@ class ModelEntry:
     true_block_count: int | None = None
     max_context_tokens: int | None = None
     validation_tier: str = "auto"
+    # A known runtime mismatch is separate from estimated memory fit. These
+    # entries are discoverable, but the application's stock-runtime workflows
+    # must not download or activate them as runnable models.
+    runtime_requirement: str | None = None
 
 
 CATALOG: tuple[ModelEntry, ...] = (
@@ -893,6 +897,72 @@ CATALOG: tuple[ModelEntry, ...] = (
         true_block_count=27,
         max_context_tokens=163840,
     ),
+    ModelEntry(
+        id="bonsai2-27b",
+        display_name="Bonsai 2 27B (PrismML)",
+        family="qwen35",
+        task_tags=("chat", "reasoning", "ternary", "experimental"),
+        repo="prism-ml/Ternary-Bonsai-2-27B-gguf",
+        source_repo="prism-ml/Ternary-Bonsai-2-27B-gguf",
+        allow_globs={"PTQ1_0": "Ternary-Bonsai-2-27B-PTQ1_0.gguf"},
+        params_b=26.896,
+        weights_gib_by_quant={"PTQ1_0": 5946648928 / 1024**3},
+        # 16 full-attention layers × 4 KV heads × 256-wide K/V ×
+        # two FP16 bytes = 64 KiB/token. Recurrent state and compute buffers
+        # remain in the overhead estimate; this is not a hardware measurement.
+        kv_kib_per_token=64.0,
+        notes=(
+            "Official 5.95 GB ternary GGUF. PTQ1_0 is the smaller packing and has "
+            "Vulkan kernels in the inspected PrismML fork. Requires that fork's "
+            "Hadamard transforms; it does not run on stock llama.cpp. Text only; "
+            "The exact file can use the separately verified experimental Prism "
+            "build at up to 8K context and one slot. Sustained use and speed "
+            "remain unqualified."
+        ),
+        temperature=1.0,
+        top_p=0.95,
+        top_k=20,
+        min_p=0.0,
+        repeat_penalty=1.0,
+        true_block_count=64,
+        max_context_tokens=262144,
+        runtime_requirement=(
+            "Requires a separately qualified PrismML runtime with PTQ1_0 Vulkan "
+            "kernels and Hadamard transforms. The current application runtime "
+            "cannot run this model; memory fit alone does not establish compatibility."
+        ),
+    ),
+    ModelEntry(
+        id="bonsai2-27b-crack",
+        display_name="Bonsai 2 27B CRACK (dealignai)",
+        family="qwen35",
+        task_tags=("chat", "reasoning", "ternary", "uncensored", "experimental"),
+        repo="dealignai/Bonsai-2-27B-Ternary-CRACK-GGUF",
+        source_repo="prism-ml/Ternary-Bonsai-2-27B-gguf",
+        allow_globs={"PQ2_0": "Bonsai-2-27B-PQ2_0-CRACK.gguf"},
+        params_b=26.896,
+        weights_gib_by_quant={"PQ2_0": 7206168928 / 1024**3},
+        kv_kib_per_token=64.0,
+        notes=(
+            "Community modified Bonsai 2 release, 7.21 GB PQ2_0. The publisher "
+            "reports reduced refusals; independent quality and BC250 performance "
+            "are unverified. Its custom packing needs PrismML's runtime and "
+            "currently lacks PQ2_0 Vulkan kernels. The separately verified "
+            "lossless PTQ1_0 local repack can use the experimental Prism build."
+        ),
+        temperature=1.0,
+        top_p=0.95,
+        top_k=20,
+        min_p=0.0,
+        repeat_penalty=1.0,
+        true_block_count=64,
+        max_context_tokens=262144,
+        runtime_requirement=(
+            "Requires PrismML's PQ2_0 packing and Hadamard transforms. PQ2_0 "
+            "Vulkan kernels are unavailable in the inspected fork, so this "
+            "published file is not a runnable choice for the current BC250 setup."
+        ),
+    ),
 )
 
 # Conversion remains a deliberately unavailable capability until a pinned,
@@ -1026,6 +1096,8 @@ def catalog_rows(
             "task_tags": list(model.task_tags),
             "validation_tier": validation_tier(model),
             "notes": model.notes,
+            "runtime_requirement": model.runtime_requirement,
+            "runtime_compatible": model.runtime_requirement is None,
         }
         pick: tuple[str, FitResult] | None = None
         fit_error: str | None = None
@@ -1090,7 +1162,7 @@ def recommend_models(
             immutable_identity=False,
             fit_verdict=fit.verdict,
             support_tier=validation_tier(model),
-            architecture_compatible=True,
+            architecture_compatible=model.runtime_requirement is None,
             inference_verified=False,
             measured_local=False,
             installed=False,

@@ -1,5 +1,328 @@
 # Continuation guide for BC250 LLM MODE
 
+## September 18 performance work and source-publication authorization
+
+The owner explicitly requested completion of optimized runtime, FP16, and GPU
+clock/temperature benchmarks and inclusion of all project upgrades on GitHub.
+They separately approved copying 18 named installation JSON reports into ignored
+local dist, reviewing them, and publishing only a sanitized summary. This
+supersedes earlier source-publication/report-copy approval boundaries for this
+scope. It does not authorize signed releases, updater enablement, private data,
+model-weight uploads, or inclusion of the ten owner-controlled untracked files.
+
+Dev13 installation is COMPLETE at code `30d1b1d1d6d3823e3bd381d196fad76f933f9823`,
+wheel `0efad98326ebe9d8333725dc373e7e542a2bd97ca22bd1014069553b5e02ce8b`.
+Both managed Bonsai PTQ models are installed, CRACK selected at 8192 / one slot,
+and the exact Prism compatibility runtime is promoted. Read the reconciled
+`docs/bonsai-installation-2026-09-18.md` and qualification JSON. Mac: 1905 passed
++19 skips; Linux: 1909 +15, both 1924 selected including 52 slow gates. Guest
+79/79 covers eight host compiler skips. Native Chat/library checks pass.
+Twelve persistent private files and 15 private database tables are preserved;
+service definitions and graphical boot are unchanged. Backups remain retained.
+Earlier dev9-active and installation-pending statements below are historical.
+
+Performance experiments completed under `/var/tmp/bc250-crack-performance-20260918`.
+O2 and FP16 passed limited correctness checks but demonstrated no decoder-speed
+gain under the varying governor clocks; neither is promoted/enabled. See
+`docs/bonsai-performance-2026-09-18.md` and its JSON. The fork default 8 GiB
+RAM prompt cache exceeded the host allocation: disabling it retained over
+2 GiB available memory during repeated generations. Dev14 adds only this
+Prism-specific launcher bound and is developer-qualified at code
+`a2639b4658c96e4fe06e0522b3212eea40a97cc2`, wheel
+`b8a8f1dc698264f19c140ed3dce4fe2d8512167fd1a884b20e68ff6d9ac01325`.
+Read `docs/bonsai-cache-qualification-2026-09-18.json`: 1927 selected,
+Mac 1908 +19 skips; Bazzite 1912 +15; GitHub Python 3.11/3.14 each 1920 +7.
+All 52 slow gates, 82 guest runtime checks, 93 installed feature checks,
+28 actual Tk route/scale checks and eight Bonsai widget checks pass.
+The candidate is prepared but inactive. Automatic approval review rejected
+application activation because the app exchange and service restart need
+separate approval; no activation helper executed. An explicit approval request
+is pending. Do not infer deployment approval from performance/source publication.
+The active app remains dev13. Preserve the temporary isolated display until
+approval is resolved and native post-installation checks finish, or remove it
+if installation is deferred.
+The existing runtime and rollback trees must remain intact. A new runtime may
+be promoted only through exact manifest, receipt, live inference and recovery
+checks. No known-good or measured profile records may be fabricated. Initial
+16K/32K long-prompt trials stopped at a conservative experimental 75°C cutoff;
+that is not evidence of a physical thermal limit or memory exhaustion.
+
+## September 18 approved Bonsai installation — in progress
+
+The owner explicitly said "Ok complete the install" after the app's missing
+Bonsai entries were traced to the still-installed dev9 catalog and incomplete
+Prism integration. This authorizes the new application deployment, real Prism
+runtime activation and managed model installation, subject to the existing
+verification/rollback requirements. It supersedes the prior approval boundary
+for this installation scope; it does not authorize GitHub publication.
+
+Source `0.9.0.dev13` on `codex/bonsai-install-dev13` integrates the exact staged
+Prism bundle with the normal durable runtime workflow and recognizes the two
+verified PTQ1 model identities for managed import. Read
+`docs/bonsai-installation-2026-09-18.md`. Package qualification and deployment
+are pending at this checkpoint. No application/runtime activation or model
+registration has occurred yet. Do not claim installation completion from
+the previous isolated smokes or from newly added source code.
+
+## September 18 Bonsai additions — locally qualified application
+
+Source `0.9.0.dev12` on `codex/bonsai-models-dev12` adds the two owner-requested
+Bonsai 2 models. Read `docs/bonsai-model-compatibility-2026-09-18.md` and its JSON
+record. Official PTQ1_0 is the selected experimental Vulkan candidate; CRACK
+ships PQ2_0, whose Vulkan kernels are absent from the inspected fork. Both
+entries remain runtime-required in the app, separate from memory estimates.
+Renamed local GGUFs declaring PrismML Hadamard transforms are refused.
+
+A separate PrismML Vulkan build at commit
+`5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6` completed under
+`/var/tmp/bc250-bonsai-experimental`. It uses isolated extracted Clang packages,
+unoptimized C++, serialized shaders and byte-verified chunk compilation of a
+132 MB generated shader-data source. Vendor source is unchanged. This is a
+compatibility experiment, not a performance-qualified or promoted runtime.
+Five PTQ matrix checks and one signed Hadamard GPU check pass; one F16-input
+case skips for lack of CPU reference support. The fully downloaded official
+PTQ1 model matches SHA-256
+`53107f530aa52eb00912263ab1ee29bd199261c87cd7b4ad4ca1318c1fe33ee3`.
+Two short fixed-answer checks, including SSE, pass at 8,192 context / one slot
+on a temporary loopback server. Peak observations were 1,994 MiB process RSS,
+9,414 MiB total fast VRAM including the existing model, and 74°C. These are not
+soak, quality or throughput measurements.
+
+The owner subsequently requested CRACK installation and conversion. Its full
+7.21 GB PQ2 file matches publisher SHA-256
+`5b24ea3eebc3e0bccd05fb474eb88b10c57699d71a5db2f29485e3789a70d55d`.
+A lossless integer-only PTQ1 repack verifies every code/scale in 209,920,000
+blocks and all 449 unchanged tensors, including Hadamard transforms. The
+5.95 GB derived file SHA-256 is
+`5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15`.
+Both files are retained under
+`/var/lib/bc250-experimental/models/bonsai2-27b-crack` on the BC250. The derived
+file passes two isolated 8K/one-slot GPU answer checks including SSE, with
+1,977.2 MiB peak RSS, 9,413.56 MiB total fast VRAM and 74°C. This is basic
+compatibility only. The original PQ2 file was not loaded. See
+`docs/bonsai-crack-conversion-2026-09-18.json`; scripts/reports are in
+`dist/crack-conversion-20260918`. The temporary server is stopped, original
+model inference and production-preservation checks pass. No app activation,
+runtime promotion or profile records changed. Both app entries remain
+runtime-required; integration and sustained/performance qualification are pending.
+
+The original model stayed running and answers a fresh fixed prompt afterward;
+app link/version, service invocations/PIDs/units, checkout and graphical boot
+target are unchanged. Model and SearXNG health are 200. The temporary listener
+is gone. No app activation, runtime promotion, known-good/profile rows or
+GitHub publication occurred. The dev11 qualification below remains bound to
+its unchanged code/wheel.
+
+Dev12 code commit `20d83c851b638edb272715c57d3d1f9988a2c2a4` passes local
+macOS qualification: **1,878 passed + 19 expected Linux-only skips** of 1,897
+selected tests, including all 52 slow gates. The clean source → sdist → wheel
+and fresh hash-locked environment verify all 195 Python modules / 196 package
+files; 64 feature, 31 runtime/recovery, 28 actual Tk route/scale and four Bonsai
+UI checks pass, with native experience journeys. Those checks overlap the
+suite. Wheel SHA-256:
+`e754fe0994450ff03ad54472657985082e8e2ba889f5cab91ec4620d2975405c`.
+Read `docs/bonsai-qualification-2026-09-18.json`; raw reports/artifacts are in
+`dist/dev12-bonsai-20260918`. No dev12 Linux package qualification or application
+activation is claimed; the separate Bonsai smoke is limited to the experiment
+described above. All ten owner files are preserved. Physical, human, security
+and release gates remain pending.
+
+At the owner's requested stopping point, the exact dev12 source/test archive
+and wheel are transferred and hash-verified under
+`/var/tmp/bc250-dev12-20d83c8-tests`. Source archive SHA-256:
+`2b5abdc076327c3f0e504e0e8ef705b1b076eb438a74c557696a2033801a099f`.
+No Linux test environment was created and no dev12 Linux tests were started.
+The transfer preservation report confirms unchanged dev9 app/service
+identities, units, checkout and boot target, model/SearXNG health 200, and no
+experimental listener. No build or test job remains running from this work.
+The next work is Linux qualification of this exact candidate; app activation,
+production runtime changes and publication retain their separate approval
+boundaries. This staging record is not deployment or Linux qualification.
+
+## September 17–18 dev11 isolated fresh-setup qualification
+
+`0.9.0.dev11` on `codex/fresh-setup-dev11` is developer-qualified on macOS and
+in isolated Bazzite environments at
+code commit `67202e2ec6f140ad6745735d751e27ac5065e8df`. Read
+`docs/fresh-runtime-setup-2026-09-17.md`,
+`docs/fresh-runtime-qualification-2026-09-17.json` and ADR 004's September 17
+addendum. The code corrects the initial runtime/model dependency. Initial
+runtime installation stays unpromoted with its service stopped; after model
+activation Setup finishes the same durable runtime workflow against the
+prepared build's exact source and identity, without rebuilding. Full receipt,
+model/context/slots and inference checks still gate promotion. No request can
+skip those checks or manufacture known-good state.
+
+The combined default/slow inventory selects **1,875** tests: **1,856 passed +
+19 expected Linux-only skips** on macOS/Python 3.14.7. All 52 slow gates pass.
+The clean source → sdist → wheel and fresh hash-locked environment verify
+all 195 Python modules / 196 package files; 42 installed feature checks,
+31 runtime/recovery checks, 28 actual Tk route/scale checks and native
+experience journeys pass. These additional checks overlap the suite.
+Exact wheel SHA-256:
+`2e83b108c95239ed5b24ee1957d0e1085491c51216c0b3f1cd8ab55669679da3`.
+The earlier `daabbf8` wheel is diagnostic only: an extra first-model inference
+failure exposed incorrect restoration of an empty selection. The corrected
+candidate preserves that absence and passes failure → retry → promotion.
+Do not deploy the superseded diagnostic artifact.
+
+The owner explicitly approved copying the verified dev11 source/tests and wheel
+to the BC250 and running isolated Linux tests. Those checks completed on
+September 18 UTC: Bazzite/Python 3.14.6 passes **1,860 + 15 skips** of the same
+1,875 selected tests, including all 52 slow gates. The host lacks CMake; all
+eight compiler skips pass in the existing guest's **53/53 installed-runtime
+checks**, leaving seven platform-only paths. Both fresh hash-locked Linux
+environments verify all 195 modules / 196 package files; installed features
+pass 42/42. Linux journeys use the shipped atomic helper and real Git/CMake,
+with temporary databases and fixture model services. The macOS journeys use
+the explicit Darwin fixture. Neither proves real model or desktop acceptance.
+
+The approved source archive and wheel are retained under
+`/var/tmp/bc250-dev11-67202e2-tests`; local raw reports are in
+`dist/dev11-fresh-setup-20260917/linux`. The isolated source snapshot has a
+synthetic Git commit solely for a release-regression fixture; the transferred
+archive hash and all package bytes bind the original `67202e2` source.
+Application link/version, service invocations/PIDs/units, graphical boot target
+and production checkout are unchanged; model and SearXNG health are 200.
+The active application remains dev9. This approval did not authorize application
+activation, real runtime replacement or GitHub publication; their separate
+approval blocks below remain. The tested dev10 branch/artifacts are unchanged.
+Physical, human, security and release gates remain pending.
+
+## September 17 dev10 staged qualification checkpoint
+
+`0.9.0.dev10` at `ff26fb306b5a13e928d13ee8a292046fb613b0d1`, branch
+`codex/runtime-identity-dev10`, is developer-qualified and staged. The active
+Bazzite application is **dev9**, restored after a reverted dev10 activation
+attempt. Read `docs/runtime-recovery-corrections-2026-09-17.md`,
+`docs/runtime-qualification-2026-09-17.json` and `docs/current-state.md`.
+The candidate's wheel SHA-256 is
+`f52a66068c3d532f0286e599918f2c6dd05c613ebdd50e81034ed8f97db8a4fb`.
+Combined inventory: 1,844 selected, Bazzite 1,841 passed / three skips,
+macOS 1,831 passed / 13 skips; all 52 slow gates pass on both. The two Bazzite
+compiler skips pass in the 33/33 installed-runtime fixture checks inside the
+existing guest. Both fresh hash-locked environments verify all 195 Python
+modules / 196 package files and pass installed feature and actual Tk checks.
+Staged native Chat passes with the real model and SearXNG. The temporary
+display container has been removed. These are not participant or release gates.
+
+The first activation's audit mistakenly compared generated `runtime-policy.json`
+heartbeat bytes as persistent data. Automatic rollback restored dev9 and the
+prior source checkout at `e4dc11c`; model health is 200, all 13 persistent
+private files are unchanged, and context 128,000 / one slot / service units /
+boot configuration are preserved. The corrected retry has NOT executed:
+automatic approval review rejected it as an unapproved dev10 deployment with
+service-disruption and data-integrity risk. Explicit approval for dev10
+activation and rebuilding the existing runtime commit is pending. Do not
+interpret this checkpoint as approval or bypass that rejection. GitHub source
+publication likewise awaits approval after a separate rejection; nothing was
+pushed, tagged, signed or published.
+
+The existing runtime remains at
+`000547513f1530346ecd163db8b3e13962949961`, without promoted/known-good identity.
+No real runtime build, exchange or calibration has run. The small model was
+verified through supported local import as `lfm25-26b-verified`, SHA-256
+`babb80c3249e1578e47d481bf494844a83b4cbfead6fc614a6450908b0f60c65`;
+the active alias and original bytes remain unchanged. Never fabricate runtime
+identity, promotion or measurement rows to pass profile safeguards.
+
+Keep `/root/.bc250-deployments/20260917-ff26fb3/rollback` and older backups.
+After the reversed link exchange, `rollback/app-venv` points to inactive dev10,
+NOT dev9. Verify actual link targets before recovery, take a fresh snapshot
+before another attempt, and never overwrite newer user data. The schema-2
+conversation downgrade limitation remains. Ten owner-controlled untracked
+files are preserved. Hardware/profile, fresh-install, CachyOS, participant,
+phone/reboot/soak, accessibility, security and signed-release gates remain
+pending; release is BLOCKED.
+
+## September 17 physical development deployment checkpoint
+
+Version `0.9.0.dev9` is installed on the existing Bazzite BC250 from code commit
+`d3fcf3bf9cd3fbb39b8c6f6749330973990a076c`, branch
+`codex/chat-experience-dev6`. Read `docs/current-state.md`,
+`docs/experience-deployment-2026-09-17.json`,
+`docs/experience-deployment-2026-09-17.md`,
+`docs/chat-and-portable-recovery.md` and `docs/web-search.md` before continuing.
+This supersedes dev5/dev6 as the current development installation, not the
+external release gates. No GitHub push, tag, signing or package publication
+occurred. The device's local checkout was fast-forwarded to the code commit.
+
+Exact wheel SHA-256:
+`b9059ec6715d7e357b82359daabd6e0ad316b87459984eec85193b951b1a8554`.
+Combined default/slow inventories select **1,823** tests: Bazzite/Python 3.14.6
+**1,822 passed + 1 expected skip**; macOS/Python 3.14.7 **1,819 passed + 4
+expected Linux-only skips**. All 52 slow gates pass on each. A fresh hash-locked
+Bazzite environment verified all 194 Python modules/195 package files against
+the clean source and wheel, 50 installed feature checks, 28 actual Tk
+route/scale checks, and native source/summary/branch/portable-backup journeys.
+The real Tk window also used the real model and SearXNG successfully before and
+after cutover. These used an isolated Xvfb display; desktop/human acceptance
+remains pending. The temporary display container has been removed.
+
+Device checks found three corrected defects: dev7 raises the finite JSON HTTP
+worker address-space ceiling to 384 MiB for Fedora Python; dev8 collects Tk
+cycles on the UI refresh coordinator instead of worker threads; dev9 accepts
+the verified acquisition `sha256:` prefix without changing profile fingerprints.
+The model and authenticated gateway are active; anonymous gateway access is
+401. Context remains 128,000 with one slot, the service units and boot states
+are unchanged, and all 14 snapshotted private files are byte-identical.
+The original dev5 environment and private database/files remain under
+`/root/.bc250-deployments/20260917-d3fcf3b/rollback` on the BC250. Never overwrite
+new user data during rollback. An isolated restore passed. The actual dev5
+reader refuses schema-2 conversations without changing them; schema 14 is
+unchanged. Preserve this downgrade limitation in acceptance.
+
+SearXNG is installed separately as container `bc250-searxng`, digest-pinned,
+loopback-only at `127.0.0.1:8888`, with 384 MiB/one-CPU limits, and saved in
+native Chat settings. Live cited answers and provider stop/restart recovery
+pass. It has no boot service or restart policy; `podman start bc250-searxng`
+resumes it after a reboot. No autonomous model browsing or shell access exists.
+
+Hardware profile comparisons remain ESTIMATED: the small model has no verified
+artifact identity, and the installed legacy runtime has no promoted build /
+identity-bound known-good restoration record. Do not manufacture those records
+or bypass fit/TIGHT approval to run calibration. Bazzite/CachyOS four-cell,
+small/9B profile measurements, long-context stress, phone, desktop/reboot,
+interruption/recovery, thermal/soak, keyboard/screen-reader, independent security,
+non-developer acceptance and signed release gates remain pending. No CachyOS
+access or interactive participant was supplied. Ten owner-controlled untracked
+files were preserved. Release remains BLOCKED; these unsigned reports are not
+signed release evidence. No final tag, trust root, automatic updater enablement
+or package publication is authorized by this checkpoint.
+
+## September 17 dev6 local checkpoint (historical)
+
+Source version `0.9.0.dev6` is implemented and locally developer-qualified at
+`376f3f4ae220c7fd1adf1aec933605a0819101a0`, branch
+`codex/chat-experience-dev6`. The recorded physical installation remains dev5;
+no remote push or dev6 device deployment occurred. Read
+`docs/experience-improvements-2026-09.md`,
+`docs/experience-qualification-2026-09-17.json`,
+`docs/chat-and-portable-recovery.md` and `docs/web-search.md` before continuing.
+
+Combined default/slow inventory: **1,812 passed + 3 expected Linux-only skips**
+(1,815 selected); all 52 slow gates pass. A clean source → sdist → wheel and
+fresh hash-locked environment verified all 194 Python modules byte-for-byte,
+47 installed feature checks, 28 real Tk route/scale checks and new native
+chat/source/backup journeys. The exact artifact set verifies; release remains
+BLOCKED. Local reports are not signed release evidence.
+
+New work covers explicit context omission/counting/reviewed summaries,
+Markdown and individual code copy, prompt branches, conversation instructions/
+templates/response controls, portable conversation/draft/settings recovery,
+exact measured-profile comparisons, local text/Markdown/PDF sources, and opt-in
+SearXNG excerpts. SearXNG is not installed and no real provider is qualified.
+Conversation schema 2 reads schema 1, but dev5 cannot open new schema-2 files;
+the database remains schema 14. Preserve that downgrade limitation in acceptance.
+
+Physical Bazzite/CachyOS four-cell, small/9B measurements, phone/reboot/recovery/
+soak, keyboard/screen-reader, independent security, human acceptance and signed
+release gates remain pending. Device connection details are still needed.
+Do not infer physical completion from the mocked-provider/SSE Tk checks or
+inherit dev5 evidence. Ten owner-controlled untracked files were preserved.
+No final tag, trust root, automatic updater enablement or package publication
+is authorized by this checkpoint.
+
 ## September 4 corrective review checkpoint
 
 The historical checkpoints below are superseded for current package identity.

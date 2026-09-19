@@ -121,7 +121,7 @@ class AcquisitionHostAdapter:
         return {"lease_owner": ctx.worker_id, "lease_revision": revision}
 
     @staticmethod
-    def _hash_fd(fd: int) -> tuple[str, int]:
+    def _hash_fd(fd: int, *, pulse=None) -> tuple[str, int]:
         import hashlib
 
         h = hashlib.sha256()
@@ -132,9 +132,11 @@ class AcquisitionHostAdapter:
                 break
             h.update(chunk)
             total += len(chunk)
+            if pulse is not None:
+                pulse(phase="preflight", current=total, unit="bytes", cancellation_safe=True)
         return f"sha256:{h.hexdigest()}", total
 
-    def observe_local_source(self, request: ModelImportRequestV1):
+    def observe_local_source(self, request: ModelImportRequestV1, *, pulse=None):
         source = Path(request.source_path)
         flags = os.O_RDONLY
         if hasattr(os, "O_NOFOLLOW"):
@@ -147,7 +149,7 @@ class AcquisitionHostAdapter:
             st = os.fstat(fd)
             if not stat_module.S_ISREG(st.st_mode):
                 raise HostError("LOCAL_SOURCE_NOT_REGULAR", "not a regular file")
-            digest, size = self._hash_fd(fd)
+            digest, size = self._hash_fd(fd, pulse=pulse)
         finally:
             os.close(fd)
         return SourceIdentity(
@@ -164,6 +166,14 @@ class AcquisitionHostAdapter:
         )
         if entry is None:
             raise HostError("CATALOG_MODEL_UNKNOWN", request.model_id)
+        requirement = getattr(entry, "runtime_requirement", None)
+        if requirement:
+            from .prism_runtime import catalog_requirement, prism_runtime_promoted
+
+            with self.units.read() as conn:
+                requirement = catalog_requirement(entry, prism_ready=prism_runtime_promoted(conn))
+        if requirement:
+            raise HostError("MODEL_RUNTIME_REQUIRED", requirement)
         pattern = entry.allow_globs.get(request.quantization)
         if pattern is None:
             raise HostError("CATALOG_QUANT_UNSUPPORTED", request.quantization)
@@ -204,7 +214,11 @@ class AcquisitionHostAdapter:
         models_dir.mkdir(parents=True, exist_ok=True)
         usage = os.statvfs(models_dir)
         available = int(usage.f_bavail * usage.f_frsize)
-        required = source.total_bytes * 3 + (64 << 20)
+        # Local GGUF import needs a staged copy and an incoming publication
+        # copy, but has no additional conversion output. CoW may save actual
+        # blocks; the reservation still covers both complete physical copies.
+        local = isinstance(request, ModelImportRequestV1)
+        required = source.total_bytes * (2 if local else 3) + (64 << 20)
         reserved = min(available, max(source.total_bytes * 2, 0))
         if source.total_bytes > MAX_SOURCE_BYTES:
             raise HostError("MODEL_STORAGE_INSUFFICIENT", "source exceeds policy")
@@ -280,8 +294,16 @@ class AcquisitionHostAdapter:
         try:
             before = os.fstat(fd)
             total = 0
-            with open(dest, "ab" if dest.exists() else "wb") as out:
-                while True:
+            # An interrupted local copy is restarted, not appended to from
+            # byte zero. Reflink is an independent CoW file (never a hardlink)
+            # and avoids duplicating these multi-GB files on Btrfs.
+            with open(dest, "wb") as out:
+                cloned = storage.try_reflink(fd, out.fileno())
+                if cloned:
+                    total = before.st_size
+                    ctx.pulse(phase="transfer", current=total, total=identity.total_bytes,
+                              unit="bytes", cancellation_safe=True)
+                while not cloned:
                     chunk = os.read(fd, storage.CHUNK_BYTES)
                     if not chunk:
                         break
@@ -308,6 +330,8 @@ class AcquisitionHostAdapter:
         digest, size = storage.streaming_sha256(
             dest, on_chunk=lambda _total: ctx.pulse()
         )
+        if size != identity.total_bytes or not identity.fingerprint.startswith(f"local:{digest}:{size}:"):
+            raise HostError("LOCAL_SOURCE_CHANGED", "copied bytes differ from the resolved local source")
         return TransferEvidence(
             fingerprint=digest,
             bytes_complete=size,
@@ -432,12 +456,16 @@ class AcquisitionHostAdapter:
         digest, size = storage.streaming_sha256(
             candidate, on_chunk=lambda _total: ctx.pulse()
         )
-        ok = verdict == "standard" and size > 0
+        from .prism_runtime import PRISM_LAYOUT, recognized_layout
+
+        verdict = recognized_layout(verdict, digest)
+        ok = verdict in {"standard", PRISM_LAYOUT} and size > 0
         return ValidationEvidence(
             verdict="ok" if ok else "invalid",
             format="GGUF" if verdict != "rejected_not_gguf" else "unknown",
             layout_verdict=verdict,
-            reason_code=None if ok else "GGUF_LAYOUT_FORBIDDEN",
+            reason_code=(None if ok else "MODEL_RUNTIME_REQUIRED"
+                         if verdict == "rejected_runtime_required" else "GGUF_LAYOUT_FORBIDDEN"),
             detail={"content_digest": digest, "byte_size": size},
         )
 
@@ -619,6 +647,12 @@ class AcquisitionHostAdapter:
                         if source_kind == "hub"
                         else None
                     )
+                    from .prism_runtime import known_ptq1_artifact
+
+                    prism = known_ptq1_artifact(content_digest)
+                    if prism:
+                        catalog_id = prism["catalog_id"]
+                        request_quantization = prism["quantization"]
                     artifacts.record_verified(
                         artifact_id=artifact_id,
                         content_digest=content_digest,
@@ -628,6 +662,14 @@ class AcquisitionHostAdapter:
                         quantization=request_quantization,
                         source_filename=source_filename,
                         catalog_id=catalog_id,
+                        architecture=prism["architecture"] if prism else None,
+                        tensor_count=prism["tensor_count"] if prism else None,
+                        source_repo=prism["source_repo"] if prism else None,
+                        validation_detail=({"layout": "prism_ptq1", "exact_artifact_identity": True}
+                                           if prism else None),
+                        provenance=({"derived_from_sha256": prism["derived_from_sha256"],
+                                     "conversion": "lossless-pq2-to-ptq1-v1"}
+                                    if prism and prism.get("derived_from_sha256") else None),
                     )
             if disposition == "reused":
                 reg_disposition = "reused"
@@ -636,11 +678,15 @@ class AcquisitionHostAdapter:
             else:
                 reg_disposition = "installed"
             if alias is not None:
+                from .prism_runtime import known_ptq1_artifact
+
+                prism = known_ptq1_artifact(content_digest)
                 installs.install_alias(
                     alias=alias,
                     artifact_id=artifact_id,
-                    quant=getattr(ctx.request, "quantization", "") or "",
-                    display_name=getattr(ctx.request, "display_name", None) or alias,
+                    quant=prism["quantization"] if prism else (getattr(ctx.request, "quantization", "") or ""),
+                    display_name=(getattr(ctx.request, "display_name", None)
+                                  or (prism["display_name"] if prism else alias)),
                     sampling={"source": source_kind},
                 )
         return RegistrationEvidence(

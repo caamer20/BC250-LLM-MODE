@@ -98,6 +98,7 @@ class Application:
     doctor: Any = None
     support_bundle: Any = None
     model_library: Any = None
+    model_guidance: Any = None
     storage_capacity: Any = None
     storage_cleanup: Any = None
     undo: Any = None
@@ -112,6 +113,11 @@ class Application:
     tailscale: Any = None
     logs: Any = None
     chat_sessions: Any = None
+    chat_context: Any = None
+    chat_templates: Any = None
+    portable_backup: Any = None
+    documents: Any = None
+    web_search: Any = None
     conversations: Any = None
     chat_observation: Any = None
     preferences: Any = None
@@ -423,6 +429,8 @@ class Application:
         application.performance_coach = PerformanceCoachService(
             units, profiles=application.workload_profiles
         )
+        from .model_guidance import ModelGuidanceService
+        application.model_guidance = ModelGuidanceService(units, application.workload_profiles)
         # GUI-6: terminal and native chat share one bounded transport,
         # conversation store, and readiness observation policy.
         from .chat_service import ChatObservationService, ChatSessionService
@@ -457,6 +465,14 @@ class Application:
         application.conversations = ConversationService(
             application.paths.conversations_dir
         )
+        from .chat_context import ChatContextService
+        from .chat_preferences import PromptTemplateService
+        application.chat_context = ChatContextService()
+        application.chat_templates = PromptTemplateService(application.paths.app_dir)
+        from .document_service import DocumentService
+        application.documents = DocumentService()
+        from .web_search import WebSearchService
+        application.web_search = WebSearchService(application.paths.app_dir)
         application.chat_observation = ChatObservationService(
             state_supplier=lambda: application.read_model(),
             home=application.home,
@@ -533,10 +549,10 @@ class Application:
 
                 return stop_service(view, application.runner())
 
-            def health(self, view, *, timeout: int = 120):
+            def health(self, view, *, timeout: int = 120, pulse=None):
                 from .server import health_check
 
-                return health_check(view, timeout=timeout)
+                return health_check(view, timeout=timeout, pulse=pulse)
 
             def inference(self, view, *, timeout: float = 20.0):
                 from .server import minimal_inference_probe
@@ -718,7 +734,8 @@ class Application:
             fingerprint_for=_fingerprint_for,
         )
         application.runtime_lifecycle = RuntimeLifecycleCommandService(
-            units=units, enqueue=enqueue, engine_factory=engine_factory
+            units=units, enqueue=enqueue, engine_factory=engine_factory,
+            restoration_verifier=runtime_adapter.verify_restored_operation,
         )
         # P6 §12.2: durable model removal (dry-run + fenced remove).
         from .model_remove_command import ModelRemoveCommandService
@@ -816,6 +833,9 @@ class Application:
             gateway_service=application.gateway_service,
             openwebui_service=application.openwebui)
         application.preferences = UserPreferencesService(units)
+        from .portable_backup import PortableBackupService
+        application.portable_backup = PortableBackupService(application.paths,
+            application.conversations, application.chat_templates, application.preferences)
         application.maintenance = MaintenanceService(
             units, gateway_service=application.gateway_service)
         from .optimization_service import OptimizationService

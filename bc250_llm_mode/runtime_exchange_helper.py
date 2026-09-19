@@ -142,7 +142,7 @@ def fail(code, marker):
     sys.exit(code)
 
 
-def validate(active, candidate, root_text):
+def validate(active, candidate, root_text, initial=False):
     import pathlib
     bad_names = {"", ".", ".."}
     for value in (active, candidate, root_text):
@@ -158,6 +158,16 @@ def validate(active, candidate, root_text):
         p = pathlib.Path(raw)
         if p.is_symlink():
             fail(EXIT_REFUSAL, "EXCHANGE_REFUSAL_SYMLINK")
+        if initial and raw == active:
+            if p.exists() or not p.parent.is_dir():
+                fail(EXIT_REFUSAL, "EXCHANGE_REFUSAL_DESTINATION_EXISTS")
+            r = p.parent.resolve() / p.name
+            try:
+                r.relative_to(root)
+            except ValueError:
+                fail(EXIT_REFUSAL, "EXCHANGE_REFUSAL_CONTAINMENT")
+            paths.append(r)
+            continue
         try:
             r = p.resolve()
         except OSError:
@@ -180,7 +190,7 @@ def validate(active, candidate, root_text):
     return paths[0], paths[1]
 
 
-def renameat2_exchange(first, second):
+def renameat2_exchange(first, second, flags=2):
     libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
     AT_FDCWD = -100
     RENAME_EXCHANGE = 2
@@ -193,7 +203,7 @@ def renameat2_exchange(first, second):
     result = libc.renameat2(
         AT_FDCWD, os.fsencode(str(first)),
         AT_FDCWD, os.fsencode(str(second)),
-        RENAME_EXCHANGE,
+        flags,
     )
     if result != 0:
         errno_value = ctypes.get_errno()
@@ -213,16 +223,19 @@ def fsync_dir(path):
 
 
 def main(argv):
-    if len(argv) != 5 or argv[3] != "--root":
+    initial = len(argv) == 5 and argv[-1] == "--publish-initial"
+    if (len(argv) != 4 and not initial) or argv[2] != "--root":
         fail(EXIT_INTERNAL, "EXCHANGE_USAGE")
-    active, candidate = validate(argv[1], argv[2], argv[4])
+    active, candidate = validate(argv[0], argv[1], argv[3], initial=initial)
+    active_device = active.parent.stat().st_dev if initial else active.stat().st_dev
     if (
-        active.stat().st_dev != candidate.stat().st_dev
-        or active.stat().st_dev != pathlib_st_dev(argv[4])
+        active_device != candidate.stat().st_dev
+        or active_device != pathlib_st_dev(argv[3])
     ):
         fail(EXIT_REFUSAL, "EXCHANGE_REFUSAL_CROSS_DEVICE")
     try:
-        exchanged = renameat2_exchange(active, candidate)
+        exchanged = (renameat2_exchange(candidate, active, flags=1) if initial
+                     else renameat2_exchange(active, candidate))
     except OSError:
         exchanged = False
     if not exchanged:
@@ -259,7 +272,7 @@ def helper_destination(operation_owned_dir: Path) -> Path:
 
 def build_helper_invocation(
     helper_path_in_container: str, active: str, candidate: str,
-    approved_root: str,
+    approved_root: str, *, initial: bool = False,
 ) -> tuple[str, ...]:
     """Typed argv executing the verified helper (no shell anywhere)."""
     return (
@@ -269,6 +282,7 @@ def build_helper_invocation(
         candidate,
         "--root",
         approved_root,
+        *(("--publish-initial",) if initial else ()),
     )
 
 

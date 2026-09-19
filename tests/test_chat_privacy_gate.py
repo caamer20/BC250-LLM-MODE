@@ -74,3 +74,28 @@ def test_operation_history_excludes_chat_content_by_construction():
         decode_convert_request(
             {"source_alias": "tiny", "target_quantization": "Q4_K_M",
              "completion": "secret content"})
+
+
+def test_new_sources_instructions_templates_and_provider_are_excluded_from_diagnostics(tmp_path):
+    from bc250_llm_mode.app import Application
+    from bc250_llm_mode.paths import AppPaths
+    from bc250_llm_mode.chat_preferences import ConversationOptions
+    from bc250_llm_mode.document_service import DocumentSource
+    from bc250_llm_mode.support_bundle import SupportBundleService
+    app = Application.compose(AppPaths.temporary(tmp_path / "profile"))
+    source = DocumentSource("private-source-title", "web", "PRIVATE_DOCUMENT_CANARY",
+        "a" * 64, 64, url="https://example.org/PRIVATE_URL_CANARY")
+    app.conversations.save("private", title="PRIVATE_TITLE_CANARY", messages=[
+        {"role": "user", "content": "PRIVATE_PROMPT_CANARY", "sources": [source.to_dict()]}],
+        options=ConversationOptions("PRIVATE_INSTRUCTIONS_CANARY"), draft="PRIVATE_DRAFT_CANARY")
+    app.chat_templates.save_template("Private", "PRIVATE_TEMPLATE_CANARY")
+    app.web_search.configure("https://PRIVATE_PROVIDER_CANARY.example.org")
+    output = tmp_path / "support"
+    SupportBundleService(app.units, app.paths).build(output)
+    emitted = "\n".join(p.read_text(errors="replace") for p in output.rglob("*") if p.is_file())
+    for canary in ("PRIVATE_DOCUMENT_CANARY", "PRIVATE_URL_CANARY", "PRIVATE_TITLE_CANARY",
+                   "PRIVATE_PROMPT_CANARY", "PRIVATE_INSTRUCTIONS_CANARY", "PRIVATE_DRAFT_CANARY",
+                   "PRIVATE_TEMPLATE_CANARY", "PRIVATE_PROVIDER_CANARY"):
+        assert canary not in emitted
+        with app.units.read() as conn:
+            assert all(canary not in str(tuple(row)) for row in conn.execute("SELECT * FROM settings"))

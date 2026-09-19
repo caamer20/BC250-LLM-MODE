@@ -112,7 +112,7 @@ def test_exact_qwen_artifact_gets_truthful_local_recommendation_and_measurement(
     qwen = next(item for item in items if item.alias == "qwen38-9b")
     assert qwen.standard_layout and qwen.immutable_identity
     assert qwen.recommendation_label == "Recommended for this BC250"
-    assert qwen.measurement_summary == "Measured locally: speed 31.2 tok/s"
+    assert qwen.measurement_summary == "Historical benchmark (profile/runtime not recorded): speed 31.2 tok/s"
     assert model_action(qwen).label == "Open Chat"
 
     stale = build_model_items(

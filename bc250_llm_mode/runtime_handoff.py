@@ -116,8 +116,13 @@ def build_payload(
     model_path = ""
     alias = str(current_id or "local")
     sampling = {}
+    model_runtime = None
     for record in state.get("installed_models") or []:
         if record.get("id") == current_id:
+            from .prism_runtime import known_ptq1_artifact
+
+            if known_ptq1_artifact(record.get("content_digest")):
+                model_runtime = "prism-ptq1"
             model_path = str(record.get("path", ""))
             alias = str(
                 record.get("display_name") or alias
@@ -148,6 +153,8 @@ def build_payload(
         "fast_sync": bool(effective.get("fast_sync")),
     }
     payload.update(sampling)
+    if model_runtime:
+        payload["model_runtime"] = model_runtime
     if runtime_identity is not None:
         payload.update({
             "runtime_component_id": runtime_identity.component_id,
@@ -213,6 +220,8 @@ class RuntimeHandoffRenderer:
             return None
         if schema not in (1, HANDOFF_SCHEMA_VERSION_V2):
             return None
+        if payload.get("model_runtime") not in (None, "prism-ptq1"):
+            return None
         if require_v2 and schema != HANDOFF_SCHEMA_VERSION_V2:
             return None
         if revision < 1 or not 1024 <= port <= 65535:
@@ -252,6 +261,13 @@ class RuntimeHandoffRenderer:
 
     def needs_update(self, fingerprint: str) -> bool:
         return self.stored_fingerprint() != fingerprint
+
+    def restore_snapshot(self, payload: dict | None) -> None:
+        """Restore an operation's previously observed artifact through its owner."""
+        if payload is None:
+            self.path.unlink(missing_ok=True)
+        else:
+            atomic_write_text(self.path, json.dumps(payload, indent=2, sort_keys=True))
 
     def publish(
         self,

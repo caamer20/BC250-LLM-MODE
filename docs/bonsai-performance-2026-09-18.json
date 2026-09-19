@@ -1,0 +1,482 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-18",
+  "model_sha256": "sha256:5a264c32944e90222d275b47239ca50b56a175e2edc97e5bdb99c59d7c8f4e15",
+  "source_commit": "5d80cff0b8cb9f2bf823cfc4e71e3abb97f290d6",
+  "context": 8192,
+  "slots": 1,
+  "cache_ram_mib": 0,
+  "existing_governor_policy": {
+    "frequency-range": {
+      "min": 1000,
+      "max": 1850
+    },
+    "temperature": {
+      "throttling": 85,
+      "throttling_recovery": 75
+    }
+  },
+  "gpu_controls_changed": false,
+  "benchmark_limits": {
+    "temperature_c": 90,
+    "host_available_floor_mib": 512,
+    "fast_vram_reserve_mib": 768,
+    "server_rss_ceiling_mib": 2800,
+    "per_variant_seconds": 600
+  },
+  "optimized_build": {
+    "exit_status": 0,
+    "stop_reason": null,
+    "elapsed_seconds": 1784.79,
+    "peak_build_rss_mib": 857.578125,
+    "minimum_host_available_mib": 569.48046875,
+    "binaries": {
+      "llama-server": {
+        "sha256": "bf3c64dd148d8719938efa58de381073b4558aa2901293e6af89e08bbba6e948",
+        "bytes": 70802384
+      },
+      "llama-cli": {
+        "sha256": "9b071a4643e047401c678e67d77bc7deebaae614a530145062be4c19a3c66057",
+        "bytes": 70942016
+      },
+      "llama-quantize": {
+        "sha256": "b2d8ba2da31c62d45af14a03d5dbf159fdc45692ee6f97a4411aa069f2759236",
+        "bytes": 60380648
+      },
+      "test-backend-ops": {
+        "sha256": "c62871da280d2546ce016bddcf7d7579d5e29a11aef11ed0597998e2a55273a5",
+        "bytes": 57778088
+      }
+    },
+    "recipe_sha256": "c824ad75069df054f0a1e53b5ad23d4657ad95d4d234046a267367ebd1d477fb",
+    "active_runtime_changed": false
+  },
+  "optimized_binary_smokes": [
+    {
+      "path": "build/bin/llama-server",
+      "size": 70802384,
+      "mode": "755",
+      "sha256": "bf3c64dd148d8719938efa58de381073b4558aa2901293e6af89e08bbba6e948",
+      "version_output_digest": "a95f5596b458716b36ef8d39c9658ac4222f1b1a43e78cbe843b3992f8ac36dc"
+    },
+    {
+      "path": "build/bin/llama-cli",
+      "size": 70942016,
+      "mode": "755",
+      "sha256": "9b071a4643e047401c678e67d77bc7deebaae614a530145062be4c19a3c66057",
+      "version_output_digest": "a95f5596b458716b36ef8d39c9658ac4222f1b1a43e78cbe843b3992f8ac36dc"
+    },
+    {
+      "path": "build/bin/llama-quantize",
+      "size": 60380648,
+      "mode": "755",
+      "sha256": "b2d8ba2da31c62d45af14a03d5dbf159fdc45692ee6f97a4411aa069f2759236",
+      "version_output_digest": "336cfc46bda93c688d9063a7cec953ae9d3596464230db436117687b25043f3b"
+    }
+  ],
+  "kernel_checks": {
+    "binary_sha256": "c62871da280d2546ce016bddcf7d7579d5e29a11aef11ed0597998e2a55273a5",
+    "checks": [
+      {
+        "name": "ptq-small-f32",
+        "disable_f16": true,
+        "exit_status": 0,
+        "seconds": 0.353,
+        "expected_ok_count": 5,
+        "ok_lines": [
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=2,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=8,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK"
+        ],
+        "skipped_lines": [
+          "MUL_MAT(type_a=ptq1_0,type_b=f16,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): not supported [CPU]"
+        ],
+        "passed": true,
+        "log_sha256": "6093a6c0cf72d9ff0acf1377278aa62286949727327a1d391dd20ba212995c8c",
+        "device_lines": [
+          "ggml_vulkan: 0 = AMD BC-250 (RADV GFX1013) (radv) | uma: 1 | fp16: 0 | bf16: 0 | fp4: 0 | warp size: 32 | shared memory: 65536 | int dot: 0 | matrix cores: none"
+        ]
+      },
+      {
+        "name": "hadamard-small-f32",
+        "disable_f16": true,
+        "exit_status": 0,
+        "seconds": 0.362,
+        "expected_ok_count": 1,
+        "ok_lines": [
+          "MUL_MAT_HADAMARD(blk=1024,width=5120,n_tokens=1,type_x=f32): OK"
+        ],
+        "skipped_lines": [],
+        "passed": true,
+        "log_sha256": "2f285afe229a6af3578a228f37808125c9ca80448d02efaa56e28b6842151f37",
+        "device_lines": [
+          "ggml_vulkan: 0 = AMD BC-250 (RADV GFX1013) (radv) | uma: 1 | fp16: 0 | bf16: 0 | fp4: 0 | warp size: 32 | shared memory: 65536 | int dot: 0 | matrix cores: none"
+        ]
+      },
+      {
+        "name": "ptq-small-f16",
+        "disable_f16": false,
+        "exit_status": 0,
+        "seconds": 0.353,
+        "expected_ok_count": 5,
+        "ok_lines": [
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=2,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=8,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK",
+          "MUL_MAT(type_a=ptq1_0,type_b=f32,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): OK"
+        ],
+        "skipped_lines": [
+          "MUL_MAT(type_a=ptq1_0,type_b=f16,m=16,n=1,k=256,bs=[1,1],nr=[1,1],per=[0,1,2,3],k_v=0,o=1,src_overlap=0): not supported [CPU]"
+        ],
+        "passed": true,
+        "log_sha256": "88efbf81ad7292cb0edced4ec3165a7e29de25f716e4f5197cdacca014bf3942",
+        "device_lines": [
+          "ggml_vulkan: 0 = AMD BC-250 (RADV GFX1013) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 32 | shared memory: 65536 | int dot: 0 | matrix cores: none"
+        ]
+      },
+      {
+        "name": "hadamard-small-f16",
+        "disable_f16": false,
+        "exit_status": 0,
+        "seconds": 0.363,
+        "expected_ok_count": 1,
+        "ok_lines": [
+          "MUL_MAT_HADAMARD(blk=1024,width=5120,n_tokens=1,type_x=f32): OK"
+        ],
+        "skipped_lines": [],
+        "passed": true,
+        "log_sha256": "6ca63d6f4c49722c5c64920e6bef2c6aa9e423eb6b7c5b81b9e886c05277ed0c",
+        "device_lines": [
+          "ggml_vulkan: 0 = AMD BC-250 (RADV GFX1013) (radv) | uma: 1 | fp16: 1 | bf16: 0 | fp4: 0 | warp size: 32 | shared memory: 65536 | int dot: 0 | matrix cores: none"
+        ]
+      }
+    ],
+    "scope": "Small fixed PTQ and signed Hadamard checks, not full-model or sustained qualification"
+  },
+  "variants": [
+    {
+      "name": "baseline-o0-f32",
+      "disable_f16": true,
+      "binary_sha256": "a5e325d87d52cc89bcebd196fa92cec36c0aeaebb1bdacb1ad2c81c1c995ff6c",
+      "checks": [
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        },
+        {
+          "expected": "Paris",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "8",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "729416",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "3",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        }
+      ],
+      "generation": [
+        {
+          "repeat": 1,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 58.856,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 2910.728,
+            "prompt_per_token_ms": 67.6913488372093,
+            "prompt_per_second": 14.77293652996776,
+            "predicted_n": 192,
+            "predicted_ms": 55933.249,
+            "predicted_per_token_ms": 292.8442356020943,
+            "predicted_per_second": 3.4147846480364477
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        },
+        {
+          "repeat": 2,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 70.221,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 3309.204,
+            "prompt_per_token_ms": 76.95823255813954,
+            "prompt_per_second": 12.994061411747355,
+            "predicted_n": 192,
+            "predicted_ms": 66903.038,
+            "predicted_per_token_ms": 350.27768586387435,
+            "predicted_per_second": 2.854877830809417
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        }
+      ],
+      "phase": "finished",
+      "passed": true,
+      "initial_temperature_c": 64.0,
+      "stop_reason": null,
+      "elapsed_seconds": 186.07,
+      "resource_summary": {
+        "samples": 363,
+        "peak_temperature_c": 86.0,
+        "minimum_host_available_mib": 2073.671875,
+        "gpu_clock_mhz": {
+          "min": 1140.0,
+          "median": 1440.0,
+          "max": 1850.0
+        },
+        "gpu_busy_percent": null,
+        "soc_power_watts": {
+          "min": 57.24,
+          "median": 92.03200000000001,
+          "max": 120.009
+        }
+      }
+    },
+    {
+      "name": "optimized-o2-f32",
+      "disable_f16": true,
+      "binary_sha256": "bf3c64dd148d8719938efa58de381073b4558aa2901293e6af89e08bbba6e948",
+      "checks": [
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        },
+        {
+          "expected": "Paris",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "8",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "729416",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "3",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        }
+      ],
+      "generation": [
+        {
+          "repeat": 1,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 70.106,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 3298.905,
+            "prompt_per_token_ms": 76.71872093023256,
+            "prompt_per_second": 13.034628156918734,
+            "predicted_n": 192,
+            "predicted_ms": 66801.924,
+            "predicted_per_token_ms": 349.74829319371725,
+            "predicted_per_second": 2.8591990853437097
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        },
+        {
+          "repeat": 2,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 76.503,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 3494.19,
+            "prompt_per_token_ms": 81.26023255813953,
+            "prompt_per_second": 12.306142482234796,
+            "predicted_n": 192,
+            "predicted_ms": 73006.157,
+            "predicted_per_token_ms": 382.2311884816754,
+            "predicted_per_second": 2.6162176979127936
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        }
+      ],
+      "phase": "finished",
+      "passed": true,
+      "initial_temperature_c": 75.0,
+      "stop_reason": null,
+      "elapsed_seconds": 200.1,
+      "resource_summary": {
+        "samples": 390,
+        "peak_temperature_c": 87.0,
+        "minimum_host_available_mib": 2061.1484375,
+        "gpu_clock_mhz": {
+          "min": 1190.0,
+          "median": 1290.0,
+          "max": 1450.0
+        },
+        "gpu_busy_percent": null,
+        "soc_power_watts": {
+          "min": 58.088,
+          "median": 84.227,
+          "max": 96.163
+        }
+      }
+    },
+    {
+      "name": "optimized-o2-f16",
+      "disable_f16": false,
+      "binary_sha256": "bf3c64dd148d8719938efa58de381073b4558aa2901293e6af89e08bbba6e948",
+      "checks": [
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        },
+        {
+          "expected": "Paris",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "8",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "729416",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "3",
+          "passed": true,
+          "stream": false
+        },
+        {
+          "expected": "4",
+          "passed": true,
+          "stream": true
+        }
+      ],
+      "generation": [
+        {
+          "repeat": 1,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 70.742,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 3183.658,
+            "prompt_per_token_ms": 74.03855813953489,
+            "prompt_per_second": 13.506475884030257,
+            "predicted_n": 192,
+            "predicted_ms": 67553.541,
+            "predicted_per_token_ms": 353.68346073298426,
+            "predicted_per_second": 2.8273869463038217
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        },
+        {
+          "repeat": 2,
+          "completion_tokens": 192,
+          "prompt_tokens": 43,
+          "seconds": 78.66,
+          "timings": {
+            "cache_n": 0,
+            "prompt_n": 43,
+            "prompt_ms": 3380.267,
+            "prompt_per_token_ms": 78.61086046511628,
+            "prompt_per_second": 12.720888616195111,
+            "predicted_n": 192,
+            "predicted_ms": 75276.618,
+            "predicted_per_token_ms": 394.11841884816755,
+            "predicted_per_second": 2.537308464097045
+          },
+          "output_sha256": "1303f21720ffdc8ba6f3899256e62e9624e1860e68cf2e0f6b77114506e5209a",
+          "output_characters": 961
+        }
+      ],
+      "phase": "finished",
+      "passed": true,
+      "initial_temperature_c": 75.0,
+      "stop_reason": null,
+      "elapsed_seconds": 202.25,
+      "resource_summary": {
+        "samples": 395,
+        "peak_temperature_c": 87.0,
+        "minimum_host_available_mib": 2045.671875,
+        "gpu_clock_mhz": {
+          "min": 1150.0,
+          "median": 1250.0,
+          "max": 1440.0
+        },
+        "gpu_busy_percent": null,
+        "soc_power_watts": {
+          "min": 58.199,
+          "median": 83.1935,
+          "max": 109.13
+        }
+      }
+    }
+  ],
+  "production_restored": true,
+  "temporary_listener_removed": true,
+  "decision": {
+    "optimized_runtime_promoted": false,
+    "fp16_enabled_in_application": false,
+    "application_change": "Disable the separate host-RAM prompt cache for the exact verified Prism runtime; retain the active Q8 GPU KV cache.",
+    "generation_speed_gain_demonstrated": false
+  },
+  "limitations": [
+    "Five fixed answers, two 192-token synthetic completions, and a final SSE check per mode; not broad model quality or soak qualification.",
+    "Initial temperatures differed (64C then 75C); automatic governor clocks varied. These are operating-condition observations, not an isolated compiler or precision speed comparison.",
+    "One PTQ F16-input case lacks a CPU reference and remains skipped in each mode.",
+    "No direct GPU utilization or throttle counter was available. Reported power is SoC including CPU.",
+    "Earlier diagnostic attempts stopped at a conservative 82C trial cutoff, at host-memory guards with the fork default cache, or at cooldown preconditions; they do not establish a hardware failure."
+  ],
+  "raw_reports": "Retained outside Git; no user conversations, credentials, databases, model files, or raw device logs are published.",
+  "report_sha256": {
+    "comparison.json": "b76f1750e478f43487915d2719652af4910ac865708da331113915c60e4ab8b9",
+    "kernel-checks.json": "eca9f682ce5d6b0c42dc0ae00225a0150e12d6f730d962353b8a25d880b7a251",
+    "build-result.json": "320cd37aa2775ffd0f639fb9c93f033152d18c300067daa509c0ea71217d4202",
+    "build-recipe.json": "c824ad75069df054f0a1e53b5ad23d4657ad95d4d234046a267367ebd1d477fb",
+    "binary-smokes.json": "0ba7207525e3ccd5a4c8288108fbc3414cb54334a02ea2c0d4d0afea4b6bfbb2"
+  },
+  "application_during_experiments": {
+    "version": "0.9.0.dev13",
+    "source_commit": "30d1b1d1d6d3823e3bd381d196fad76f933f9823"
+  }
+}

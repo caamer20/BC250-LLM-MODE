@@ -47,6 +47,7 @@ DEFAULT_TIMEOUTS: dict[str, float] = {
 }
 TERMINATION_GRACE_SECONDS = 5.0
 DEFAULT_MAX_OUTPUT_BYTES = 64 * 1024
+MAX_STDIN_BYTES = 256 * 1024
 
 # Progress phase bands (§12.3): stable phases only, no fake precision.
 PROGRESS_PHASE_BANDS: tuple[tuple[str, int, int], ...] = (
@@ -101,8 +102,16 @@ class ProcessCommandSpec:
     # Bounded stdin text fed to the child right after spawn (used to
     # transfer fixed resources like the exchange helper without shells).
     stdin_payload: str = ""
+    # Fixed liveness bytes for the guest supervisor, never command input.
+    stdin_heartbeat: bool = False
 
     def __post_init__(self) -> None:
+        if self.stdin_heartbeat and self.stdin_payload:
+            raise ProcessFailure("PROCESS_SPEC_INVALID", "stdin has two owners")
+        if not isinstance(self.stdin_payload, str) or len(
+            self.stdin_payload.encode("utf-8")
+        ) > MAX_STDIN_BYTES:
+            raise ProcessFailure("PROCESS_SPEC_INVALID", "stdin exceeds bound")
         if not self.argv or any(
             not isinstance(part, str) or not part for part in self.argv
         ):
@@ -192,7 +201,7 @@ class RuntimeProcessRunner:
                 env=spec.build_env(),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.PIPE if spec.stdin_payload or spec.stdin_heartbeat else subprocess.DEVNULL,
                 start_new_session=True,
             )
         except OSError as exc:
@@ -200,26 +209,22 @@ class RuntimeProcessRunner:
                 "PROCESS_SPAWN_FAILED", str(exc)[:200]
             ) from exc
 
-        if spec.stdin_payload and proc.stdin is not None:
-            try:
-                proc.stdin.write(spec.stdin_payload.encode("utf-8"))
-                proc.stdin.close()
-            except OSError as exc:
-                self._terminate_group(proc, spec.termination_grace_seconds)
-                raise ProcessFailure(
-                    "PROCESS_STDIN_FAILED", str(exc)[:120]
-                ) from exc
-
+        pending = memoryview(spec.stdin_payload.encode("utf-8"))
+        last_stdin_pulse = started - 1.0
+        if proc.stdin is not None:
+            os.set_blocking(proc.stdin.fileno(), False)
         stdout_buf = bytearray()
         stderr_buf = bytearray()
+        truncated = {"stdout": False, "stderr": False}
         fds = [proc.stdout, proc.stderr]
         # Non-blocking pipes: the supervisor loop stays in charge of the
         # timeout/cancel clock instead of blocking on a silent child.
         for stream in fds:
             os.set_blocking(stream.fileno(), False)
 
-        def _pump(stream, buffer: bytearray) -> None:
-            while True:
+        def _pump(stream, buffer: bytearray, name: str) -> None:
+            # A noisy process must still yield to the deadline and lease pulse.
+            for _ in range(16):
                 try:
                     chunk = stream.read1(4096)
                 except (BlockingIOError, OSError):
@@ -227,8 +232,10 @@ class RuntimeProcessRunner:
                 if not chunk:
                     return  # EOF
                 limit = spec.max_output_bytes
-                room = max(0, limit - len(buffer))
-                buffer.extend(chunk[:room])  # drop beyond cap
+                buffer.extend(chunk)
+                if len(buffer) > limit:
+                    truncated[name] = True
+                    del buffer[:len(buffer) - limit]
                 if len(chunk) < 4096:
                     return
 
@@ -236,12 +243,37 @@ class RuntimeProcessRunner:
             while True:
                 # Non-blocking-ish pump loop: short reads keep pipes drained
                 # without unbounded buffering or deadlock.
-                _pump(proc.stdout, stdout_buf)
-                _pump(proc.stderr, stderr_buf)
+                _pump(proc.stdout, stdout_buf, "stdout")
+                _pump(proc.stderr, stderr_buf, "stderr")
+                if proc.stdin is not None and not proc.stdin.closed:
+                    try:
+                        if spec.stdin_heartbeat and self._monotonic() - last_stdin_pulse >= 1.0:
+                            os.write(proc.stdin.fileno(), b".")
+                            last_stdin_pulse = self._monotonic()
+                        elif pending:
+                            written = os.write(proc.stdin.fileno(), pending[:4096])
+                            pending = pending[written:]
+                    except BlockingIOError:
+                        pass
+                    except BrokenPipeError as exc:
+                        if spec.stdin_heartbeat:
+                            proc.stdin.close()  # Supervisor may have finished normally.
+                        else:
+                            raise ProcessFailure("PROCESS_STDIN_FAILED", "child refused stdin payload") from exc
+                    except OSError as exc:
+                        raise ProcessFailure(
+                            "PROCESS_STDIN_FAILED", "child refused stdin payload"
+                        ) from exc
+                    if not pending and not spec.stdin_heartbeat:
+                        proc.stdin.close()
                 code = proc.poll()
                 if code is not None:
-                    _pump(proc.stdout, stdout_buf)
-                    _pump(proc.stderr, stderr_buf)
+                    _pump(proc.stdout, stdout_buf, "stdout")
+                    _pump(proc.stderr, stderr_buf, "stderr")
+                    if pending:
+                        raise ProcessFailure(
+                            "PROCESS_STDIN_FAILED", "child exited before reading payload"
+                        )
                     break
                 elapsed = self._monotonic() - started
                 timed_out = elapsed >= timeout
@@ -260,6 +292,11 @@ class RuntimeProcessRunner:
                     pass  # streaming hooks are throttled by the caller
                 self._sleep(0.02)
         finally:
+            if proc.poll() is None:
+                self._terminate_group(proc, spec.termination_grace_seconds)
+            proc.wait()
+            if proc.stdin is not None:
+                proc.stdin.close()
             for stream in fds:
                 try:
                     stream.close()
@@ -283,8 +320,8 @@ class RuntimeProcessRunner:
             exit_code=code,
             stdout_tail=_redact(out_tail, spec.redaction_tokens),
             stderr_tail=_redact(err_tail, spec.redaction_tokens),
-            truncated_stdout=out_cut,
-            truncated_stderr=err_cut,
+            truncated_stdout=out_cut or truncated["stdout"],
+            truncated_stderr=err_cut or truncated["stderr"],
             duration_seconds=duration,
         )
 
@@ -296,11 +333,17 @@ class RuntimeProcessRunner:
             pass
         deadline = self._monotonic() + max(grace, 0.0)
         while self._monotonic() < deadline:
-            if proc.poll() is not None:
+            proc.poll()
+            try:
+                os.killpg(proc.pid, 0)
+            except ProcessLookupError:
                 return
+            except PermissionError:
+                break  # Some sandboxes disallow signal-zero observations.
             self._sleep(0.05)
         try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            # The leader may already have exited while a child ignored TERM.
+            os.killpg(proc.pid, signal.SIGKILL)
         except (ProcessLookupError, PermissionError):
             pass
         proc.wait()

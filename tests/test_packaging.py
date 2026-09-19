@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 import bc250_llm_mode
+from package_build_fixture import clean_build_source as _clean_build_source
 
 try:  # Tk is an optional system dependency (mirrors the Linux-gated skips).
     import tkinter  # noqa: F401
@@ -19,7 +20,7 @@ def test_pyproject_declares_entry_point_and_metadata():
     assert 'bc250-llm-mode = "bc250_llm_mode.__main__:cli"' in text
     assert "requires-python" in text
     assert 'readme = "README.md"' in text
-    for dependency in ("gguf", "httpx", "prompt-toolkit", "rich"):
+    for dependency in ("gguf", "httpx", "prompt-toolkit", "rich", "pypdf"):
         assert dependency in text, f"missing declared dependency: {dependency}"
 
 
@@ -80,7 +81,7 @@ def test_clean_wheel_smoke_includes_operations(tmp_path):
     wheel_dir.mkdir()
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps", "--no-build-isolation",
-         "--wheel-dir", str(wheel_dir), str(Path(__file__).parent.parent)],
+         "--wheel-dir", str(wheel_dir), str(_clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -90,7 +91,7 @@ def test_clean_wheel_smoke_includes_operations(tmp_path):
     target = tmp_path / "site"
     target.mkdir()
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )
@@ -176,7 +177,7 @@ def test_clean_wheel_executes_runtime_workflows_and_migration_005(tmp_path):
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps",
          "--no-build-isolation", "--wheel-dir", str(wheel_dir),
-         str(Path(__file__).parent.parent)],
+         str(_clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -185,7 +186,7 @@ def test_clean_wheel_executes_runtime_workflows_and_migration_005(tmp_path):
     target = tmp_path / "site2"
     target.mkdir()
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )
@@ -308,9 +309,11 @@ class MiniHost:
         return ProbeResult(RecoveryClass.COMPLETE, "CHECKOUT_PRESENT")
 
     def configure_build(self, request, commit, pulse):
-        n = len(list((self.base / "managed").glob("candidate-*"))) + 1
+        # Published candidates no longer occupy their staging directories;
+        # counting those directories reused a still-registered tree locator.
+        self._candidate_count = getattr(self, "_candidate_count", 0) + 1
         from bc250_llm_mode.operations.runtime_lifecycle import BuildEnvironmentEvidenceV1
-        locator = "managed/candidate-%03d" % n
+        locator = "managed/candidate-%03d" % self._candidate_count
         (self.base / locator).mkdir(parents=True, exist_ok=True)
         return BuildEnvironmentEvidenceV1(
             1, dig(b"recipe"), "Ninja", [], ["llama-server"], "bounded-2",
@@ -437,7 +440,7 @@ class MiniHost:
             return ProbeResult(RecoveryClass.COMPLETE, "INVOKED")
         return ProbeResult(RecoveryClass.REVERTIBLE, "INACTIVE")
 
-    def verify_runtime_identity(self, snap, target):
+    def verify_runtime_identity(self, snap, target, pulse=None):
         from bc250_llm_mode.operations.runtime_lifecycle import RuntimeIdentityEvidenceV1
         return RuntimeIdentityEvidenceV1(True, True, True, True, True, True, "")
 

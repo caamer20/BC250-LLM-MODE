@@ -60,10 +60,10 @@ class PrivacyCenterQueryService:
         items = (
             PrivacyItem(
                 "conversations", "Saved conversations",
-                "Conversation titles, roles, prompts, and responses saved explicitly from Chat.",
+                "Conversation titles, roles, prompts, responses, instructions, drafts, document text and explicitly attached web excerpts/URLs.",
                 str(paths.conversations_dir),
                 "Creation stops at 200 files; existing larger histories are retained and indexed up to 10,000 files. Each conversation is bounded to 2,000 messages and 8 MiB. Private titles are indexed locally. Nothing is automatically deleted.",
-                "Sent only to the selected model endpoint while chatting; never included in logs, events, notices, or support bundles.",
+                "Sent to the local model while chatting, or copied to an explicitly chosen export. Conversation history and documents are not sent to web search providers. Excluded from diagnostics and support bundles.",
                 "Manage conversations", "chat",
             ),
             PrivacyItem(
@@ -108,11 +108,35 @@ class PrivacyCenterQueryService:
             ),
             PrivacyItem(
                 "backups", "Profile backups",
-                "SQLite profile snapshot, bounded manifest, settings, and selected app data. Model/runtime bytes are excluded unless explicitly requested.",
+                "SQLite configuration snapshot and verified manifest. Model/runtime bytes, conversations and secret files are excluded.",
                 str(paths.backups_dir),
                 "Kept until an explicit cleanup decision. Encryption is unavailable in this build and is refused rather than implied.",
                 "Not transmitted automatically.",
-                "Manage backups", "system",
+                "Manage backups", "maintenance/backups",
+            ),
+            PrivacyItem(
+                "portable-backups", "Portable conversation backups",
+                "Conversations, drafts, instructions, attached source text, and optional prompt templates/display preferences. No service configuration or credentials.",
+                "A destination chosen explicitly outside the application profile",
+                "The user owns these readable, unencrypted files. Import adds new conversations and preserves existing ones; retries resume the same archive without duplicates.",
+                "Copied only to the destination chosen by the user; never uploaded automatically.",
+                "Export or import conversations", "maintenance/backups",
+            ),
+            PrivacyItem(
+                "chat-templates", "Reusable prompt templates",
+                "User-edited instructions for writing, coding, summarizing and custom tasks.",
+                str(paths.app_dir / "chat-preferences" / "templates.json"),
+                "At most 20 private templates, each limited to 16 KiB. Templates remain until explicitly replaced or removed with the profile.",
+                "Used in a conversation only when selected. Included in a portable export only when requested; excluded from diagnostics.",
+                "Manage chat settings", "chat",
+            ),
+            PrivacyItem(
+                "web-search", "Optional SearXNG web search",
+                "A saved search-provider address; queries/results remain in memory unless excerpts are explicitly attached to a saved conversation.",
+                str(paths.app_dir / "chat-preferences" / "web-search.json"),
+                "Provider remains until cleared. No query history or search cache is kept by this application.",
+                "Only the query shown in the search form is sent to the chosen provider and its upstream engines. Search requires an explicit action; result pages are not fetched automatically.",
+                "Search or configure provider", "chat",
             ),
             PrivacyItem(
                 "support-bundles", "Support bundles",
@@ -152,7 +176,7 @@ class PrivacyCenterQueryService:
         return PrivacySnapshot(
             PRIVACY_SNAPSHOT_SCHEMA_VERSION,
             "BC250 LLM MODE has no telemetry and sends no usage analytics.",
-            "Network activity is action-driven: model downloads, explicit connection probes, chat requests, and any future eligible update check are never hidden background telemetry.",
+            "Network activity is action-driven: model downloads, explicit connection probes, local chat, optional user-directed SearXNG queries, and any future eligible update check. No background telemetry is sent.",
             items,
         )
 

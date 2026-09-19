@@ -70,6 +70,74 @@ def test_runner_executes_typed_argv_and_reports_bounds(tmp_path):
     assert "hello" in result.stdout_tail
 
 
+def test_runner_delivers_stdin_payload_without_pipe_deadlock():
+    payload = "manifest-é\n" * 12000
+    result = RuntimeProcessRunner().run(ProcessCommandSpec(
+        kind=CommandKind.SMOKE,
+        argv=(sys.executable, "-c", "import sys,hashlib;"
+              "sys.stdout.write('x'*100000);sys.stdout.flush();"
+              "print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())"),
+        stdin_payload=payload, timeout_seconds=3, max_output_bytes=128,
+    ))
+    assert hashlib.sha256(payload.encode()).hexdigest() in result.stdout_tail
+    assert result.truncated_stdout
+
+
+def test_runner_stdin_unread_still_obeys_deadline():
+    with pytest.raises(ProcessFailure) as err:
+        RuntimeProcessRunner().run(ProcessCommandSpec(
+            kind=CommandKind.SMOKE,
+            argv=(sys.executable, "-c", "import time;time.sleep(30)"),
+            stdin_payload="x" * 200000, timeout_seconds=0.2,
+            termination_grace_seconds=0.1,
+        ))
+    assert err.value.code == "PROCESS_TIMEOUT"
+
+
+def test_runner_reaps_child_when_lease_pulse_raises(tmp_path):
+    pidfile = tmp_path / "child.pid"
+    def lost_lease():
+        if pidfile.exists():
+            raise RuntimeError("lease lost")
+        return False
+    with pytest.raises(RuntimeError, match="lease lost"):
+        RuntimeProcessRunner().run(ProcessCommandSpec(
+            kind=CommandKind.COMPILE,
+            argv=(sys.executable, "-c", "import os,pathlib,sys,time;"
+                  "pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));"
+                  "time.sleep(30)", str(pidfile)),
+            termination_grace_seconds=0.1,
+        ), cancel_requested=lost_lease)
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pidfile.read_text()), 0)
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux guest process supervisor")
+def test_guest_supervisor_stops_children_when_heartbeats_disappear(tmp_path):
+    from bc250_llm_mode.runtime_process_helper import PROCESS_HELPER_SOURCE
+    helper = tmp_path / "supervisor.py"
+    helper.write_text(PROCESS_HELPER_SOURCE)
+    pidfile = tmp_path / "supervised.pid"
+    proc = subprocess.Popen(
+        [sys.executable, str(helper), "30", "--", sys.executable, "-c",
+         "import os,pathlib,sys,time;pathlib.Path(sys.argv[1]).write_text(str(os.getpid()));time.sleep(30)", str(pidfile)],
+        stdin=subprocess.PIPE,
+    )
+    try:
+        proc.stdin.write(b".")
+        proc.stdin.flush()
+        # Keep the pipe open: loss of heartbeat must work even if the
+        # container transport does not forward its client's disconnection.
+        assert proc.wait(timeout=8) == 124
+        with pytest.raises(ProcessLookupError):
+            os.kill(int(pidfile.read_text()), 0)
+    finally:
+        proc.stdin.close()
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
 def test_runner_enforces_timeout_and_kills_process_group():
     runner = RuntimeProcessRunner()
     # A child that spawns a grandchild holding the pipe open: only a

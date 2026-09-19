@@ -72,12 +72,24 @@ class ApplicationQueryService:
             known_good = KnownGoodRuntimeRepository(conn).get()
             runtime = RuntimeConfigRepository(conn).get()
             from .runtime_builds import (
+                RuntimeBuildError,
                 RuntimeBuildRepository,
                 RuntimeComponentRepository,
+                RuntimeTreeRepository,
             )
 
             component_row = RuntimeComponentRepository(conn).current()
             builds = RuntimeBuildRepository(conn)
+            promoted = None
+            tree_row = None
+            if component_row and component_row.get("promoted_build_id"):
+                try:
+                    promoted = builds.require(component_row["promoted_build_id"])
+                    tree_id = component_row.get("promoted_tree_id")
+                    if tree_id:
+                        tree_row = RuntimeTreeRepository(conn).get(tree_id)
+                except RuntimeBuildError:
+                    promoted = None
             # Quarantined unknown keys are support evidence, never projected
             # to frontends as configuration (§5.5).
             from .repositories import ObservationRepository
@@ -115,12 +127,8 @@ class ApplicationQueryService:
         state["thermal_watchdog_baseline"] = thermal["baseline"]
         if known_good:
             state["known_good_runtime"] = known_good
-        if component_row and component_row.get("promoted_build_id"):
+        if promoted is not None and component_row:
             try:
-                from .runtime_builds import RuntimeTreeRepository
-
-                promoted = builds.require(
-                    component_row["promoted_build_id"])
                 state["llamacpp_build"] = {
                     "describe":
                         promoted.get("requested_ref")
@@ -133,11 +141,6 @@ class ApplicationQueryService:
                 # §14.1 regeneration binding: the snapshot carries the
                 # durable lineage so handoff renders bind the exact
                 # immutable component (schema v2) automatically.
-                trees = RuntimeTreeRepository(conn)
-                tree_row = None
-                tree_id = component_row.get("promoted_tree_id")
-                if tree_id:
-                    tree_row = trees.get(tree_id)
                 state["runtime_component_id"] = promoted["build_id"]
                 state["runtime_manifest_digest"] = promoted[
                     "manifest_digest"]

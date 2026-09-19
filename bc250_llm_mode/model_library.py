@@ -71,6 +71,7 @@ class ModelLibraryEntry:
     # deletion
     deletion_eligible: bool = False
     deletion_blockers: tuple[str, ...] = field(default_factory=tuple)
+    runtime_requirement: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -103,6 +104,7 @@ class ModelLibraryEntry:
             "fit_detail": self.fit_detail,
             "deletion_eligible": self.deletion_eligible,
             "deletion_blockers": list(self.deletion_blockers),
+            "runtime_requirement": self.runtime_requirement,
         }
 
 
@@ -130,12 +132,26 @@ class ModelLibraryQueryService:
             artifacts = self._artifacts_by_id(conn)
             active_alias = self._active_alias(conn)
             known_good_alias = self._known_good_alias(conn)
+            from .prism_runtime import prism_runtime_promoted
+
+            prism_ready = prism_runtime_promoted(conn)
 
         result = []
         for model in installations:
             alias = model["id"]
             artifact = artifacts.get(model.get("artifact_id") or "") or {}
             row_meta = meta.get(alias) or {}
+            from .prism_runtime import PRISM_REQUIREMENT, known_ptq1_artifact
+            from .catalog import model_by_id
+
+            requirement = None
+            if known_ptq1_artifact(artifact.get("content_digest")):
+                requirement = None if prism_ready else PRISM_REQUIREMENT
+            elif artifact.get("catalog_id"):
+                try:
+                    requirement = model_by_id(artifact["catalog_id"]).runtime_requirement
+                except KeyError:
+                    pass
             fit_verdict, fit_detail = self._fit(
                 model, artifact, context=context, slots=slots)
             active = alias == active_alias
@@ -178,8 +194,15 @@ class ModelLibraryQueryService:
                 fit_detail=fit_detail,
                 deletion_eligible=not blockers,
                 deletion_blockers=blockers,
+                runtime_requirement=requirement,
             ))
         return tuple(result)
+
+    def prism_runtime_ready(self) -> bool:
+        from .prism_runtime import prism_runtime_promoted
+
+        with self._units.read() as conn:
+            return prism_runtime_promoted(conn)
 
     def to_dict(
         self,
@@ -232,10 +255,17 @@ class ModelLibraryQueryService:
         if not catalog_id or not quant:
             return None, None
         entry = next((e for e in CATALOG if e.id == catalog_id), None)
+        from .prism_runtime import installed_fit_catalog
+
+        entry = installed_fit_catalog(entry, artifact.get("content_digest"))
         if entry is None or quant not in entry.weights_gib_by_quant:
             return None, None
         ctx = context or 8192
         n_slots = slots or 1
+        from .prism_runtime import known_ptq1_artifact
+
+        if known_ptq1_artifact(artifact.get("content_digest")) and (ctx > 8192 or n_slots != 1):
+            return "NO-FIT", "Experimental Bonsai supports up to 8,192 context tokens and one slot."
         try:
             result = calculate_fit(entry, quant, ctx, parallel_slots=n_slots)
         except (KeyError, ValueError):

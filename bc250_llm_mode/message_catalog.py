@@ -100,6 +100,38 @@ _MESSAGES = (
     _message("ACTION_FAILED", "fallback", "error", "Action needs attention", "The action could not be completed. Open Activity or the relevant bounded log for a stable error code and recovery guidance."),
 )
 
+_SOURCE_ERRORS = {
+    "DOCUMENT_INVALID": "This source is malformed or unsupported. Choose a readable local document or a valid web excerpt.",
+    "DOCUMENT_TYPE": "Choose a UTF-8 text, Markdown, or PDF file.",
+    "DOCUMENT_TEXT_LIMIT": "A document must contain readable text within 64 KiB. Attach a smaller section instead.",
+    "DOCUMENT_FILE_LIMIT": "Choose a regular file of at most 16 MiB.",
+    "DOCUMENT_CHANGED": "The document changed while it was being read. Choose it again.",
+    "DOCUMENT_READ_FAILED": "The selected document could not be read. Its original file is unchanged.",
+    "DOCUMENT_ENCODING": "Save this document as UTF-8 text before attaching it.",
+    "SOURCE_COUNT_LIMIT": "Attach at most four sources to one message. Remove a source before adding another.",
+    "SOURCE_TEXT_LIMIT": "Attached text exceeds the combined 128 KiB limit. Remove a source or attach a smaller section.",
+    "SOURCE_DUPLICATE": "This source is already attached.",
+    "PDF_INVALID": "This file is not a supported PDF, or its text could not be read. Export a fresh copy or attach its text.",
+    "PDF_TIMEOUT": "PDF extraction exceeded 12 seconds. Export fewer pages or attach its text instead.",
+    "PDF_RESOURCES": "PDF extraction exceeded its resource limits or could not finish. Attach a smaller PDF or its text.",
+    "PDF_ENCRYPTED": "This PDF is encrypted. Export an unencrypted copy you are authorized to read.",
+    "PDF_PAGE_LIMIT": "This PDF exceeds 40 pages. Export a smaller page range before attaching it.",
+    "PDF_NO_TEXT": "No readable text was found. Scanned PDFs need OCR before they can be attached.",
+    "PDF_STREAM_LIMIT": "A PDF page is too complex to extract within the memory limit. Attach its text instead.",
+    "PDF_UNAVAILABLE": "The PDF reader dependency is unavailable. Repair the application installation.",
+    "SEARCH_ENDPOINT_INVALID": "Enter a SearXNG HTTP(S) base URL without spaces, a query, a fragment, or embedded credentials.",
+    "SEARCH_ENDPOINT_TLS": "Use HTTPS for a remote search provider; HTTP is supported only on loopback.",
+    "SEARCH_CONFIG_INVALID": "Search configuration needs repair. Re-enter a supported SearXNG address.",
+    "SEARCH_QUERY_INVALID": "Enter one search query of at most 2 KiB.",
+    "SEARCH_JSON_DISABLED": "This SearXNG instance refuses JSON searches. Enable search.formats: [html, json] in its settings.",
+    "SEARCH_RESPONSE_LIMIT": "Search response exceeded its size or time limit. Try again or check the provider.",
+    "SEARCH_FAILED": "Search could not finish. Check the SearXNG address, network connection and JSON support; the query was not added to your conversation.",
+}
+_MESSAGES += tuple(_message(code, "source", "error", "Source needs attention", body)
+                   for code, body in _SOURCE_ERRORS.items())
+
+SEARXNG_PROVIDER_HINT = "SearXNG base URL (example: http://127.0.0.1:8888)"
+
 MESSAGE_CATALOG = {item.code: item for item in _MESSAGES}
 MESSAGE_CATEGORIES = frozenset(item.category for item in _MESSAGES)
 REQUIRED_MESSAGE_CATEGORIES = frozenset({
@@ -140,6 +172,13 @@ def message_for(code: str) -> MessageText:
 def safe_exception_message(_exc: BaseException, *, code: str = "ACTION_FAILED") -> MessageText:
     """Map an exception without rendering its potentially sensitive text."""
     return message_for(code)
+
+
+class SourceInputError(ValueError):
+    """Closed public error code; no document or remote diagnostic text."""
+    def __init__(self, code):
+        self.code = code if code in _SOURCE_ERRORS else "DOCUMENT_INVALID"
+        super().__init__(message_for(self.code).body)
 
 
 _GLOSSARY = (

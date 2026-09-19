@@ -100,6 +100,8 @@ _QUANTIZATION_GUIDANCE = {
     "Q5_K_M": "Balanced quality and size; the usual BC-250 starting point.",
     "Q6_K": "Higher fidelity with a larger download and tighter memory headroom.",
     "Q8_0": "Largest common option; use only when the fit preview remains comfortable.",
+    "PTQ1_0": "Compact ternary packing; requires PrismML runtime support, separate from memory fit.",
+    "PQ2_0": "PrismML ternary packing; its Vulkan compatibility must be established before use.",
 }
 
 
@@ -144,6 +146,7 @@ _STATE_LABELS = {
     "DEGRADED": "Available with limits",
     "BLOCKED": "Blocked for safety",
     "RECOVERY_REQUIRED": "Recovery needs attention",
+    "RUNTIME_REQUIRED": "Needs another runtime",
     "REPAIR_REQUIRED": "Repair needs attention",
     "QUARANTINED": "Held safely in quarantine",
     "DOWNLOADING": "Downloading",

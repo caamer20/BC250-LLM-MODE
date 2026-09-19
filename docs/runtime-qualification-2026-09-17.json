@@ -1,0 +1,354 @@
+{
+  "additional_check_count_policy": "Installed, Tk and guest checks overlap suite coverage and are not added to the 1844 selected tests.",
+  "application_activation": {
+    "attempt_one": "Model became healthy on dev10. Audit comparison included a generated heartbeat and raised AssertionError. The deployment script restored the prior app environment and source, then restarted the previously active services.",
+    "automatic_approval_review": "Rejected retry as unapproved dev10 deployment beyond checkpoint, citing service disruption and data integrity. Explicit activation and runtime-check approval requested; no answer received.",
+    "generated_status_excluded_from_persistence_comparison": [
+      "runtime-policy.json",
+      "runtime-handoff.json",
+      "start-receipt.json"
+    ],
+    "persistent_private_files_byte_identical": 13,
+    "retry_executed": false,
+    "rollback_caution": "After reverse exchange, rollback/app-venv points to inactive dev10; never blindly restore that link. Preserve newer user data and make a fresh snapshot before retry.",
+    "status": "restored_dev9_after_first_attempt; retry_awaiting_explicit_approval"
+  },
+  "artifacts": {
+    "bc250_llm_mode-0.9.0.dev10-py3-none-any.whl": {
+      "bytes": 823618,
+      "sha256": "f52a66068c3d532f0286e599918f2c6dd05c613ebdd50e81034ed8f97db8a4fb"
+    },
+    "bc250_llm_mode-0.9.0.dev10.tar.gz": {
+      "bytes": 1122304,
+      "sha256": "3d3ca21f174d5a55d5cb677868a720260f56fae339f515001bd9bbd7abb37407"
+    },
+    "checksums.sha256": {
+      "bytes": 210,
+      "sha256": "0e24e92d129289fdb3bc20596a813ac4fb65340cdd146b44ea3c904a57e43a99"
+    },
+    "release-manifest.json": {
+      "bytes": 2352,
+      "sha256": "60d7c7c5577ae9c281b94a70274f9aea8710de3033dea751c46316078a1eb495"
+    },
+    "sbom.cdx.json": {
+      "bytes": 4361,
+      "sha256": "2adfaa27fea59a793ef8b3b8f39174e6c136172d7e9c63b89e05a1287e12b4c3"
+    }
+  },
+  "bazzite": {
+    "combined": {
+      "passed": 1841,
+      "selected": 1844,
+      "skipped": 3
+    },
+    "default": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 1789,
+      "seconds_junit": 299.603,
+      "selected": 1792,
+      "skip_reasons": {
+        "tests.test_profile_exchange_helper::test_local_exchange_unsupported_off_linux": "off-Linux unsupported path only",
+        "tests.test_runtime_adapter_real::test_real_cmake_builds_fetched_source_and_recovers_manifest": "CMake and C toolchain required",
+        "tests.test_runtime_cutover_real::test_production_workflow_build_update_noop_and_rollback": "real CMake toolchain required"
+      },
+      "skipped": 3
+    },
+    "installed_feature_checks": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 42,
+      "seconds_junit": 3.433,
+      "selected": 42,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "installed_real_runtime_fixtures": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 33,
+      "seconds_junit": 36.907,
+      "selected": 33,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "installed_wheel": {
+      "dependency_check": "passed",
+      "dependency_install": "release/constraints/python-3.14.txt --require-hashes --only-binary=:all:",
+      "package_files_verified": 196,
+      "python_modules_verified": 195,
+      "source_wheel_installed_hashes_equal": true
+    },
+    "python": "3.14.6",
+    "real_runtime_fixture_scope": "Real Git/CMake/filesystem and durable engine in existing llm guest; fixture service/health/inference. Covers two compiler cases skipped on the host.",
+    "real_tk": {
+      "experience_journeys": [
+        {
+          "composer_height": 66,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 100,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 459,
+          "widgets": 43
+        },
+        {
+          "composer_height": 66,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 200,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 441,
+          "widgets": 43
+        }
+      ],
+      "physical_participant_acceptance": "pending",
+      "route_scale_checks": 28,
+      "scales": [
+        100,
+        200
+      ],
+      "tk": 9.0
+    },
+    "slow": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 52,
+      "seconds_junit": 158.054,
+      "selected": 52,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "staged_live_native_chat": {
+      "context": 128000,
+      "display": "isolated Xvfb on physical Bazzite",
+      "human_acceptance": "pending",
+      "idle_cpu_percent_one_core": 0.45,
+      "idle_rss_kib": 76944,
+      "idle_sample_seconds": 15,
+      "native_save_and_source_roundtrip": "passed",
+      "native_web_chat": {
+        "classification": "COMPLETED",
+        "duration_ms": 5565,
+        "error_code": null,
+        "model_counted": true,
+        "source_url_cited_exactly": true,
+        "time_to_first_token_ms": 4915,
+        "visible_characters": 285
+      },
+      "navigation_changes": 100,
+      "prompts_and_completions_retained": false,
+      "real_search_results": 1,
+      "rss_after_chat_kib": 76944,
+      "rss_after_navigation_kib": 78612,
+      "rss_peak_kib": 78204,
+      "slots": 1,
+      "threads_after_close": 1,
+      "threads_during_window": 4,
+      "tk_errors": [],
+      "unraisable_errors": [],
+      "version": "0.9.0.dev10"
+    }
+  },
+  "binding": "Artifacts built once from clean ff26fb3 source through sdist; package files equal db5e471. Later documentation does not qualify another artifact.",
+  "conversation_read_schemas": [
+    1,
+    2
+  ],
+  "conversation_write_schema": 2,
+  "database_schema": 14,
+  "device_state": {
+    "active_application": "0.9.0.dev9",
+    "active_model_alias": "local-a3515b591cfc",
+    "active_runtime_source_commit": "000547513f1530346ecd163db8b3e13962949961",
+    "active_source_checkout": "e4dc11c77285ce83c8c591bdcb2d34071af7c264",
+    "context_per_slot": 128000,
+    "model_health_status": 200,
+    "observed_at": "2026-09-17T18:30:17.620197+00:00",
+    "parallel_slots": 1,
+    "profile_measurements_recorded": false,
+    "runtime_promoted": false,
+    "runtime_rebuilt": false,
+    "service_units_and_boot_configuration": "unchanged",
+    "temporary_display_removed": true
+  },
+  "evidence_files": {
+    "bazzite/attempt1-correction.json": "0760ffe056b849615cbfd922d7f649558e092fb1a2ee7c6885c1e3053cad81bf",
+    "bazzite/default-inventory.json": "83a8c59f3436d33e1cf19e2b8964951374cad7c04e490c7a95d41d35f68e41b9",
+    "bazzite/default.log": "b277da7ccab9f1ec8649eb82087828b9cb4246832535089a7cd0613daa9a6158",
+    "bazzite/default.xml": "9ff940a62a5527787f10e9dad802a13e99b6d091c758a5f2c260ee172d73490d",
+    "bazzite/deployment-attempt1.json": "9bd0a224700fcf1f35864fd6c8f3c95048a3175147d6fdb2eb73ed4dbd560ecc",
+    "bazzite/deployment.json": "9bd0a224700fcf1f35864fd6c8f3c95048a3175147d6fdb2eb73ed4dbd560ecc",
+    "bazzite/installed-features.log": "4294f42f30735d8804c73418aefa335c284a4dc8bc006bb998f4e94d13c31e83",
+    "bazzite/installed-features.xml": "6a7aa2956ade25d6f891729264a2738ce29a3ce43880b7e42a5fdd1203512acf",
+    "bazzite/installed-identity.json": "fc2a0145507211d1795d6d0c21b6f312b7500be9dee151ed5428bf20bb0de7d8",
+    "bazzite/installed-runtime-real.log": "6e4839d470c305bd5c1aa6c3b56baee8718f400b731d0f93d61658464e0e784c",
+    "bazzite/installed-runtime-real.xml": "c99b4e04c31bb4b90c53cc44db8c0b18e8729e1769f30efbf906a8a436553841",
+    "bazzite/pre-deployment-attempt1.json": "f0bc2760a97325888c905abc23d07a9474a1b560edefec5d59cf5e8d43fa9e13",
+    "bazzite/pre-deployment.json": "1626ec5b73b361eea79c2a6da7d1f6c659bdc99245fd63cc9c2700ad2ad57779",
+    "bazzite/real_tk_experience_smoke.json": "e0d7c7300ff88eb870659f8ff10e4b29926f53867de42d7a7998222e5e99d21c",
+    "bazzite/real_tk_experience_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bazzite/real_tk_smoke.json": "3bfce436c3144a062a84f83e5c80170bc16d3f13b64eb2db6006e2dbf0aabfb8",
+    "bazzite/real_tk_smoke.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bazzite/slow-inventory.json": "cf37010de3d854a2f8fda9e9d35d74335caa34c52a799abf2b95318babfb3b3c",
+    "bazzite/slow.log": "7f5afea4d1c5f319c371d3801a3cc5e248d5b4ab1a15d1b0d0c58e94e4fcc332",
+    "bazzite/slow.xml": "9e323f50d3201c55def03cd3006d951a618083ecdd46446beb7508142d078561",
+    "bazzite/staged-live-native-web-chat.json": "e2ee2f4977c19661375f440caabf450600e8e5f450f086967db12d2f34601f4c",
+    "bazzite/suite-results.json": "9d544ebbce36d38f829cbfc791f898babd21efc4ac2eb0ed631ac6db7d37aa1f",
+    "macos/default-inventory.json": "fe4786781ebcbdaf66f889f51c0a07d60a32408f10bdd383ac590e8f1e7970a3",
+    "macos/default.log": "3d2217787b9de92ac7ff3755bf8af9d8e815ab4923d77184878c83b087fa10f3",
+    "macos/default.xml": "996c3d3e9e2ea92110cecd3b1c1e96f9f035dfb039dc1c7aab5ddfeedf21b9f3",
+    "macos/installed-feature-tests.log": "41d4ccf27ed98e7154a598252add4a1dca1d194a938c1bfc255577c72fff524e",
+    "macos/installed-feature-tests.xml": "f1f0b71ed3fe5c07915ea07e94f55d7f7577a743f680fc3f9dae805f1df8f156",
+    "macos/installed-identity-macos.json": "a4c889df0a264dfccabed735b1bbd34d925a2c0bb04fc60745dd118eac94ca49",
+    "macos/real_tk_experience_smoke.json": "f4ce956aa867f247ef63f34bccefe3797ecda3edf66f788d188ee7889e299f14",
+    "macos/real_tk_smoke.json": "1ccaaedb309fae3af2dfba04c2e872c46d6b470500a232ddc5fd042384d558a3",
+    "macos/slow-inventory.json": "d02d41daac0905983b3583f091814d8712fc8f94d41478d7ccd20be9c6a68d35",
+    "macos/slow.log": "936124821e64e0cb213685debd73983c54fb7ff1b875c82afc9afcc0d0aef7b8",
+    "macos/slow.xml": "01a685cf5dbe72e6b23a1c3c089d63c0d7915570a620f70776d38f3ec6f08a24",
+    "metadata/build-artifacts.json": "5c7ccfca7252c2d433949bdc55f8fea7da54de5e23116b79c0012759b36e1a42",
+    "metadata/release-decision.json": "ae270191675dd84bbac96f258f9b65020bfb11e5e31e6cab5bfa307b5e89cce8",
+    "metadata/release-decision.json.sha256": "196ae70968cbe8690ec92adef98fe189669a0ccee849b5f4b012aea5d160e551",
+    "metadata/release-decision.stdout.json": "ae270191675dd84bbac96f258f9b65020bfb11e5e31e6cab5bfa307b5e89cce8",
+    "metadata/source-inventory.json": "b717c45626169bd1fedd9684629acfab545f5926a27bd725d50d1b1ce55fdeec"
+  },
+  "fresh_install_followup": {
+    "evidence": "Setup requests runtime update before MODEL_SELECTED; its promotion requires live inference. Production payload renderer has empty model_path and current_model_record refuses fresh no-model state. Existing fixture first-install tests do not qualify this path.",
+    "required": "Preserve durable recovery and defer promotion/known-good identity until real inference succeeds.",
+    "status": "unresolved_setup_dependency"
+  },
+  "macos": {
+    "combined": {
+      "passed": 1831,
+      "selected": 1844,
+      "skipped": 13
+    },
+    "default": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 1779,
+      "seconds_junit": 157.659,
+      "selected": 1792,
+      "skip_reasons": {
+        "tests.test_http_worker_linux_memory::test_http_worker_accepts_large_interpreter_virtual_baseline": "Linux address-space accounting",
+        "tests.test_profile_exchange_helper::test_real_same_filesystem_exchange_on_linux": "real exchange requires Linux",
+        "tests.test_review_boundaries_rv::test_linux_gateway_reserves_exact_private_address_before_bridge_activation": "Linux IP_FREEBIND private bridge reservation",
+        "tests.test_runtime_adapter_real::test_real_cmake_builds_fetched_source_and_recovers_manifest": "Linux compiler and binary-stat recipe",
+        "tests.test_runtime_cutover_real::test_death_after_atomic_swap_preserves_and_recovers_exact_pair": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_foreign_or_changed_candidate_never_swaps_or_deletes": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_initial_publication_is_no_clobber_and_restoration_retains_candidate": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_legacy_adoption_records_observed_manifest_without_promotion": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_live_identity_requires_receipt_hash_and_exact_observed_settings": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_production_workflow_build_update_noop_and_rollback": "real Linux runtime cutover",
+        "tests.test_runtime_cutover_real::test_restoration_after_first_promotion_restores_legacy_known_good_exactly": "real Linux runtime cutover",
+        "tests.test_runtime_process::test_guest_supervisor_stops_children_when_heartbeats_disappear": "Linux guest process supervisor",
+        "tests.test_runtime_process::test_local_exchange_swaps_content_atomically": "renameat2(RENAME_EXCHANGE) is Linux-only; refusal path verified above"
+      },
+      "skipped": 13
+    },
+    "installed_feature_checks": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 42,
+      "seconds_junit": 1.457,
+      "selected": 42,
+      "skip_reasons": {},
+      "skipped": 0
+    },
+    "installed_wheel": {
+      "dependency_check": "passed",
+      "dependency_install": "release/constraints/python-3.14.txt --require-hashes --only-binary=:all:",
+      "package_files_verified": 196,
+      "python_modules_verified": 195,
+      "source_wheel_installed_hashes_equal": true
+    },
+    "python": "3.14.7",
+    "real_tk": {
+      "experience_journeys": [
+        {
+          "composer_height": 47,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 100,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 501,
+          "widgets": 43
+        },
+        {
+          "composer_height": 47,
+          "inline_code_copy_and_cleanup": "passed",
+          "portable_export_import": "passed",
+          "scale": 200,
+          "send_branch_settings_summary_sources_web": "passed",
+          "transcript_height": 501,
+          "widgets": 43
+        }
+      ],
+      "physical_participant_acceptance": "pending",
+      "route_scale_checks": 28,
+      "scales": [
+        100,
+        200
+      ],
+      "tk": 9.0
+    },
+    "slow": {
+      "errors": 0,
+      "exit_status": 0,
+      "failures": 0,
+      "passed": 52,
+      "seconds_junit": 73.722,
+      "selected": 52,
+      "skip_reasons": {},
+      "skipped": 0
+    }
+  },
+  "package_code_commit": "db5e4715a4252ac0a0981b018cce2ad0ca01a208",
+  "pending": [
+    "Explicit dev10 activation and real runtime rebuild approval",
+    "Supported real runtime promotion and exact rollback verification",
+    "Small/9B Interactive, Long context, Shared and Cool physical measurements; TIGHT approval where required",
+    "Fresh/upgraded Bazzite and CachyOS four-cell qualification",
+    "Phone, desktop/reboot, interruption/recovery and sustained thermal/soak qualification",
+    "Keyboard/screen-reader and non-developer participant acceptance",
+    "Independent security review",
+    "Explicit source-publication approval and hosted CI",
+    "Signed release/attestation gates"
+  ],
+  "record_type": "developer_qualification_and_staged_application_checks_not_signed_release_evidence",
+  "record_version": 1,
+  "recorded_at": "2026-09-17T18:31:32.422767+00:00",
+  "release": {
+    "artifact_verifier_exit_status": 0,
+    "blocking_codes": [
+      "BACKUP_RESTORE_EVIDENCE_MISSING",
+      "CLEAN_WHEEL_EVIDENCE_MISSING",
+      "DOCUMENTATION_DRIFT",
+      "HARDWARE_QUALIFICATION_MISSING",
+      "HUMAN_ACCEPTANCE_MISSING",
+      "LIMITATION_ACCEPTANCE_MISSING",
+      "MILESTONE_EVIDENCE_MISSING",
+      "PROVENANCE_MISSING_OR_MISMATCHED",
+      "REPOSITORY_NOT_PUBLISHED",
+      "SBOM_MISSING_OR_MISMATCHED",
+      "SECURITY_REVIEW_MISSING",
+      "SIGNATURE_MISSING_OR_INVALID",
+      "SOAK_EVIDENCE_MISSING",
+      "TEST_EVIDENCE_MISSING"
+    ],
+    "eligible_for_1_0_0": false,
+    "evaluator_exit_status": 1,
+    "published": false,
+    "signed": false,
+    "status": "BLOCKED"
+  },
+  "source_commit": "ff26fb306b5a13e928d13ee8a292046fb613b0d1",
+  "source_ref": "refs/heads/codex/runtime-identity-dev10",
+  "version": "0.9.0.dev10"
+}

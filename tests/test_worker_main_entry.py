@@ -397,11 +397,12 @@ def test_installed_wheel_runs_worker_module_without_repository_root(tmp_path):
     """P0 exit gate: build the wheel, install it away from the source tree,
     run ``python -m bc250_llm_mode.worker_main`` with the repository root
     absent from sys.path."""
+    from package_build_fixture import clean_build_source
     wheel_dir = tmp_path / "wheel"
     wheel_dir.mkdir()
     build = subprocess.run(
         [sys.executable, "-m", "pip", "wheel", "--no-deps",
-         "--no-build-isolation", "--wheel-dir", str(wheel_dir), str(REPO_ROOT)],
+         "--no-build-isolation", "--wheel-dir", str(wheel_dir), str(clean_build_source(tmp_path))],
         capture_output=True, text=True,
     )
     assert build.returncode == 0, build.stderr[-2000:]
@@ -410,7 +411,7 @@ def test_installed_wheel_runs_worker_module_without_repository_root(tmp_path):
     target = tmp_path / "site"
     target.mkdir()
     install = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--quiet",
+        [sys.executable, "-m", "pip", "install", "--quiet", "--no-deps",
          "--target", str(target), str(wheels[0])],
         capture_output=True, text=True,
     )

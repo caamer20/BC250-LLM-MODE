@@ -40,6 +40,8 @@ def llamacpp_card_text(report: Mapping[str, Any]) -> str:
         text = f"RECOVERY REQUIRED (operation {str(barrier.get('operation_id'))[:12]})"
     elif promoted.get("short"):
         text = f"promoted build {promoted.get('short')}"
+    elif report.get("prepared"):
+        text = "installed; activate a model and run runtime update to finish verification"
     else:
         text = "not recorded yet; run setup or update"
     if report.get("rollback_available"):

@@ -171,6 +171,53 @@ def test_capture_and_restore_round_trip(tmp_path):
     assert now["optimizations"] == original["optimizations"]
 
 
+def test_restore_explicit_no_model_is_atomic_and_preserves_other_owned_state(tmp_path):
+    from bc250_llm_mode.repositories import SettingsRepository, ModelInstallationsRepository
+
+    store, runtime = _runtime(tmp_path)
+    _seed_model(store, runtime)
+    runtime.apply({"context": 4096})
+    handoff = store.paths.app_dir / HANDOFF_FILENAME
+    original_handoff = handoff.read_bytes()
+    prior_options = {"parallel_slots": 1, "threads": 2}
+    ThermalStateService(store.units).mark_stopped()
+    revision = runtime.current()["revision"]
+    result = runtime.restore_content({"model_alias": None, "context": 8192, "slots": 1,
+                                      "optimizations_patch": prior_options,
+                                      "restored_content_of_revision": 0},
+                                     expected_revision=revision)
+    after = runtime.current()
+    assert after["model_alias"] is None and after["context"] == 8192 and after["slots"] == 1
+    assert after["optimizations"] == prior_options and after["revision"] == revision + 1
+    assert not result.handoff_published and handoff.read_bytes() == original_handoff
+    assert ThermalStateService(store.units).current()["latch_state"] == "stopped"
+    with store.units.read() as conn:
+        assert SettingsRepository(conn).get("current_model") is None
+        assert SettingsRepository(conn).get("restored_content_of_revision") == 0
+        assert ModelInstallationsRepository(conn).list()[0]["id"] == MODEL["id"]
+
+
+def test_restore_no_model_rejects_stale_revision_without_any_write(tmp_path):
+    store, runtime = _runtime(tmp_path)
+    before = _seed_model(store, runtime)
+    with pytest.raises(RevisionConflict):
+        runtime.restore_content({"model_alias": None, "context": 8192, "slots": 1},
+                                expected_revision=before["revision"] - 1)
+    assert runtime.current() == before
+
+
+@pytest.mark.parametrize("bad", [{"context": True}, {"slots": 0}, {"profile_id": "interactive"},
+                                  {"optimizations_patch": {"threads": 1000}}, {"optimizations_patch": []},
+                                  {"restored_content_of_revision": -1}])
+def test_restore_no_model_rejects_invalid_content_before_writing(tmp_path, bad):
+    store, runtime = _runtime(tmp_path)
+    before = _seed_model(store, runtime)
+    desired = {"model_alias": None, "context": 8192, "slots": 1, **bad}
+    with pytest.raises(RuntimeValidationError):
+        runtime.restore_content(desired)
+    assert runtime.current() == before
+
+
 def test_known_good_promotion_round_trip(tmp_path):
     store, runtime = _runtime(tmp_path)
     _seed_model(store, runtime)

@@ -47,7 +47,7 @@ class RuntimeLifecycleOutcome:
 
     @property
     def ok(self) -> bool:
-        return self.status == "SUCCEEDED"
+        return self.status in {"SUCCEEDED", "RESTORED"}
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,10 +71,39 @@ class RuntimeLifecycleCommandService:
     """Enqueue + foreground execute + terminal mapping (no detach)."""
 
     def __init__(self, *, units: Any, enqueue: Any,
-                 engine_factory: Any) -> None:
+                 engine_factory: Any, restoration_verifier: Any = None) -> None:
         self._units = units
         self._enqueue = enqueue
         self._engine_factory = engine_factory
+        self._restoration_verifier = restoration_verifier
+
+    def reconcile_restored(self, operation_id: str, *, expected_revision: int) -> RuntimeLifecycleOutcome:
+        """Explicit operator reconciliation after inspection of retained trees.
+
+        The failed terminal row stays immutable. Only its recovery leases are
+        released, atomically with an audit event, after the real adapter proves
+        prior tree, launch configuration, lineage, known-good state and inference.
+        No promotion or measurement record is created here.
+        """
+        from .operations.repositories import EventRepository
+        with self._units.begin() as conn:
+            record = OperationRepository(conn).require(operation_id)
+            leases = LeaseRepository(conn)
+            held = leases.leases_for_operation(operation_id)
+            if (record.state is not OperationState.RECOVERY_REQUIRED
+                    or record.state_revision != expected_revision
+                    or record.operation_type not in {OperationType.RUNTIME_UPDATE, OperationType.RUNTIME_ROLLBACK}
+                    or not held or any(l.resource_key not in {RUNTIME_ACTIVE_RESOURCE, RUNTIME_INSTALLATION_RESOURCE} for l in held)
+                    or self._restoration_verifier is None):
+                return RuntimeLifecycleOutcome(operation_id, "REFUSED", "RECONCILE", {"reason": "Recovery evidence or revision is not eligible."})
+            if not self._restoration_verifier(operation_id):
+                return RuntimeLifecycleOutcome(operation_id, "RECOVERY_REQUIRED", "RECONCILE", {"reason": "Prior runtime restoration is not proven."})
+            EventRepository(conn).append(operation_id, code="RUNTIME_RESTORATION_RECONCILED",
+                summary="Prior runtime independently verified; recovery leases released; original failure retained.",
+                detail={"expected_revision": expected_revision, "promoted": False})
+            for lease in held:
+                leases.release(lease.resource_key, owner=lease.owner, expected_revision=lease.lease_revision)
+        return RuntimeLifecycleOutcome(operation_id, "RESTORED", "RECONCILE", {"original_failure_retained": True})
 
     # -- durable-state inspection ---------------------------------------------
 
@@ -191,6 +220,40 @@ class RuntimeLifecycleCommandService:
         outcome = self._drive(record.id)
         return self._map(record.id, outcome, action="ROLLBACK")
 
+    def verify_prepared(self, *, requested_by: str = "setup") -> RuntimeLifecycleOutcome | None:
+        """Finish the first runtime through the same durable update workflow.
+
+        Setup calls this after model activation. The exact prepared build and
+        commit are selected from durable installation evidence, then checked
+        independently by the host at the activation boundary. No direct host
+        call or component-state write is allowed here.
+        """
+        report = self.status()
+        barrier = report.get("recovery_barrier")
+        if barrier:
+            return RuntimeLifecycleOutcome(barrier.get("operation_id"), "RECOVERY_REQUIRED", "VERIFY", {
+                "reason": "Resolve the runtime recovery barrier before finishing setup.",
+            })
+        active = report.get("active_operation")
+        if active:
+            return RuntimeLifecycleOutcome(active.get("operation_id"), "BUSY", "VERIFY", {
+                "reason": "A runtime operation is still in progress; finish it before completing setup.",
+            })
+        if report.get("promoted"):
+            return None
+        prepared = report.get("prepared")
+        if not prepared:
+            return RuntimeLifecycleOutcome(None, "BUSY", "VERIFY", {
+                "reason": "No completed runtime installation is available to verify; resume runtime setup.",
+            })
+        outcome = self.update(requested_ref=prepared["source_commit"],
+                              expected_active_build_id=prepared["build_id"], requested_by=requested_by)
+        if outcome.ok and outcome.detail.get("result_code") == "RUNTIME_INSTALLED":
+            return RuntimeLifecycleOutcome(outcome.operation_id, "BUSY", "VERIFY", {
+                **outcome.detail, "reason": "Select and activate a model before runtime verification.",
+            })
+        return outcome
+
     def _detach(self, operation_id: str, *, action: str,
                 spawner: Any | None) -> RuntimeLifecycleOutcome:
         """U1.3: hand the queued operation to ONE detached worker host."""
@@ -267,6 +330,7 @@ class RuntimeLifecycleCommandService:
             result: dict[str, Any] = {
                 "generation": (component or {}).get("generation"),
                 "promoted": None,
+                "prepared": None,
                 "rollback": None,
                 "known_good_identity": (
                     KnownGoodRuntimeRepository(conn).get()
@@ -275,6 +339,21 @@ class RuntimeLifecycleCommandService:
                 "recovery_barrier": None,
                 "active_operation": None,
             }
+            if not (component or {}).get("promoted_build_id") and not (component or {}).get("rollback_build_id"):
+                from .repositories import SettingsRepository
+
+                settings = SettingsRepository(conn)
+                locator = str(settings.get("llama_cpp_path") or "/root/llama.cpp").lstrip("/")
+                container = str(settings.get("container_name") or "llm")
+                tree = trees.prepared_by_locator(locator, container)
+                if tree is not None:
+                    record = builds.require(tree["build_id"])
+                    if record["provenance_class"] == "IMMUTABLE_SOURCE":
+                        result["prepared"] = {
+                            "build_id": record["build_id"], "source_commit": record["source_commit"],
+                            "short": record["build_id"].rsplit(":", 1)[-1][:12],
+                            "model_verification_pending": True,
+                        }
             for key in ("promoted", "rollback"):
                 build_id = (component or {}).get(f"{key}_build_id")
                 if not build_id:
@@ -401,9 +480,12 @@ class RuntimeLifecycleCommandService:
             )
         if status == "SUCCEEDED" and record.result_code == "RUNTIME_ALREADY_ACTIVE":
             detail["already_active"] = True
+        elif status == "SUCCEEDED" and record.result_code == "RUNTIME_INSTALLED":
+            detail["model_verification_pending"] = True
+            detail["reason"] = "Runtime installed. Activate a model, then run runtime update to finish verification."
         elif status == "FAILED_ROLLED_BACK":
             detail["reason"] = (
-                "The runtime change failed; the previous working runtime "
+                "The runtime change failed; the previous runtime state "
                 "was restored and verified."
             )
         elif status == "RECOVERY_REQUIRED":

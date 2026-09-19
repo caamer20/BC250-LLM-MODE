@@ -213,6 +213,16 @@ def test_card_text_reports_barrier_active_and_promotion():
     assert barrier.startswith("llama.cpp: RECOVERY REQUIRED")
 
 
+@pytest.mark.parametrize("key,status", [("active_operation", "BUSY"), ("recovery_barrier", "RECOVERY_REQUIRED")])
+def test_setup_verification_does_not_skip_live_operations_for_a_promoted_row(monkeypatch, key, status):
+    service = RuntimeLifecycleCommandService(units=None, enqueue=None, engine_factory=None)
+    monkeypatch.setattr(service, "status", lambda: {
+        "promoted": {"build_id": "observed-build"}, key: {"operation_id": "unfinished"},
+    })
+    result = service.verify_prepared()
+    assert result is not None and result.status == status and result.operation_id == "unfinished"
+
+
 # -- §16.4 settings isolation ------------------------------------------------------
 
 

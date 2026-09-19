@@ -794,6 +794,14 @@ class SetupWindow(GuiBase):
                     raise RuntimeError(
                         f"Activation ended in {outcome.status}; operation {outcome.operation_id}."
                     )
+                verification = self.application.runtime_lifecycle.verify_prepared(requested_by="setup")
+                if verification is not None:
+                    self.track_operation_id(verification.operation_id)
+                    if not verification.ok:
+                        raise RuntimeError(
+                            f"Runtime verification ended in {verification.status}; "
+                            f"operation {verification.operation_id}."
+                        )
                 self.state_data.update(self.application.read_model())
             self._work(action, self._after_server)
         elif step == 9:
