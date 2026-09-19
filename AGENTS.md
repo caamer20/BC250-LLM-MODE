@@ -27,8 +27,20 @@ gain under the varying governor clocks; neither is promoted/enabled. See
 `docs/bonsai-performance-2026-09-18.md` and its JSON. The fork default 8 GiB
 RAM prompt cache exceeded the host allocation: disabling it retained over
 2 GiB available memory during repeated generations. Dev14 adds only this
-Prism-specific launcher bound and is in qualification. The active app is
-still dev13 until the separate deployment record says otherwise.
+Prism-specific launcher bound and is developer-qualified at code
+`a2639b4658c96e4fe06e0522b3212eea40a97cc2`, wheel
+`b8a8f1dc698264f19c140ed3dce4fe2d8512167fd1a884b20e68ff6d9ac01325`.
+Read `docs/bonsai-cache-qualification-2026-09-18.json`: 1927 selected,
+Mac 1908 +19 skips; Bazzite 1912 +15; GitHub Python 3.11/3.14 each 1920 +7.
+All 52 slow gates, 82 guest runtime checks, 93 installed feature checks,
+28 actual Tk route/scale checks and eight Bonsai widget checks pass.
+The candidate is prepared but inactive. Automatic approval review rejected
+application activation because the app exchange and service restart need
+separate approval; no activation helper executed. An explicit approval request
+is pending. Do not infer deployment approval from performance/source publication.
+The active app remains dev13. Preserve the temporary isolated display until
+approval is resolved and native post-installation checks finish, or remove it
+if installation is deferred.
 The existing runtime and rollback trees must remain intact. A new runtime may
 be promoted only through exact manifest, receipt, live inference and recovery
 checks. No known-good or measured profile records may be fabricated. Initial

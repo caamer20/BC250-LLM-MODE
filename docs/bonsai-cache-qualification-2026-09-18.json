@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-09-18",
+  "scope": "Developer qualification of the exact dev14 code and wheel; application activation awaits separate owner approval.",
+  "candidate": {
+    "source_commit": "a2639b4658c96e4fe06e0522b3212eea40a97cc2",
+    "version": "0.9.0.dev14",
+    "artifacts": {
+      "source.tar.gz": {
+        "sha256": "7e06abb69d89d73d2a3594dd4edbdc1c1ed0881e1345540f4df02b3c44e488c4",
+        "bytes": 1750666
+      },
+      "bc250_llm_mode-0.9.0.dev14.tar.gz": {
+        "sha256": "1ed9286d8c8718cafd8dc316b999ef0ba89b8c2c76fbb2e86d8bcd8b600793d5",
+        "bytes": 1155485
+      },
+      "bc250_llm_mode-0.9.0.dev14-py3-none-any.whl": {
+        "sha256": "b8a8f1dc698264f19c140ed3dce4fe2d8512167fd1a884b20e68ff6d9ac01325",
+        "bytes": 838631
+      }
+    },
+    "package_files_verified": 197,
+    "python_modules_verified": 196
+  },
+  "macos": {
+    "python": "3.14.7",
+    "selected": 1927,
+    "passed": 1908,
+    "skipped": 19,
+    "suites": {
+      "default": {
+        "exit_status": 0,
+        "tests": 1875,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 19
+      },
+      "slow": {
+        "exit_status": 0,
+        "tests": 52,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "installed_checks": {
+      "installed-features": {
+        "exit_status": 0,
+        "tests": 93,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "installed-runtime": {
+        "exit_status": 0,
+        "tests": 46,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 1
+      }
+    },
+    "native_routes_and_scales": 28,
+    "bonsai_widget_checks": 8,
+    "native_experience_repeated": false
+  },
+  "bazzite": {
+    "python": "3.14.6",
+    "selected": 1927,
+    "passed": 1912,
+    "skipped": 15,
+    "suites": {
+      "default": {
+        "exit_status": 0,
+        "tests": 1875,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 15
+      },
+      "slow": {
+        "exit_status": 0,
+        "tests": 52,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      },
+      "installed-features": {
+        "exit_status": 0,
+        "tests": 93,
+        "errors": 0,
+        "failures": 0,
+        "skipped": 0
+      }
+    },
+    "guest_runtime_checks": {
+      "exit_status": 0,
+      "tests": 82,
+      "errors": 0,
+      "failures": 0,
+      "skipped": 0
+    },
+    "eight_host_compiler_skips_covered_by_guest": true,
+    "native_routes_and_scales": 28,
+    "bonsai_widget_checks": 8,
+    "native_experience": [
+      {
+        "scale": 100,
+        "transcript_height": 459,
+        "composer_height": 66,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      },
+      {
+        "scale": 200,
+        "transcript_height": 441,
+        "composer_height": 66,
+        "widgets": 43,
+        "send_branch_settings_summary_sources_web": "passed",
+        "inline_code_copy_and_cleanup": "passed",
+        "portable_export_import": "passed"
+      }
+    ],
+    "display": "Isolated Xvfb on physical host; temporary application data and fixture providers"
+  },
+  "github_ci": {
+    "url": "https://github.com/caamer20/BC250-LLM-MODE/actions/runs/35406769009",
+    "source_commit": "a2639b4658c96e4fe06e0522b3212eea40a97cc2",
+    "python_versions": {
+      "3.11": {
+        "default": {
+          "tests": 1875,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 7
+        },
+        "slow": {
+          "tests": 52,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      },
+      "3.14": {
+        "default": {
+          "tests": 1875,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 7
+        },
+        "slow": {
+          "tests": 52,
+          "failures": 0,
+          "errors": 0,
+          "skipped": 0
+        }
+      }
+    },
+    "per_version_selected": 1927,
+    "per_version_passed": 1920,
+    "per_version_skipped": 7,
+    "native_tk_and_clean_wheel": "passed"
+  },
+  "interpretation": {
+    "additional_checks_overlap_full_suite": true,
+    "package_files_verified_in_each_fresh_environment": 197,
+    "python_modules_verified": 196,
+    "linux_source_git_commit": "Synthetic isolated fixture only; transferred archive hash and package bytes bind the qualified source.",
+    "superseded_diagnostic_candidate": "b192a9b73aefb733d9dede0cf9fffec5df24bacc",
+    "diagnostic_candidate_activated": false,
+    "human_acceptance": "pending",
+    "soak": "pending",
+    "independent_security": "pending",
+    "signed_release": "blocked"
+  },
+  "deployment": {
+    "status": "awaiting explicit owner approval",
+    "currently_active_version": "0.9.0.dev13",
+    "activation_attempt_executed": false,
+    "active_model": "bonsai2-27b-crack",
+    "context": 8192,
+    "slots": 1,
+    "optimized_runtime_promoted": false,
+    "fp16_enabled": false
+  },
+  "privacy": {
+    "raw_device_logs_published": false,
+    "conversations_published": false,
+    "credentials_published": false,
+    "databases_published": false,
+    "model_weights_published": false
+  }
+}

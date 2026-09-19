@@ -10,7 +10,16 @@ compatibility runtime. Native Chat and actual model switching pass. The full
 [exact qualification record](bonsai-installation-qualification-2026-09-18.json).
 
 Source `0.9.0.dev14` adds a Prism-specific host-RAM prompt-cache bound and
-is in qualification. The optimized runtime and FP16 experiments passed their
+is developer-qualified at `a2639b4658c96e4fe06e0522b3212eea40a97cc2`.
+Its 1,927-test inventory passes on macOS (1,908 + 19 skips), Bazzite
+(1,912 + 15 skips), and GitHub Python 3.11/3.14 (1,920 + seven skips each).
+All 52 slow gates, 82 guest runtime checks, installed features, and native UI
+checks pass. The exact wheel verifies all 197 package files. See the
+[qualification record](bonsai-cache-qualification-2026-09-18.json).
+Dev14 application activation awaits explicit owner approval; automatic review
+rejected that action before execution. The active application remains dev13.
+
+The optimized runtime and FP16 experiments passed their
 limited correctness checks but demonstrated no output-speed gain. They remain
 isolated; the application retains its previously qualified runtime and
 precision policy. Disabling the extra RAM cache allowed repeated requests with
@@ -19,10 +28,10 @@ at least 2 GiB host memory available. See the
 
 The owner authorized GitHub source publication and the sanitized installation
 summary. [Pull request #6](https://github.com/caamer20/BC250-LLM-MODE/pull/6)
-contains the upgrades. The prior dev13 source/documentation commit passed
-GitHub CI on Python 3.11 and 3.14, including native Tk and package checks; those
-results do not qualify the changed dev14 package. External release gates remain
-pending.
+contains the upgrades. The exact dev14 code passed
+[GitHub CI](https://github.com/caamer20/BC250-LLM-MODE/actions/runs/35406769009)
+on Python 3.11 and 3.14, including native Tk and package checks. External
+release gates remain pending.
 
 ## Historical candidate checkpoints
 

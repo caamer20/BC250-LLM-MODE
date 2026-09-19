@@ -33,7 +33,9 @@ Current installed development version: **0.9.0.dev13** (not `1.0.0`).
 The [Bonsai installation](docs/bonsai-installation-2026-09-18.md) is complete:
 both verified models are in Model Library, and CRACK is active at 8K / one slot
 on the pinned Prism compatibility runtime. Candidate-bound macOS, Linux,
-installed-wheel, and native Chat checks pass. Source **0.9.0.dev14** is qualifying a host-RAM cache fix.
+installed-wheel, and native Chat checks pass. Source **0.9.0.dev14** passes
+macOS, Bazzite, and GitHub qualification for a host-RAM cache fix; its installation awaits owner approval. See the
+[exact qualification record](docs/bonsai-cache-qualification-2026-09-18.json).
 [Performance measurements](docs/bonsai-performance-2026-09-18.md) found no
 demonstrated O2/FP16 speed gain. Physical acceptance and external release gates
 remain pending. Status

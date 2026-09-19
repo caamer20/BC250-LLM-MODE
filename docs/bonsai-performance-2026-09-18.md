@@ -79,7 +79,8 @@ or an available performance lever.
 All temporary servers are stopped, and the normal CRACK service, inference,
 configuration, service definition, governor configuration, and boot target
 were verified after the comparison. The development application's subsequent
-dev14 qualification and deployment must be recorded separately. Context
+dev14 qualification and deployment are tracked in the [exact qualification record](bonsai-cache-qualification-2026-09-18.json).
+Qualification passes; application activation awaits separate owner approval. Context
 remains 8K; long-context qualification is still pending.
 
 See the [sanitized measured record](bonsai-performance-2026-09-18.json) and
