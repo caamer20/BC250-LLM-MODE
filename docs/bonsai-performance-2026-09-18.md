@@ -36,8 +36,10 @@ comparison used an independent 90°C cutoff, below the application's configured
 watchdog was enabled. Earlier 75°C context trials and an 82°C diagnostic
 performance cutoff stopped below the normal governor's throttle point and
 must not be described as physical thermal limits. Clocks fell as temperatures
-reached 85–87°C. No direct utilization or throttle counter was exposed in the
-inspected interfaces, so temperature alone is not reported as a hardware fault.
+reached 85–87°C. The comparison did not expose utilization or a direct throttle counter through
+its inspected interfaces. The subsequent [deployment check](bonsai-cache-deployment-2026-09-19.md)
+read process DRM engine counters; these are separate observations. Temperature
+alone is not reported as a hardware fault.
 Power observations are for the SoC, including CPU.
 
 ## Host-memory correction
@@ -80,7 +82,7 @@ All temporary servers are stopped, and the normal CRACK service, inference,
 configuration, service definition, governor configuration, and boot target
 were verified after the comparison. The development application's subsequent
 dev14 qualification and deployment are tracked in the [exact qualification record](bonsai-cache-qualification-2026-09-18.json).
-Qualification passes; application activation awaits separate owner approval. Context
+Qualification passes, and the owner-approved [dev14 deployment](bonsai-cache-deployment-2026-09-19.md) applies the memory bound. Context
 remains 8K; long-context qualification is still pending.
 
 See the [sanitized measured record](bonsai-performance-2026-09-18.json) and

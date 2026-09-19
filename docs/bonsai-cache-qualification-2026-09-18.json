@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
-  "date_utc": "2026-09-18",
-  "scope": "Developer qualification of the exact dev14 code and wheel; application activation awaits separate owner approval.",
+  "scope": "Developer qualification of the exact dev14 code and wheel; subsequent owner-approved deployment is recorded separately.",
   "candidate": {
     "source_commit": "a2639b4658c96e4fe06e0522b3212eea40a97cc2",
     "version": "0.9.0.dev14",
@@ -174,12 +173,14 @@
     "signed_release": "blocked"
   },
   "deployment": {
-    "status": "awaiting explicit owner approval",
-    "currently_active_version": "0.9.0.dev13",
-    "activation_attempt_executed": false,
+    "status": "installed after explicit owner approval",
+    "currently_active_version": "0.9.0.dev14",
+    "source_commit": "a2639b4658c96e4fe06e0522b3212eea40a97cc2",
+    "record": "bonsai-cache-deployment-2026-09-19.json",
     "active_model": "bonsai2-27b-crack",
     "context": 8192,
     "slots": 1,
+    "cache_ram_mib": 0,
     "optimized_runtime_promoted": false,
     "fp16_enabled": false
   },
@@ -189,5 +190,9 @@
     "credentials_published": false,
     "databases_published": false,
     "model_weights_published": false
-  }
+  },
+  "qualification_dates_utc": [
+    "2026-09-18",
+    "2026-09-19"
+  ]
 }

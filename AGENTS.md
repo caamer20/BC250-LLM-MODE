@@ -34,13 +34,22 @@ Read `docs/bonsai-cache-qualification-2026-09-18.json`: 1927 selected,
 Mac 1908 +19 skips; Bazzite 1912 +15; GitHub Python 3.11/3.14 each 1920 +7.
 All 52 slow gates, 82 guest runtime checks, 93 installed feature checks,
 28 actual Tk route/scale checks and eight Bonsai widget checks pass.
-The candidate is prepared but inactive. Automatic approval review rejected
-application activation because the app exchange and service restart need
-separate approval; no activation helper executed. An explicit approval request
-is pending. Do not infer deployment approval from performance/source publication.
-The active app remains dev13. Preserve the temporary isolated display until
-approval is resolved and native post-installation checks finish, or remove it
-if installation is deferred.
+The owner subsequently explicitly approved installing dev14 and restarting the
+model service. Activation completed with a fresh backup; app dev14 is active,
+CRACK remains 8192 / one slot, and the live launcher has `--cache-ram 0`.
+The exact runtime binary and precision policy are unchanged. Twelve private
+files and 15 database tables pass preservation checks; only the two volatile
+connection-client activity fields are excluded from table comparison. Service
+definitions, gateway/governor identities, governor configuration and graphical
+boot are preserved. Read `docs/bonsai-cache-deployment-2026-09-19.md` and its
+sanitized JSON. Real native Chat/save/library checks and 100 navigation changes
+pass. Two 64-token SSE requests retain at least 1871.5 MiB available host RAM,
+with 84°C peak; this is bounded verification, not soak or a speed-gain claim.
+The temporary display container/socket are removed. The earlier activation
+rejection is resolved by that approval.
+Keep `/root/.bc250-deployments/20260918-a2639b4/rollback` and all prior backups;
+never restore a database over newer user data. Source upgrades are merged in
+GitHub PR #6 at `de2e555277691e369143e23ac6df8752b57b18e4`.
 The existing runtime and rollback trees must remain intact. A new runtime may
 be promoted only through exact manifest, receipt, live inference and recovery
 checks. No known-good or measured profile records may be fabricated. Initial

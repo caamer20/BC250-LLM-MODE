@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "date_utc": "2026-09-19",
+  "scope": "Owner-approved development application activation and bounded post-installation checks; not a signed release or broad acceptance result.",
+  "authorization": {
+    "explicit_owner_approval": true,
+    "earlier_automatic_review_rejection_resolved_before_activation": true,
+    "scope": "Install the exact qualified dev14 app and restart the model service."
+  },
+  "deployment": {
+    "completed": true,
+    "version": "0.9.0.dev14",
+    "source_commit": "a2639b4658c96e4fe06e0522b3212eea40a97cc2",
+    "wheel_sha256": "b8a8f1dc698264f19c140ed3dce4fe2d8512167fd1a884b20e68ff6d9ac01325",
+    "package_files_verified": 197,
+    "active_model": "bonsai2-27b-crack",
+    "context": 8192,
+    "slots": 1,
+    "cache_ram_mib": 0,
+    "runtime_build_id": "llamacpp:sha256:e5dd634ac9b000b37a9c72ae8d40f178ed2a0395309ff3eecfb4250c30296b50",
+    "runtime_binary_unchanged": true,
+    "fp16_enabled": false,
+    "private_files_preserved": 12,
+    "private_database_tables_preserved": [
+      "connection_access_state",
+      "connection_client_secrets",
+      "connection_clients",
+      "gateway_credentials",
+      "notification_preferences",
+      "workload_profiles",
+      "application_installation_state",
+      "application_installations",
+      "application_update_imports",
+      "autotune_history",
+      "bench_history",
+      "legacy_import_extras",
+      "schema_migrations",
+      "backup_sets",
+      "restore_attempts"
+    ],
+    "volatile_database_columns_excluded": {
+      "connection_clients": [
+        "last_used_at",
+        "last_endpoint_class"
+      ]
+    },
+    "configuration_preserved": true,
+    "service_checks": {
+      "bc250-llm.service": {
+        "definition_unchanged": true,
+        "state_preserved": true,
+        "restarted": true
+      },
+      "bc250-openwebui-gateway.service": {
+        "definition_unchanged": true,
+        "state_preserved": true,
+        "restarted": false
+      },
+      "cyan-skillfish-governor-smu.service": {
+        "definition_unchanged": true,
+        "state_preserved": true,
+        "restarted": false
+      }
+    },
+    "graphical_boot_target_preserved": true,
+    "governor_preserved": true,
+    "health": {
+      "model": 200,
+      "search": 200,
+      "gateway_anonymous": 401
+    },
+    "no_active_operations": true,
+    "no_recovery_leases": true,
+    "failed_audit_retained": true,
+    "rollback_retained": true
+  },
+  "native_checks": {
+    "real_model_chat": {
+      "classification": "COMPLETED",
+      "error_code": null,
+      "duration_ms": 5788,
+      "time_to_first_token_ms": 5454,
+      "visible_characters": 1,
+      "fixed_answer_matched": true,
+      "model_counted": true
+    },
+    "temporary_conversation_storage": true,
+    "save_roundtrip": "passed",
+    "model_library_widgets": [
+      {
+        "alias": "bonsai2-27b",
+        "state": "INSTALLED",
+        "primary_label": "Switch and Chat"
+      },
+      {
+        "alias": "bonsai2-27b-crack",
+        "state": "VERIFIED",
+        "primary_label": "Open Chat"
+      }
+    ],
+    "navigation_changes": 100,
+    "idle_cpu_percent_one_core": 0.76,
+    "idle_sample_seconds": 15,
+    "idle_rss_kib": 77056,
+    "rss_after_navigation_kib": 78296,
+    "threads_during_window": 4,
+    "threads_after_close": 1,
+    "tk_errors": [],
+    "unraisable_errors": [],
+    "display": "isolated Xvfb on physical Bazzite",
+    "search_attached_to_this_chat": false
+  },
+  "repeated_request_check": {
+    "version": "0.9.0.dev14",
+    "context": 8192,
+    "slots": 1,
+    "cache_ram_mib": 0,
+    "runtime_unchanged": true,
+    "limits": {
+      "temperature_c": 90,
+      "host_available_floor_mib": 512,
+      "server_rss_ceiling_mib": 2800,
+      "fast_vram_reserve_mib": 768
+    },
+    "requests": [
+      {
+        "request": 1,
+        "completed": true,
+        "output_tokens": 64,
+        "prompt_tokens": 22,
+        "wall_seconds": 21.012,
+        "time_to_first_token_seconds": 2.675,
+        "output_sha256": "03e687ad56cab4d0a44d672d887ac65a7f4452cff4934197a99bc8f94c3066c4",
+        "cpu_average_cores": 0.76,
+        "gfx_engine_busy_percent": 87.63,
+        "drm_clients": 1
+      },
+      {
+        "request": 2,
+        "completed": true,
+        "output_tokens": 64,
+        "prompt_tokens": 23,
+        "wall_seconds": 21.34,
+        "time_to_first_token_seconds": 2.648,
+        "output_sha256": "3fe3bf9e348a9138a66b97df7b3f672832fe3bc11660f067fd789148a24d5e3a",
+        "cpu_average_cores": 0.751,
+        "gfx_engine_busy_percent": 86.24,
+        "drm_clients": 1
+      }
+    ],
+    "samples": 85,
+    "minimum_host_available_mib": 1871.546875,
+    "peak_server_rss_mib": 352.94140625,
+    "peak_temperature_c": 84.0,
+    "gpu_clock_mhz_range": [
+      1000.0,
+      1850.0
+    ],
+    "minimum_fast_vram_free_mib": 6124.0625,
+    "synthetic_prompts_only": true,
+    "prompts_and_completions_retained": false,
+    "scope": "Two bounded SSE requests; not a sustained-throughput, quality, or soak claim. GFX engine activity is deduplicated per DRM client; CPU includes the llama-server process only."
+  },
+  "cleanup": {
+    "temporary_display_removed": true,
+    "other_containers_untouched": true,
+    "base_image_retained": true
+  },
+  "source_qualification": "bonsai-cache-qualification-2026-09-18.json",
+  "source_publication": {
+    "upgrades_pr": "https://github.com/caamer20/BC250-LLM-MODE/pull/6",
+    "merge_commit": "de2e555277691e369143e23ac6df8752b57b18e4",
+    "final_source_and_documentation_ci": "https://github.com/caamer20/BC250-LLM-MODE/actions/runs/35408165551"
+  },
+  "privacy": {
+    "raw_device_logs_published": false,
+    "prompts_and_completions_retained": false,
+    "private_database_or_credentials_published": false,
+    "model_weights_published": false,
+    "ten_owner_controlled_files_preserved": true
+  },
+  "remaining_gates": [
+    "Long-context qualification",
+    "Physical desktop and phone acceptance",
+    "Reboot and interruption journeys",
+    "Sustained thermal/soak and broad quality evaluation",
+    "CachyOS and fresh/upgraded four-cell qualification",
+    "Accessibility and non-developer acceptance",
+    "Independent security review",
+    "Signed release and updater enablement"
+  ]
+}
