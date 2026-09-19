@@ -11,10 +11,13 @@ import math
 import os
 import subprocess
 import time
-import urllib.request
 from pathlib import Path
 
 from .fsops import atomic_write_text
+from .loopback_http import request_bytes
+
+METRICS_TIMEOUT_SECONDS = 2.0
+MAX_METRICS_BYTES = 128 * 1024
 
 
 def observed_policy(profile: Path) -> dict:
@@ -67,16 +70,19 @@ def _boot_id():
 def request_activity(port: int):
     """Observe counters covering all backend clients, without prompt content."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
-            raw = response.read(131073)
-        if len(raw) > 131072:
-            return None
+        raw = request_bytes(f"http://127.0.0.1:{port}/metrics",
+                            timeout=METRICS_TIMEOUT_SECONDS,
+                            maximum_bytes=MAX_METRICS_BYTES)
         values = {}
+        required = {"llamacpp:requests_processing", "llamacpp:requests_deferred",
+                    "llamacpp:prompt_tokens_total", "llamacpp:tokens_predicted_total"}
         for line in raw.decode().splitlines():
             if line.startswith("#"):
                 continue
             parts = line.split()
-            if len(parts) == 2:
+            if parts and parts[0] in required:
+                if len(parts) != 2 or parts[0] in values:
+                    return None  # An ambiguous counter cannot prove idleness.
                 values[parts[0]] = float(parts[1])
         active = values.get("llamacpp:requests_processing")
         deferred = values.get("llamacpp:requests_deferred")
@@ -84,7 +90,9 @@ def request_activity(port: int):
         output = values.get("llamacpp:tokens_predicted_total")
         if any(value is None or not math.isfinite(value) or value < 0 for value in (active, deferred, prompt, output)):
             return None
-        return {"active": int(active + deferred), "counter": [prompt, output]}
+        if not active.is_integer() or not deferred.is_integer():
+            return None
+        return {"active": int(active) + int(deferred), "counter": [prompt, output]}
     except (OSError, ValueError, UnicodeError):
         return None
 

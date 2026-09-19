@@ -591,17 +591,26 @@ def _wait_for_stopped(
 
 def _wait_for_http(
     *, timeout_seconds: float = OPENWEBUI_HTTP_TIMEOUT_SECONDS,
-    opener: Callable[..., Any] = urllib.request.urlopen,
+    opener: Callable[..., Any] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
     deadline = monotonic() + timeout_seconds
     while monotonic() <= deadline:
         try:
-            request = urllib.request.Request(f"{OPENWEBUI_HTTP_URL}/", method="GET")
-            with opener(request, timeout=2) as response:
-                if 200 <= int(response.status) < 500:
-                    return
+            remaining = min(2, max(0.001, deadline - monotonic()))
+            if opener is None:
+                from .bounded_json_http import BoundedJSONHTTP
+
+                http = BoundedJSONHTTP(maximum_bytes=1, total_seconds=remaining)
+                with http.stream("GET", f"{OPENWEBUI_HTTP_URL}/", headers_only=True) as response:
+                    if 200 <= response.status_code < 500:
+                        return
+            else:
+                request = urllib.request.Request(f"{OPENWEBUI_HTTP_URL}/", method="GET")
+                with opener(request, timeout=remaining) as response:
+                    if 200 <= int(response.status) < 500:
+                        return
         except (OSError, urllib.error.URLError, TimeoutError):
             pass
         sleeper(0.5)

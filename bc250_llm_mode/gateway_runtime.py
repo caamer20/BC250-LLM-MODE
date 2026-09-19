@@ -25,7 +25,6 @@ import subprocess
 import threading
 import time
 import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -207,11 +206,13 @@ def _run_bounded_inspect(
 
 
 def _bounded_json(url: str, *, timeout: float) -> Any:
-    with urllib.request.urlopen(url, timeout=timeout) as response:
-        raw = response.read(BACKEND_PROBE_MAX_BYTES + 1)
-    if len(raw) > BACKEND_PROBE_MAX_BYTES:
-        raise GatewayRuntimeError("Backend identity response exceeded its bound.")
-    return json.loads(raw) if raw else None
+    from .loopback_http import request_bytes
+
+    raw = request_bytes(url, timeout=timeout, maximum_bytes=BACKEND_PROBE_MAX_BYTES)
+    try:
+        return json.loads(raw) if raw else None
+    except RecursionError:
+        raise GatewayRuntimeError("Backend identity JSON exceeds its nesting limit.") from None
 
 
 class BackendIdentityProbe:

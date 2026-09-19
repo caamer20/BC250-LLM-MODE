@@ -21,6 +21,12 @@ PROCESS_CALL_NAMES = {"run", "Popen", "check_output", "check_call", "call",
 # Dispositions (plan §9.2): every site must name its target contract.
 DISPOSITIONS = {
     "runtime_policy.py": "already_bounded",
+    # Literal-loopback socket reads all share the original deadline; replies
+    # are capped before JSON/metrics parsing and redirects/proxies are refused.
+    "loopback_http.py": "already_bounded",
+    # Host warm-up uses the bounded HTTP worker. Embedded guest provider probes
+    # run under the bounded process port rather than in a refresh/UI lane.
+    "openwebui_runtime.py": "already_bounded",
     # The proven port; P3 promotes it into ProcessCommandSpec v2 for all.
     "runtime_process.py": "already_bounded",
     "worker_service.py": "already_bounded",
@@ -76,12 +82,14 @@ def _module_census(path: Path) -> dict | None:
             for alias in node.names:
                 if alias.name == "subprocess":
                     has_subprocess = True
-                if alias.name == "httpx":
+                if alias.name in {"httpx", "http.client", "urllib.request"}:
                     http_module = True
         elif isinstance(node, ast.ImportFrom):
             if node.module == "subprocess":
                 has_subprocess = True
-            if node.module == "httpx":
+            if (node.module in {"httpx", "http.client", "urllib.request"}
+                    or node.module == "http" and any(a.name == "client" for a in node.names)
+                    or node.module == "urllib" and any(a.name == "request" for a in node.names)):
                 http_module = True
         elif isinstance(node, ast.Call):
             parts: list[str] = []
@@ -124,6 +132,10 @@ def actual_census() -> dict[str, dict]:
 
 
 FROZEN_BASELINE = {
+    "loopback_http.py": {"proc_calls": 0, "http_module": True,
+                         "shell_kwargs": 0, "timeout_none": 0},
+    "openwebui_runtime.py": {"proc_calls": 0, "http_module": True,
+                            "shell_kwargs": 0, "timeout_none": 0},
     # One explicit current-boot child, polled every 5s; termination/kill waits
     # are bounded and the enclosing systemd unit owns the process tree.
     "runtime_policy.py": {"proc_calls": 1, "http_module": False,
@@ -215,3 +227,11 @@ def test_chat_declares_finite_typed_timeouts():
     assert 0 < chat.CHAT_WRITE_TIMEOUT_S < 120
     assert chat.CHAT_HTTP_TIMEOUT.connect == chat.CHAT_CONNECT_TIMEOUT_S
     assert chat.CHAT_HTTP_TIMEOUT.read == chat.CHAT_READ_TIMEOUT_S
+
+
+def test_stdlib_http_cannot_escape_the_effect_inventory(tmp_path):
+    for statement in ('import urllib.request', 'from urllib import request',
+                      'import http.client', 'from http import client'):
+        path = tmp_path / 'probe.py'
+        path.write_text(statement + '\n')
+        assert _module_census(path)['http_module'] is True

@@ -1,5 +1,11 @@
 # Current implementation state
 
+Source **0.9.0.dev15** is undergoing qualification for production-hardening
+corrections: whole-request probe deadlines and response bounds, no credential
+redirects during connection verification, and no requested-value fallback for
+missing server geometry. See the [audit and scope](production-hardening-2026-09-19.md).
+The installed development application remains dev14 as recorded below.
+
 The installed application is **0.9.0.dev14**, code
 `a2639b4658c96e4fe06e0522b3212eea40a97cc2`, installed with the owner's explicit
 approval. It disables the verified Prism fork's oversized extra host-RAM prompt
